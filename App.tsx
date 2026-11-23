@@ -37,7 +37,20 @@ import { COLORS } from './src/theme/colors';
 export type UserRole = 'CUSTOMER' | 'CONTRACTOR' | 'VENDOR' | 'ADMIN';
 
 export default function App() {
-  const [currentRole, setCurrentRole] = useState<UserRole>('CUSTOMER');
+  const [currentRole, setCurrentRole] = useState<UserRole>(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const savedRole = window.localStorage?.getItem('setu_current_role') as UserRole | null;
+      if (savedRole) return savedRole;
+      try {
+        const saved = window.localStorage?.getItem('setu_current_user');
+        if (saved) {
+          const user = JSON.parse(saved);
+          if (user.role) return user.role;
+        }
+      } catch (e) {}
+    }
+    return 'CUSTOMER';
+  });
   const [currentLocation, setCurrentLocation] = useState<string>('एमपी नगर (ज़ोन-1), भोपाल • 462011');
   const [showLocationPicker, setShowLocationPicker] = useState<boolean>(false);
   const [showQuickModalDirectly, setShowQuickModalDirectly] = useState<boolean>(false);
@@ -52,10 +65,25 @@ export default function App() {
 
   // Security & Role-Based Access Control State
   const [showAdminSecurityModal, setShowAdminSecurityModal] = useState<boolean>(false);
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const savedRole = window.localStorage?.getItem('setu_current_role');
+      const savedToken = window.localStorage?.getItem('setu_session_token');
+      return savedRole === 'ADMIN' && !!savedToken;
+    }
+    return false;
+  });
 
   // Single Logged in User (Guest initially allows browsing marketplace without phone OTP)
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<any>(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      try {
+        const saved = window.localStorage?.getItem('setu_current_user');
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return null;
+  });
   const [isGuestBrowsing, setIsGuestBrowsing] = useState<boolean>(true);
 
   // Check saved session on app mount and browser refresh (Persists login and active screen)
@@ -559,7 +587,10 @@ export default function App() {
       <WorkWithUsModal
         visible={showWorkWithUsModal}
         currentUser={currentUser}
-        onClose={() => setShowWorkWithUsModal(false)}
+        onClose={() => {
+          setShowWorkWithUsModal(false);
+          setBottomTab('home');
+        }}
         onOpenPartnerRegistration={(type) => {
           setPartnerRegistrationType(type);
           setShowWorkWithUsModal(false);
@@ -581,7 +612,10 @@ export default function App() {
       <CustomerProfileModal
         visible={showProfileModal}
         user={currentUser}
-        onClose={() => setShowProfileModal(false)}
+        onClose={() => {
+          setShowProfileModal(false);
+          setBottomTab('home');
+        }}
         onLoginSuccess={handleLoginSuccess}
         onLogout={handleLogout}
         onOpenWorkWithUs={() => setShowWorkWithUsModal(true)}

@@ -129,6 +129,75 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
     }
   }, [showEstimatorDirectly]);
 
+  // Restore active contractor profile / booking modal on browser refresh
+  React.useEffect(() => {
+    if (typeof window !== 'undefined' && contractors && contractors.length > 0) {
+      const hash = window.location?.hash || '';
+      const matchDetail = hash.match(/contractor=([^&]+)/);
+      const matchBooking = hash.match(/booking=([^&]+)/);
+      const targetDetailId = matchDetail ? matchDetail[1] : window.localStorage?.getItem('setu_active_contractor_detail');
+      const targetBookingId = matchBooking ? matchBooking[1] : window.localStorage?.getItem('setu_active_contractor_booking');
+
+      if (targetDetailId && !selectedContractorForDetail) {
+        const found = contractors.find(
+          (c) => c.id === targetDetailId || (c as any).customId === targetDetailId || (c as any).userId === targetDetailId
+        );
+        if (found) setSelectedContractorForDetail(found);
+      }
+
+      if (targetBookingId && !selectedContractorForBooking) {
+        const found = contractors.find(
+          (c) => c.id === targetBookingId || (c as any).customId === targetBookingId || (c as any).userId === targetBookingId
+        );
+        if (found) setSelectedContractorForBooking(found);
+      }
+    }
+  }, [contractors]);
+
+  const handleOpenContractorDetail = (c: Contractor) => {
+    setSelectedContractorForDetail(c);
+    if (typeof window !== 'undefined') {
+      window.localStorage?.setItem('setu_active_contractor_detail', c.id);
+      try {
+        window.history?.replaceState(null, '', '#contractor=' + c.id);
+      } catch (e) {}
+    }
+  };
+
+  const handleCloseContractorDetail = () => {
+    setSelectedContractorForDetail(null);
+    if (typeof window !== 'undefined') {
+      window.localStorage?.removeItem('setu_active_contractor_detail');
+      try {
+        if (window.location?.hash?.includes('contractor=')) {
+          window.history?.replaceState(null, '', window.location.pathname);
+        }
+      } catch (e) {}
+    }
+  };
+
+  const handleOpenBooking = (c: Contractor) => {
+    setSelectedContractorForBooking(c);
+    if (typeof window !== 'undefined') {
+      window.localStorage?.setItem('setu_active_contractor_booking', c.id);
+      try {
+        window.history?.replaceState(null, '', '#booking=' + c.id);
+      } catch (e) {}
+    }
+  };
+
+  const handleCloseBooking = () => {
+    setSelectedContractorForBooking(null);
+    if (typeof window !== 'undefined') {
+      window.localStorage?.removeItem('setu_active_contractor_booking');
+      try {
+        if (window.location?.hash?.includes('booking=')) {
+          window.history?.replaceState(null, '', window.location.pathname);
+        }
+      } catch (e) {}
+    }
+  };
+
   // Dynamic filter for contractors based on Selected Need, Category, and Rate Type
   const filteredContractors = contractors.filter((c) => {
     // 1. Need filter
@@ -187,7 +256,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   };
 
   const handleBookingConfirmed = (booking: any) => {
-    setSelectedContractorForBooking(null);
+    handleCloseBooking();
     onNewBookingCreated(booking);
     Alert.alert(
       language === 'hi' ? '🎉 बुकिंग सफल!' : '🎉 Booking Confirmed!',
@@ -508,8 +577,8 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
                 key={contractor.id}
                 contractor={contractor}
                 language={language}
-                onViewProfilePress={(c) => setSelectedContractorForDetail(c)}
-                onBookPress={(c) => setSelectedContractorForBooking(c)}
+                onViewProfilePress={handleOpenContractorDetail}
+                onBookPress={handleOpenBooking}
                 onCallPress={handleCall}
               />
             ))
@@ -558,10 +627,10 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
         <ContractorDetailModal
           visible={!!selectedContractorForDetail}
           contractor={selectedContractorForDetail}
-          onClose={() => setSelectedContractorForDetail(null)}
+          onClose={handleCloseContractorDetail}
           onBookPress={(c) => {
-            setSelectedContractorForDetail(null);
-            setSelectedContractorForBooking(c);
+            handleCloseContractorDetail();
+            handleOpenBooking(c);
           }}
           onCallPress={handleCall}
         />
@@ -572,7 +641,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
         <BookingModal
           visible={!!selectedContractorForBooking}
           contractor={selectedContractorForBooking}
-          onClose={() => setSelectedContractorForBooking(null)}
+          onClose={handleCloseBooking}
           onConfirmBooking={handleBookingConfirmed}
           language={language}
           currentLocation={currentLocation}
