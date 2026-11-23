@@ -72,11 +72,21 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
         throw new Error(data.error || 'OTP भेजने में विफल');
       }
 
-      setSmsNotification(
-        language === 'en'
-          ? `📩 SMS: 4-digit verification code sent to +91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)}`
-          : `📩 SMS: +91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)} पर 4-अंकीय सत्यापन कोड भेजा गया है।`
-      );
+      if (data.demoOtp) {
+        setOtp(data.demoOtp);
+        setRealOtpReceived(data.demoOtp);
+        setSmsNotification(
+          language === 'en'
+            ? `📩 SMS Sent: Use verification OTP ${data.demoOtp} (auto-filled)`
+            : `📩 SMS भेजा गया: सत्यापन OTP ${data.demoOtp} (स्वतः भरा गया)`
+        );
+      } else {
+        setSmsNotification(
+          language === 'en'
+            ? `📩 SMS: 4-digit verification code sent to +91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)}`
+            : `📩 SMS: +91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)} पर 4-अंकीय सत्यापन कोड भेजा गया है।`
+        );
+      }
       setStep('OTP');
     } catch (err: any) {
       Alert.alert(

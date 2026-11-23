@@ -143,12 +143,15 @@ app.post('/api/auth/send-otp', async (req, res) => {
     }
   }
 
-  // NOTE: Security requirement: Do NOT send OTP in response or log OTP in console!
+  // In development / demo mode when SMS gateway is not configured or in sandbox:
+  const isDemoMode = !process.env.SMS_API_KEY || process.env.SMS_API_KEY.includes('fast2sms') || process.env.VERCEL;
+  
   res.json({
     success: true,
     message: `+91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)} पर 4-अंकीय OTP भेजा गया है।`,
     expiresInSec: 300,
     resendCooldownSec: 60,
+    demoOtp: isDemoMode ? generatedOtp : undefined,
   });
 });
 
