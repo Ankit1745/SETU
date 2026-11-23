@@ -39,6 +39,18 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// Serverless DB Connection Middleware (Guarantees MongoDB Atlas is connected on each incoming serverless invoke)
+app.use(async (req, res, next) => {
+  if (!getDbStatus().isMongoConnected) {
+    try {
+      await connectDB();
+    } catch (e) {
+      // non-fatal, local fallback active
+    }
+  }
+  next();
+});
+
 // Serve public uploads only (private uploads are NEVER served statically!)
 app.use('/uploads/public', express.static(PUBLIC_UPLOADS_DIR));
 app.use('/uploads', express.static(PUBLIC_UPLOADS_DIR));

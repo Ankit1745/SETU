@@ -19,25 +19,37 @@ const KycApplication = require('./models/KycApplication');
 const Dispute = require('./models/Dispute');
 
 const DB_FILE = path.join(__dirname, 'database.json');
+const DEFAULT_MONGO_URI = 'mongodb+srv://ankitvis787966_db_user:setu7879@cluster0.wrasvoe.mongodb.net/setu?retryWrites=true&w=majority';
 
 let isMongoConnected = false;
 let mongoConnectionError = null;
+let cachedPromise = null;
 
 async function connectDB() {
-  const mongoUri = process.env.MONGODB_URI;
+  const mongoUri = process.env.MONGODB_URI || DEFAULT_MONGO_URI;
 
-  if (!mongoUri) {
-    console.log('ℹ️  MONGODB_URI not provided. Running with persistent Local Database (database.json).');
-    console.log('💡 To use Free MongoDB Atlas: Set MONGODB_URI=mongodb+srv://<user>:<password>@cluster0.mongodb.net/setu in .env');
-    return false;
+  if (mongoose.connection.readyState === 1) {
+    isMongoConnected = true;
+    return true;
+  }
+
+  if (cachedPromise) {
+    try {
+      await cachedPromise;
+      isMongoConnected = mongoose.connection.readyState === 1;
+      return isMongoConnected;
+    } catch (e) {
+      cachedPromise = null;
+    }
   }
 
   try {
     console.log('🔄 Connecting to MongoDB Atlas...');
-    await mongoose.connect(mongoUri, {
-      serverSelectionTimeoutMS: 5000,
+    cachedPromise = mongoose.connect(mongoUri, {
+      serverSelectionTimeoutMS: 8000,
     });
-    isMongoConnected = true;
+    await cachedPromise;
+    isMongoConnected = mongoose.connection.readyState === 1;
     mongoConnectionError = null;
     console.log('✅ MongoDB Connected Successfully to:', mongoose.connection.host);
 
@@ -45,6 +57,7 @@ async function connectDB() {
     await seedMongoDatabase();
     return true;
   } catch (err) {
+    cachedPromise = null;
     mongoConnectionError = err.message;
     isMongoConnected = false;
     console.error('⚠️ MongoDB Connection Failed:', err.message);
@@ -87,11 +100,12 @@ async function seedMongoDatabase() {
 }
 
 function getDbStatus() {
+  const isConnected = mongoose.connection && mongoose.connection.readyState === 1;
   return {
-    isMongoConnected,
+    isMongoConnected: isConnected,
     mongoConnectionError,
-    activeEngine: isMongoConnected ? 'MongoDB (Cloud/Atlas)' : 'Persistent Local DB (database.json)',
-    host: isMongoConnected ? mongoose.connection.host : 'localhost (file)',
+    activeEngine: isConnected ? 'MongoDB (Cloud/Atlas)' : 'Persistent Local DB (database.json)',
+    host: isConnected ? mongoose.connection.host : 'localhost (file)',
     modelsLoaded: ['User', 'Contractor', 'Material', 'Booking', 'KycApplication', 'Dispute'],
   };
 }
