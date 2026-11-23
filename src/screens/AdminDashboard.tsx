@@ -74,6 +74,9 @@ export const AdminDashboard: React.FC = () => {
 
   useEffect(() => {
     loadLiveMetrics();
+    // Auto-poll every 6 seconds so incoming registrations appear in real-time
+    const interval = setInterval(loadLiveMetrics, 6000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadLiveMetrics = async () => {
@@ -189,6 +192,15 @@ export const AdminDashboard: React.FC = () => {
               KYC सत्यापन डेस्क ({kycList.filter((k) => k.status === 'PENDING').length} लंबित)
             </Text>
           </View>
+
+          <TouchableOpacity
+            style={styles.refreshPill}
+            onPress={loadLiveMetrics}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="refresh" size={13} color="#FFFFFF" />
+            <Text style={styles.refreshPillText}>लाइव रिफ्रेश</Text>
+          </TouchableOpacity>
         </View>
         <Text style={styles.sectionSub}>नए कारीगरों व दुकानों के आधार/GST सत्यापन की समीक्षा करें:</Text>
 
@@ -381,6 +393,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  refreshPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  refreshPillText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
   },
   sectionTitle: {
     fontSize: 13,

@@ -268,6 +268,21 @@ app.post('/api/auth/verify-otp', async (req, res) => {
           rewardPoints: 250,
           location: 'भोपाल, मध्य प्रदेश',
         });
+
+        // Automatically create pending KYC application for partners (Contractor / Vendor)
+        if (role === 'CONTRACTOR' || role === 'VENDOR') {
+          await models.KycApplication.create({
+            customId: 'kyc_' + Date.now(),
+            userId: user._id.toString(),
+            name: user.name,
+            role: user.role,
+            tradeOrShop: user.tradeOrShop || (role === 'CONTRACTOR' ? 'कुशल कारीगर' : 'दुकानदार'),
+            phone: cleanPhone,
+            docType: 'AADHAAR',
+            docNumber: user.setuId,
+            status: 'PENDING',
+          });
+        }
       }
     } else {
       // Local fallback for offline development
@@ -470,15 +485,21 @@ app.get('/api/admin/kyc/:id/document', requireAuth, requireRole('ADMIN'), async 
   }
 });
 
-// 7. Partner Onboarding & Registration
-// SETU Rules: Plumbers do NOT become carpenters; Rates default to NULL (भाव पूछें); 0 rating/reviews.
-app.post('/api/partners/register', requireAuth, async (req, res) => {
+// 7. Partner Onboarding & Registration (Open to all new contractor & vendor applicants)
+app.post('/api/partners/register', async (req, res) => {
   if (!isDbAvailable()) {
     return res.status(503).json({ error: 'डेटाबेस अनुपलब्ध है। कृपया थोड़ी देर बाद पुनः प्रयास करें।' });
   }
 
   try {
-    const partnerData = req.body;
+    const partnerData = req.body || {};
+    const rawPhone = partnerData.phone || (req.user && req.user.phone) || '';
+    const cleanPhone = rawPhone.replace(/\D/g, '').slice(-10);
+
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      return res.status(400).json({ error: 'कृपया 10 अंकों का वैध भारतीय मोबाइल नंबर दर्ज करें।' });
+    }
+
     const category = mapTradeToCategory(partnerData.tradeOrShop || partnerData.category);
     const prefix = partnerData.role === 'VENDOR' ? 'VEN' : 'PRO';
     const randNum = Math.floor(1000 + Math.random() * 9000);
@@ -502,16 +523,25 @@ app.post('/api/partners/register', requireAuth, async (req, res) => {
       : null;
 
     if (dbStatus.isMongoConnected) {
-      savedUser = await models.User.create({
-        phone: partnerData.phone || req.user.phone,
-        name: partnerData.name,
-        role: partnerData.role || 'CONTRACTOR',
-        setuId,
-        tradeOrShop: partnerData.tradeOrShop || '',
-        category,
-        kycVerified: false,
-        location: `${partnerData.locality || 'एमपी नगर'}, ${partnerData.city || 'भोपाल'}`,
-      });
+      savedUser = await models.User.findOne({ phone: cleanPhone });
+      if (!savedUser) {
+        savedUser = await models.User.create({
+          phone: cleanPhone,
+          name: partnerData.name,
+          role: partnerData.role || 'CONTRACTOR',
+          setuId,
+          tradeOrShop: partnerData.tradeOrShop || '',
+          category,
+          kycVerified: false,
+          location: `${partnerData.locality || 'एमपी नगर'}, ${partnerData.city || 'भोपाल'}`,
+        });
+      } else {
+        savedUser.name = partnerData.name || savedUser.name;
+        savedUser.role = partnerData.role || 'CONTRACTOR';
+        savedUser.tradeOrShop = partnerData.tradeOrShop || savedUser.tradeOrShop;
+        savedUser.category = category;
+        await savedUser.save();
+      }
 
       if (partnerData.role === 'CONTRACTOR') {
         savedContractor = await models.Contractor.create({
@@ -537,8 +567,8 @@ app.post('/api/partners/register', requireAuth, async (req, res) => {
           unitLabel: partnerData.unitLabel || 'प्रति काम',
           walletBalance: 0,
           available: true,
-          phone: partnerData.phone || req.user.phone,
-          phoneMasked: partnerData.phone ? `+91 ${partnerData.phone.slice(0, 2)}XXX-XX${partnerData.phone.slice(-3)}` : '+91 98XXX-XX000',
+          phone: cleanPhone,
+          phoneMasked: `+91 ${cleanPhone.slice(0, 2)}XXX-XX${cleanPhone.slice(-3)}`,
           skills: [partnerData.tradeOrShop || 'कारीगरी', 'SETU पंजीकृत'],
           portfolioPhotos: partnerData.workPhotoUrl ? [{
             id: 'p_' + Date.now(),
@@ -559,7 +589,7 @@ app.post('/api/partners/register', requireAuth, async (req, res) => {
           unit: partnerData.unitLabel || 'प्रति नग / बोरी',
           shopName: partnerData.tradeOrShop || `${partnerData.name} ट्रेडर्स`,
           shopAddress: `${partnerData.locality || 'एमपी नगर'}, ${partnerData.city || 'भोपाल'}`,
-          phone: partnerData.phone || req.user.phone,
+          phone: cleanPhone,
           rating: 0,
           reviewsCount: 0,
           verified: false,
@@ -573,9 +603,13 @@ app.post('/api/partners/register', requireAuth, async (req, res) => {
         name: partnerData.name,
         role: partnerData.role || 'CONTRACTOR',
         tradeOrShop: `${partnerData.tradeOrShop || ''} (${partnerData.city || 'भोपाल'})`,
-        phone: partnerData.phone || req.user.phone,
+        phone: cleanPhone,
         docType: partnerData.aadhaarNumber ? 'AADHAAR' : 'GST',
-        docNumber: partnerData.aadhaarNumber ? `आधार: XXXX-XXXX-${partnerData.aadhaarNumber.slice(-4)}` : 'पहचान पत्र विचाराधीन',
+        docNumber: partnerData.aadhaarNumber
+          ? `आधार: XXXX-XXXX-${partnerData.aadhaarNumber.slice(-4)}`
+          : partnerData.gstNumber
+          ? `GST: ${partnerData.gstNumber}`
+          : 'पहचान पत्र विचाराधीन',
         docFilePath: partnerData.aadhaarDocRef || partnerData.aadhaarPhotoUrl || '',
         status: 'PENDING',
       });
@@ -584,7 +618,7 @@ app.post('/api/partners/register', requireAuth, async (req, res) => {
       const localData = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
       savedUser = {
         id: 'u_' + Date.now(),
-        phone: partnerData.phone || req.user.phone,
+        phone: cleanPhone,
         name: partnerData.name,
         role: partnerData.role || 'CONTRACTOR',
         setuId,
@@ -592,6 +626,7 @@ app.post('/api/partners/register', requireAuth, async (req, res) => {
         category,
         kycVerified: false,
       };
+      if (!localData.users) localData.users = [];
       localData.users.push(savedUser);
 
       if (partnerData.role === 'CONTRACTOR') {
@@ -623,7 +658,7 @@ app.post('/api/partners/register', requireAuth, async (req, res) => {
           unit: partnerData.unitLabel || 'प्रति नग / बोरी',
           shopName: partnerData.tradeOrShop || `${partnerData.name} ट्रेडर्स`,
           shopAddress: `${partnerData.locality || 'एमपी नगर'}, ${partnerData.city || 'भोपाल'}`,
-          phone: partnerData.phone || req.user.phone,
+          phone: cleanPhone,
           rating: 0,
           reviewsCount: 0,
           verified: false,
@@ -637,7 +672,7 @@ app.post('/api/partners/register', requireAuth, async (req, res) => {
         id: 'kyc_' + Date.now(),
         name: partnerData.name,
         role: partnerData.role || 'CONTRACTOR',
-        phone: partnerData.phone || req.user.phone,
+        phone: cleanPhone,
         docNumber: partnerData.aadhaarNumber ? `आधार: XXXX-XXXX-${partnerData.aadhaarNumber.slice(-4)}` : 'पहचान पत्र',
         status: 'PENDING',
       };
@@ -647,6 +682,13 @@ app.post('/api/partners/register', requireAuth, async (req, res) => {
       fs.writeFileSync(DB_FILE, JSON.stringify(localData, null, 2));
     }
 
+    const token = createToken({
+      userId: savedUser._id ? savedUser._id.toString() : savedUser.id,
+      phone: cleanPhone,
+      role: savedUser.role,
+      setuId: savedUser.setuId,
+    });
+
     res.json({
       success: true,
       message: 'पार्टनर सफलतापूर्वक पंजीकृत हुआ। दस्तावेज सत्यापन के लिए भेज दिए गए हैं।',
@@ -654,6 +696,7 @@ app.post('/api/partners/register', requireAuth, async (req, res) => {
       user: savedUser,
       contractor: savedContractor,
       kycApplication: savedKyc,
+      token,
     });
   } catch (err) {
     console.error('Partner Registration Error:', err);
@@ -1155,11 +1198,54 @@ app.get('/api/admin/metrics', requireAuth, requireRole('ADMIN'), async (req, res
       totalBookings = await models.Booking.countDocuments();
       totalUsers = await models.User.countDocuments();
       kycApplications = await models.KycApplication.find().sort({ createdAt: -1 }).limit(50).lean();
+
+      // Automatically include any registered Contractors/Vendors who haven't got a KYC application entry yet
+      const registeredPartners = await models.User.find({
+        role: { $in: ['CONTRACTOR', 'VENDOR'] }
+      }).sort({ createdAt: -1 }).limit(30).lean();
+
+      const existingPhones = new Set(kycApplications.map((k) => k.phone));
+      for (const p of registeredPartners) {
+        if (!existingPhones.has(p.phone)) {
+          kycApplications.push({
+            _id: p._id.toString(),
+            customId: 'kyc_' + p.setuId,
+            userId: p._id.toString(),
+            name: p.name,
+            role: p.role,
+            tradeOrShop: p.tradeOrShop || (p.role === 'CONTRACTOR' ? 'कुशल कारीगर' : 'दुकानदार'),
+            phone: p.phone,
+            docType: 'AADHAAR',
+            docNumber: p.setuId,
+            status: p.kycVerified ? 'APPROVED' : 'PENDING',
+            createdAt: p.createdAt,
+          });
+        }
+      }
     } else if (fs.existsSync(DB_FILE)) {
       const localData = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
       totalBookings = (localData.bookings || []).length;
       totalUsers = (localData.users || []).length;
       kycApplications = localData.kycApplications || [];
+
+      const registeredPartners = (localData.users || []).filter(
+        (u) => u.role === 'CONTRACTOR' || u.role === 'VENDOR'
+      );
+      const existingPhones = new Set(kycApplications.map((k) => k.phone));
+      for (const p of registeredPartners) {
+        if (!existingPhones.has(p.phone)) {
+          kycApplications.push({
+            id: 'kyc_' + p.setuId,
+            name: p.name,
+            role: p.role,
+            tradeOrShop: p.tradeOrShop || (p.role === 'CONTRACTOR' ? 'कुशल कारीगर' : 'दुकानदार'),
+            phone: p.phone,
+            docNumber: p.setuId,
+            status: p.kycVerified ? 'APPROVED' : 'PENDING',
+            appliedDate: 'हाल ही में',
+          });
+        }
+      }
     }
 
     res.json({

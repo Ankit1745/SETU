@@ -132,6 +132,19 @@ export default function App() {
     ApiService.registerPartner({
       ...partnerData,
       category: calculatedCategory,
+    }).then((res) => {
+      if (res && res.token) {
+        ApiService.setAuthToken(res.token);
+      }
+      if (res && res.user) {
+        setCurrentUser(res.user);
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          window.localStorage?.setItem('setu_current_user', JSON.stringify(res.user));
+          window.sessionStorage?.setItem('setu_session_active', 'true');
+        }
+      }
+    }).catch((err) => {
+      console.log('[App] registerPartner error:', err);
     });
 
     if (partnerData.role === 'CONTRACTOR') {
