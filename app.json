@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "SETU1",
+    "slug": "SETU1",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.setu.bhopal",
+      "infoPlist": {
+        "NSCameraUsageDescription": "SETU requires camera access to allow customers to show home repair defects to AI Ustad and upload work photos.",
+        "NSLocationWhenInUseUsageDescription": "SETU uses your location to discover verified contractors and hardware stores within 15 minutes of your home.",
+        "NSMicrophoneUsageDescription": "SETU needs microphone access for voice search and live voice interaction with AI Ustad."
+      }
+    },
+    "android": {
+      "package": "com.setu.bhopal",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "SETU requires access to your photos to upload project pictures and KYC documents.",
+          "cameraPermission": "SETU requires camera access to scan defects and capture job photos."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "29483621-be00-4b7c-92d6-6f15dfb9673c"
+      }
+    }
+  }
+}

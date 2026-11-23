@@ -1,0 +1,284 @@
+{
+  "users": [
+    {
+      "id": "u1",
+      "phone": "9876543210",
+      "name": "अंकित (भोपाल)",
+      "role": "CUSTOMER",
+      "setuId": "SETU-CUS-1029",
+      "location": "एमपी नगर (ज़ोन-1), भोपाल • 462011",
+      "rewardPoints": 250,
+      "kycVerified": true
+    },
+    {
+      "id": "u2",
+      "phone": "9812345678",
+      "name": "रमेश शर्मा (कारीगर)",
+      "role": "CONTRACTOR",
+      "setuId": "SETU-PRO-4481",
+      "location": "अरेरा कॉलोनी, भोपाल • 462016",
+      "kycVerified": true,
+      "trade": "बढ़ई (Carpenter)"
+    },
+    {
+      "id": "u3",
+      "phone": "9898989898",
+      "name": "गुप्ता जी",
+      "role": "VENDOR",
+      "setuId": "SETU-VEN-8820",
+      "location": "हमीदिया रोड, भोपाल • 462001",
+      "kycVerified": true,
+      "shopName": "गुप्ता हार्डवेयर & सेनेटरी"
+    },
+    {
+      "id": "u_admin",
+      "phone": "9999999999",
+      "name": "SETU सुपर एडमिन (Admin Hub)",
+      "role": "ADMIN",
+      "setuId": "SETU-ADM-0001",
+      "location": "एमपी नगर, भोपाल • 462011",
+      "kycVerified": true
+    },
+    {
+      "id": "u_1795085386270",
+      "phone": "9822334455",
+      "name": "अमित प्लंबर",
+      "role": "CONTRACTOR",
+      "setuId": "SETU-PRO-8059",
+      "tradeOrShop": "प्लंबर (Plumber) & सेनेटरी फिटिंग",
+      "category": "plumber",
+      "kycVerified": false
+    }
+  ],
+  "contractors": [
+    {
+      "id": "c_1795085386271",
+      "name": "अमित प्लंबर (प्लंबर)",
+      "category": "plumber",
+      "specialtyHindi": "प्लंबर (Plumber) & सेनेटरी फिटिंग",
+      "rating": 0,
+      "reviewsCount": 0,
+      "experienceYears": 0,
+      "verified": false,
+      "dailyWageRate": 900,
+      "helperRate": 500,
+      "contractUnitRate": null,
+      "unitLabel": "प्रति काम",
+      "available": true
+    },
+    {
+      "id": "c1",
+      "name": "रमेश शर्मा (मास्टर कारपेंटर)",
+      "category": "carpenter",
+      "specialtyHindi": "मॉड्यूलर किचन, वॉर्डरोब & बेड निर्माण",
+      "avatar": "https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=150",
+      "rating": 4.9,
+      "reviewsCount": 142,
+      "experienceYears": 12,
+      "jobsCompleted": 215,
+      "verified": true,
+      "distance": "1.2 km दूर",
+      "etaMinutes": 20,
+      "isQuickAvailable": true,
+      "primaryRateType": "शीट/रनिंग फुट",
+      "dailyWageRate": 950,
+      "helperRate": 550,
+      "contractUnitRate": 350,
+      "unitLabel": "प्रति 8x4 शीट कटिंग/मेकिंग",
+      "techniqueBadge": "CNC कटिंग & 1mm मरीन माइका तकनीक",
+      "techniqueDetail": {
+        "method": "सेंचुरी 19mm वॉटरप्रूफ प्लाई + 1mm लैमिनेट + फेविकोल मरीन + सॉफ्ट क्लोज हिंज",
+        "standardFormula": "माप के अनुसार: ₹350 प्रति 8x4 शीट अथवा ₹400/sq.ft",
+        "tools": "लेजर लेवलर, 4-इंच कटर, एज-बैंडिंग मशीन",
+        "warranty": "5 वर्ष हिंज & अलाइनमेंट वारंटी"
+      },
+      "available": true,
+      "phoneMasked": "+91 98XXX-XX102",
+      "skills": [
+        "Modular Kitchen",
+        "Wardrobe",
+        "CNC Fitting",
+        "Door Polish"
+      ],
+      "portfolioPhotos": [
+        {
+          "id": "p1",
+          "title": "लक्ज़री ऐक्रेलिक मॉड्यूलर किचन",
+          "imageUrl": "https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=600",
+          "date": "अक्टूबर 2026",
+          "description": "सॉफ्ट-क्लोज हाइड्रॉलिक हिंज और प्रोफाइल हैंडल के साथ 10x8 ft किचन।"
+        }
+      ],
+      "reviews": [
+        {
+          "id": "r1",
+          "customerName": "अमित कुमार सिंह",
+          "rating": 5,
+          "date": "28 अक्टूबर 2026",
+          "comment": "रमेश जी ने हमारे फ्लैट का पूरा मॉड्यूलर किचन बनाया। फिनिशिंग शोरूम जैसी है।",
+          "workDone": "मॉड्यूलर किचन & वॉर्डरोब",
+          "location": "अरेरा कॉलोनी, भोपाल",
+          "verifiedWork": true
+        }
+      ],
+      "recommendedMaterials": [
+        {
+          "id": "rm1",
+          "name": "सेंचुरी 19mm वॉटरप्रूफ प्लाईवुड (8x4 ft)",
+          "brand": "Century Ply",
+          "category": "carpenter",
+          "mrp": 3200,
+          "sellingPrice": 2750,
+          "unit": "प्रति शीट",
+          "bulkOffer": "10 शीट पर 5% छूट",
+          "storeName": "अग्रवाल टिम्बर स्टोर (1.1 km)",
+          "storeDistance": "1.1 km",
+          "inStock": true,
+          "image": "https://images.unsplash.com/photo-1533090161767-e6ffed986c88?w=150"
+        }
+      ]
+    }
+  ],
+  "materials": [
+    {
+      "id": "m1",
+      "name": "सेंचुरी 19mm वॉटरप्रूफ प्लाईवुड (8x4 ft)",
+      "brand": "Century Ply",
+      "category": "carpenter",
+      "mrp": 3200,
+      "sellingPrice": 2750,
+      "unit": "प्रति शीट",
+      "bulkOffer": "10 शीट पर 5% छूट",
+      "storeName": "अग्रवाल टिम्बर स्टोर",
+      "storeDistance": "1.1 km दूर",
+      "inStock": true,
+      "image": "https://images.unsplash.com/photo-1533090161767-e6ffed986c88?w=150"
+    },
+    {
+      "id": "m5",
+      "name": "ACC सुरक्षा पावर सीमेंट (50 Kg)",
+      "brand": "ACC Cement",
+      "category": "mason",
+      "mrp": 410,
+      "sellingPrice": 375,
+      "unit": "प्रति बोरी",
+      "bulkOffer": "50 बोरी पर ₹15/बोरी फ्लैट ऑफ",
+      "storeName": "भोपाल किसान बिल्डिंग मैटेरियल सप्लायर",
+      "storeDistance": "2.0 km दूर",
+      "inStock": true,
+      "image": "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=150"
+    }
+  ],
+  "bookings": [
+    {
+      "customId": "b_1795085386286",
+      "idempotencyKey": "idemp_1795085386286_3smep",
+      "customerId": "",
+      "customerPhone": "",
+      "contractorId": "c_1795085386271",
+      "contractorName": "अमित प्लंबर",
+      "bookingMode": "क्विक रिपेयर",
+      "paymentMethod": "ONLINE_ESCROW",
+      "contractorPlatformFee": 5,
+      "workType": "वाशर रिप्लेसमेंट",
+      "workAddress": "भोपाल, मध्य प्रदेश",
+      "totalLaborAmount": 100,
+      "finalMaterialAmount": 0,
+      "grandTotal": 100,
+      "escrowAdvanceToken": 100,
+      "balanceOnOtpRelease": 0,
+      "description": "",
+      "status": "PENDING",
+      "isPriceLocked": false,
+      "isFeeDeducted": false
+    },
+    {
+      "customId": "b_1795085386283",
+      "idempotencyKey": "idemp_1795085386283_uh2xw",
+      "customerId": "",
+      "customerPhone": "",
+      "contractorId": "c_1795085386271",
+      "contractorName": "अमित प्लंबर",
+      "bookingMode": "दिहाड़ी",
+      "paymentMethod": "CASH",
+      "contractorPlatformFee": 35,
+      "workType": "बाथरूम पाइप फिटिंग",
+      "workAddress": "भोपाल, मध्य प्रदेश",
+      "totalLaborAmount": 1800,
+      "finalMaterialAmount": 0,
+      "grandTotal": 1800,
+      "escrowAdvanceToken": 270,
+      "balanceOnOtpRelease": 1530,
+      "description": "",
+      "status": "PENDING",
+      "isPriceLocked": false,
+      "isFeeDeducted": false
+    },
+    {
+      "id": "b_1794989581497",
+      "customerName": "अमित कुमार सिंह",
+      "contractorName": "नल लीकेज / पाइप ब्लॉक (अजय राठौर)",
+      "workType": "क्विक रिपेयर पर कार्य (नल लीकेज / पाइप ब्लॉक (अजय राठौर))",
+      "location": "एमपी नगर (ज़ोन-1), भोपाल • 462011",
+      "date": "18/11/2026",
+      "hiringType": "क्विक रिपेयर",
+      "paymentMethod": "CASH",
+      "contractorPlatformFee": 35,
+      "totalLaborAmount": 199,
+      "escrowAdvanceToken": 0,
+      "description": "इमरजेंसी समस्या: नल टपक रहा है",
+      "status": "PENDING",
+      "createdAt": "2026-11-18T08:13:01.558Z"
+    },
+    {
+      "id": "b1",
+      "customerName": "अमित कुमार सिंह",
+      "contractorId": "c1",
+      "contractorName": "रमेश शर्मा",
+      "workType": "मास्टर बेडरूम वॉर्डरोब (8x7 ft)",
+      "location": "अरेरा कॉलोनी (E-3), भोपाल",
+      "date": "16 नवम्बर 2026",
+      "hiringType": "ठेका",
+      "totalLaborAmount": 18000,
+      "escrowAdvanceToken": 1000,
+      "status": "ACCEPTED"
+    }
+  ],
+  "kycApplications": [
+    {
+      "id": "kyc_1795085386271",
+      "name": "अमित प्लंबर",
+      "role": "CONTRACTOR",
+      "phone": "9822334455",
+      "docNumber": "पहचान पत्र",
+      "status": "PENDING"
+    },
+    {
+      "id": "kyc_1",
+      "name": "दीपक कश्यप",
+      "role": "CONTRACTOR",
+      "tradeOrShop": "राजमिस्त्री & टाइल्स कारीगर (8 साल अनुभव)",
+      "phone": "+91 98XXX-XX410",
+      "docNumber": "आधार: XXXX-XXXX-4912",
+      "appliedDate": "आज",
+      "status": "PENDING"
+    }
+  ],
+  "disputes": [
+    {
+      "id": "disp_1",
+      "customerName": "सुनीता त्रिपाठी (अरेरा कॉलोनी)",
+      "contractorName": "सोनू वर्मा (पेंटर)",
+      "jobTitle": "3BHK बालकनी वाटरप्रूफिंग",
+      "escrowAmount": 6400,
+      "issueDescription": "पुट्टी में दरार दिख रही है।",
+      "status": "OPEN"
+    }
+  ],
+  "financials": {
+    "grossPlatformVolume": 1480199,
+    "escrowFundsHeld": 412500,
+    "platformFeePercent": 6,
+    "platformCommissionEarned": 88800
+  }
+}

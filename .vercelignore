@@ -1,0 +1,9 @@
+node_modules
+.expo
+.git
+scratch
+assets
+*.log
+.env
+backend/uploads/private
+backend/database.json

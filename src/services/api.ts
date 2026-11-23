@@ -1,0 +1,364 @@
+/**
+ * SETU Hardened Client API Service
+ * Connects frontend screens to backend REST API with signed JWT authentication
+ */
+
+import { Platform } from 'react-native';
+
+const isLocalhost =
+  Platform.OS === 'web' &&
+  typeof window !== 'undefined' &&
+  (window.location?.hostname === 'localhost' || window.location?.hostname === '127.0.0.1');
+
+const API_BASE_URL = isLocalhost
+  ? 'http://localhost:5000/api'
+  : Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    window.location?.origin &&
+    !window.location.origin.includes('localhost:8081') &&
+    !window.location.origin.includes('localhost:19006')
+  ? `${window.location.origin}/api`
+  : 'https://setu-1-nine.vercel.app/api';
+
+let sessionAuthToken: string | null = null;
+
+// Initialize token from storage if available
+if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+  try {
+    sessionAuthToken = window.localStorage.getItem('setu_session_token');
+  } catch (e) {
+    // Ignore storage restrictions
+  }
+}
+
+export const ApiService = {
+  // Session Token Management
+  setAuthToken: (token: string | null) => {
+    sessionAuthToken = token;
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      if (token) {
+        window.localStorage.setItem('setu_session_token', token);
+      } else {
+        window.localStorage.removeItem('setu_session_token');
+      }
+    }
+  },
+
+  setAdminToken: (token: string) => {
+    ApiService.setAuthToken(token);
+  },
+
+  getAuthToken: () => sessionAuthToken,
+
+  clearAuthToken: () => {
+    sessionAuthToken = null;
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem('setu_session_token');
+    }
+  },
+
+  // Helper for auth headers
+  getHeaders: (customHeaders: Record<string, string> = {}) => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...customHeaders,
+    };
+    if (sessionAuthToken) {
+      headers['Authorization'] = `Bearer ${sessionAuthToken}`;
+    }
+    return headers;
+  },
+
+  // 1. Health check
+  checkHealth: async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/health`);
+      return await res.json();
+    } catch (err) {
+      console.log('[API] Backend offline or unreachable:', err);
+      return null;
+    }
+  },
+
+  // 2. Fetch Contractors
+  getContractors: async (category?: string, rateType?: string) => {
+    try {
+      const query = new URLSearchParams();
+      if (category && category !== 'all') query.append('category', category);
+      if (rateType && rateType !== 'ALL') query.append('rateType', rateType);
+
+      const res = await fetch(`${API_BASE_URL}/contractors?${query.toString()}`);
+      if (!res.ok) throw new Error('Failed to fetch contractors');
+      const data = await res.json();
+      return data.data;
+    } catch (err) {
+      console.log('[API] getContractors error:', err);
+      return null;
+    }
+  },
+
+  // 3. Update Contractor Profile & Rate Card (Owner Protected)
+  updateContractorProfile: async (id: string, updates: any) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/contractors/${id}/profile`, {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+        body: JSON.stringify(updates),
+      });
+      return await res.json();
+    } catch (err) {
+      console.log('[API] updateContractorProfile error:', err);
+      return { success: false, error: 'सर्वर से संपर्क नहीं हो सका।' };
+    }
+  },
+
+  // 4. Partner Registration
+  registerPartner: async (partnerData: any) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/partners/register`, {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+        body: JSON.stringify(partnerData),
+      });
+      return await res.json();
+    } catch (err) {
+      console.log('[API] registerPartner error:', err);
+      return { success: false, error: 'पंजीकरण विफल: सर्वर से संपर्क नहीं हो सका।' };
+    }
+  },
+
+  // 5. Create Job / Booking (Idempotent)
+  createBooking: async (bookingData: any) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/bookings`, {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+        body: JSON.stringify(bookingData),
+      });
+      return await res.json();
+    } catch (err) {
+      console.log('[API] createBooking error:', err);
+      return { success: false, error: 'बुकिंग दर्ज नहीं हो सकी।' };
+    }
+  },
+
+  // 6. Quotation Flow: Contractor sends formal quotation
+  sendQuotation: async (bookingId: string, quoteDetails: any) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/bookings/${bookingId}/quote`, {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+        body: JSON.stringify(quoteDetails),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, error: 'कोटेशन भेजने में त्रुटि।' };
+    }
+  },
+
+  // 7. Quotation Flow: Customer approves quote (Price Lock)
+  approveQuotation: async (bookingId: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/bookings/${bookingId}/approve-quote`, {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, error: 'कोटेशन स्वीकार करने में त्रुटि।' };
+    }
+  },
+
+  // 8. Quotation Flow: Propose revised quotation for extra work
+  reviseQuotation: async (bookingId: string, revisionDetails: any) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/bookings/${bookingId}/revise-quote`, {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+        body: JSON.stringify(revisionDetails),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, error: 'संशोधन भेजने में त्रुटि।' };
+    }
+  },
+
+  // 9. Quotation Flow: Customer responds to revised quote
+  respondRevision: async (bookingId: string, accept: boolean) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/bookings/${bookingId}/respond-revision`, {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+        body: JSON.stringify({ accept }),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, error: 'संशोधन प्रतिक्रिया में त्रुटि।' };
+    }
+  },
+
+  // 10. Complete Booking with OTP Verification
+  completeBooking: async (bookingId: string, otp: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/bookings/${bookingId}/complete`, {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+        body: JSON.stringify({ otp }),
+      });
+      return await res.json();
+    } catch (err) {
+      return { success: false, error: 'पूर्णता सत्यापन में त्रुटि।' };
+    }
+  },
+
+  // 11. Admin Metrics (Protected)
+  getAdminMetrics: async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/metrics`, {
+        headers: ApiService.getHeaders(),
+      });
+      if (!res.ok) throw new Error('Admin access denied');
+      return await res.json();
+    } catch (err) {
+      console.log('[API] getAdminMetrics error:', err);
+      return null;
+    }
+  },
+
+  // 12. Admin KYC Action
+  actionKyc: async (kycId: string, action: 'APPROVED' | 'REJECTED') => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/kyc/action`, {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+        body: JSON.stringify({ id: kycId, action }),
+      });
+      return await res.json();
+    } catch (err) {
+      console.log('[API] actionKyc error:', err);
+      return null;
+    }
+  },
+
+  // 13. File Upload to Server
+  // Strict: returns error on failure, never masks failure with dummy stock photos!
+  uploadFile: async (
+    base64Data: string,
+    filename = 'site_media.jpg',
+    type: 'portfolio' | 'kyc' | 'avatar' = 'portfolio',
+    isPrivate = false
+  ) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/upload`, {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+        body: JSON.stringify({ imageBase64: base64Data, filename, type, isPrivate }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.error || 'फाइल अपलोड विफल रहा।');
+      }
+      const data = await res.json();
+      let fullUrl = data.url;
+      if (fullUrl && fullUrl.startsWith('/uploads/')) {
+        const origin = API_BASE_URL.replace(/\/api$/, '');
+        fullUrl = `${origin}${fullUrl}`;
+      }
+      return { ...data, fullUrl };
+    } catch (err: any) {
+      console.error('[API] uploadFile error:', err);
+      return {
+        success: false,
+        error: err.message || 'फाइल सर्वर पर अपलोड नहीं हो सकी। कृपया पुनः प्रयास करें।',
+      };
+    }
+  },
+
+  // 14. AI Multimodal Vision Diagnosis (Dual Engine: Backend REST + Client-Side Direct Gemini Fallback)
+  diagnoseVision: async (imageBase64: string, userQuery = '', locality = 'भोपाल', language = 'hi') => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/ai/diagnose-vision`, {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+        body: JSON.stringify({ imageBase64, userQuery, locality, language }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        return data;
+      }
+      if (data?.error && !data.error.includes('AI सर्वर')) {
+        return { success: false, error: data.error };
+      }
+    } catch (err: any) {
+      console.log('[API] Backend diagnoseVision unreachable, activating direct Gemini:', err?.message);
+    }
+
+    // Direct Client-Side Google Gemini Multimodal Vision Fallback
+    const clientKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+    if (clientKey && imageBase64) {
+      try {
+        const matches = imageBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        const mimeType = matches && matches[1] ? matches[1] : 'image/jpeg';
+        const cleanBase64 = matches && matches[2] ? matches[2] : imageBase64;
+
+        const querySection = userQuery ? `User notes: "${userQuery}"\n` : '';
+        const promptText = `You are 'Ustad SETU', India's senior home repair and construction expert in ${locality}, MP.
+Analyze this photo of a domestic repair or construction problem carefully based on what is actually visible in the image.
+${querySection}If the image is completely dark, blurry, unreadable, or not related to home repair, return:
+{ "unreadable": true, "error": "फोटो साफ नहीं है या समस्या स्पष्ट नहीं है, कृपया लाइट में साफ फोटो लें या समस्या का विवरण लिखें।" }
+
+Otherwise return PURE JSON matching this schema:
+{
+  "unreadable": false,
+  "problemTitle": "string in Hindi",
+  "visibleObservation": "string in Hindi",
+  "inferredCause": "string in Hindi",
+  "tradeCategory": "plumber" | "carpenter" | "electrician" | "mason" | "painter",
+  "severity": "LOW" | "MEDIUM" | "HIGH" | "EMERGENCY",
+  "isSafetyHazard": boolean,
+  "safetyMessage": "string in Hindi",
+  "requiredParts": [ { "name": "string", "approxRate": 0, "unit": "string" } ],
+  "estimatedLaborCharge": 0,
+  "diySteps": [ "string" ],
+  "ustadAdvice": "string in Hindi",
+  "estimatedFixTime": "string in Hindi"
+}`;
+
+        for (const model of ['gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.5-flash-lite']) {
+          try {
+            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${clientKey}`;
+            const geminiResp = await fetch(geminiUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: promptText }, { inline_data: { mime_type: mimeType, data: cleanBase64 } }] }],
+                generationConfig: { response_mime_type: 'application/json' },
+              }),
+            });
+
+            if (geminiResp.ok) {
+              const gData = await geminiResp.json();
+              const rawJson = gData.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (rawJson) {
+                const parsed = JSON.parse(rawJson);
+                if (parsed.unreadable) {
+                  return { success: false, error: parsed.error };
+                }
+                return { success: true, engine: `Client Google Gemini Vision (${model})`, diagnosis: parsed };
+              }
+            }
+          } catch (mErr) {
+            // try next model in fallback list
+          }
+        }
+      } catch (geminiClientErr: any) {
+        console.log('[API] Client-side Gemini error:', geminiClientErr?.message);
+      }
+    }
+
+    return {
+      success: false,
+      error: 'AI सर्वर से संपर्क नहीं हो सका। कृपया पुनः प्रयास करें।',
+    };
+  },
+};
