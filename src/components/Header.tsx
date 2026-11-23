@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Platform, Image } from 'react
 import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
 import { Language, TRANSLATIONS } from '../i18n/translations';
+import { getSetuLogo } from '../constants/logos';
 
 interface HeaderProps {
   currentLocation: string;
@@ -32,10 +33,7 @@ export const Header: React.FC<HeaderProps> = ({
   const t = TRANSLATIONS[language];
 
   // Dynamic official 3D logo based on active language
-  const logoSource =
-    language === 'hi'
-      ? require('../../assets/setu-logo-hi.jpg')
-      : require('../../assets/setu-logo-en.jpg');
+  const logoSource = getSetuLogo(language);
 
   return (
     <View style={styles.container}>

@@ -15,6 +15,7 @@ import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
 import { Language, TRANSLATIONS } from '../i18n/translations';
 import { ApiService } from '../services/api';
+import { getSetuLogo } from '../constants/logos';
 
 interface AuthLandingScreenProps {
   language: Language;
@@ -202,10 +203,7 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
     onLoginSuccess(selected);
   };
 
-  const logoSource =
-    language === 'hi'
-      ? require('../../assets/setu-logo-hi.jpg')
-      : require('../../assets/setu-logo-en.jpg');
+  const logoSource = getSetuLogo(language);
 
   return (
     <View style={styles.root}>

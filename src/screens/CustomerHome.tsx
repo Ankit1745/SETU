@@ -33,6 +33,7 @@ import { SetuAIAssistantModal } from '../components/SetuAIAssistantModal';
 import { AIVideoDoctorModal } from '../components/AIVideoDoctorModal';
 import { COLORS } from '../theme/colors';
 import { Language, TRANSLATIONS } from '../i18n/translations';
+import { getSetuLogo } from '../constants/logos';
 
 interface CustomerHomeProps {
   contractors: Contractor[];
@@ -343,10 +344,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
     );
   };
 
-  const logoSource =
-    language === 'hi'
-      ? require('../../assets/setu-logo-hi.jpg')
-      : require('../../assets/setu-logo-en.jpg');
+  const logoSource = getSetuLogo(language);
 
   return (
     <View style={styles.container}>
