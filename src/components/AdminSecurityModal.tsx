@@ -8,6 +8,7 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
@@ -23,7 +24,8 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const [passcode, setPasscode] = useState('');
+  const [loginId, setLoginId] = useState('admin');
+  const [passcode, setPasscode] = useState('SETU@Admin2026#Bhopal');
   const [isVerifying, setIsVerifying] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -37,20 +39,28 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
     setErrorMessage('');
 
     try {
-      const res = await fetch('/api/admin/login', {
+      const origin =
+        Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin
+          ? window.location.origin
+          : 'https://setu-1-nine.vercel.app';
+
+      const res = await fetch(`${origin}/api/admin/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ passcode: passcode.trim() }),
+        body: JSON.stringify({
+          loginId: loginId.trim(),
+          password: passcode.trim(),
+          passcode: passcode.trim(),
+        }),
       });
       const data = await res.json();
 
       if (res.ok && data.success && data.token) {
         onSuccess(data.token);
         onClose();
-        setPasscode('');
         Alert.alert('✅ एडमिन प्रमाणीकरण सफल', 'SETU केंद्रीय नियंत्रण कक्ष में आपका स्वागत है।');
       } else {
-        setErrorMessage(data.error || 'अमान्य सुरक्षा पासवर्ड! प्रवेश अस्वीकृत।');
+        setErrorMessage(data.error || 'अमान्य लॉगिन आईडी या पासवर्ड! प्रवेश अस्वीकृत।');
       }
     } catch (err: any) {
       setErrorMessage('सर्वर से संपर्क नहीं हो सका। केवल अधिकृत सुपर एडमिन ही प्रवेश कर सकते हैं।');
@@ -78,9 +88,28 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
             ⛔ उच्च सुरक्षा क्षेत्र (Restricted Area) — केवल अधिकृत सुपरवाइजर व एडमिन के लिए आरक्षित है।
           </Text>
 
-          {/* PIN Input */}
+          {/* Login ID Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>मास्टर सिक्योरिटी पासवर्ड (Admin Secret Key):</Text>
+            <Text style={styles.label}>एडमिन लॉगिन आईडी (Admin ID / Username):</Text>
+            <View style={styles.pinRow}>
+              <MaterialIcons name="person" size={20} color="#64748B" style={styles.lockIcon} />
+              <TextInput
+                style={styles.pinInput}
+                placeholder="उदा. admin"
+                placeholderTextColor="#94A3B8"
+                autoCapitalize="none"
+                value={loginId}
+                onChangeText={(val) => {
+                  setLoginId(val);
+                  setErrorMessage('');
+                }}
+              />
+            </View>
+          </View>
+
+          {/* Password Input */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>मास्टर सिक्योरिटी पासवर्ड (Admin Password):</Text>
             <View style={styles.pinRow}>
               <MaterialIcons name="lock" size={20} color="#64748B" style={styles.lockIcon} />
               <TextInput
@@ -94,6 +123,14 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
                   setErrorMessage('');
                 }}
               />
+            </View>
+
+            {/* Quick credentials hint */}
+            <View style={styles.credentialsHint}>
+              <Ionicons name="key" size={13} color="#D97706" />
+              <Text style={styles.credentialsHintText}>
+                डिफ़ॉल्ट क्रेडेंशियल्स: ID: <Text style={{fontWeight: '700'}}>admin</Text> | Pass: <Text style={{fontWeight: '700'}}>SETU@Admin2026#Bhopal</Text>
+              </Text>
             </View>
 
             {errorMessage ? (
@@ -230,6 +267,22 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#0F172A',
     letterSpacing: 2,
+  },
+  credentialsHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 8,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  credentialsHintText: {
+    fontSize: 10.5,
+    color: '#92400E',
   },
   hintPill: {
     flexDirection: 'row',

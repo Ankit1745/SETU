@@ -40,6 +40,7 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
   const [smsNotification, setSmsNotification] = useState<string | null>(null);
   const [isSendingOtp, setIsSendingOtp] = useState<boolean>(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState<boolean>(false);
+  const [verificationToken, setVerificationToken] = useState<string | null>(null);
 
   // Send OTP
   const handleSendOtp = async () => {
@@ -70,6 +71,10 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'OTP भेजने में विफल');
+      }
+
+      if (data.verificationToken) {
+        setVerificationToken(data.verificationToken);
       }
 
       if (data.demoOtp) {
@@ -122,6 +127,7 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
         body: JSON.stringify({
           phone: cleanPhone,
           otp: otp.trim(),
+          verificationToken,
           fullName: name || (authRole === 'CUSTOMER' ? 'अमित कुमार सिंह' : authRole === 'CONTRACTOR' ? 'रमेश शर्मा' : 'गुप्ता जी'),
           role: authRole,
           tradeOrShop: authRole === 'CONTRACTOR' ? 'मास्टर बढ़ई (Modular Kitchen)' : authRole === 'VENDOR' ? 'गुप्ता हार्डवेयर स्टोर' : '',

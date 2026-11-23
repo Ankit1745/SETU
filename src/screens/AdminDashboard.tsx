@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { MaterialIcons, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
+import { ApiService } from '../services/api';
 
 interface KycApplication {
   id: string;
@@ -69,18 +70,57 @@ const INITIAL_DISPUTES: DisputeCase[] = [
 export const AdminDashboard: React.FC = () => {
   const [kycList, setKycList] = useState<KycApplication[]>(INITIAL_KYC_APPLICATIONS);
   const [disputes, setDisputes] = useState<DisputeCase[]>(INITIAL_DISPUTES);
+  const [liveMetrics, setLiveMetrics] = useState<any>(null);
 
-  const handleApproveKyc = (id: string, name: string) => {
+  useEffect(() => {
+    loadLiveMetrics();
+  }, []);
+
+  const loadLiveMetrics = async () => {
+    try {
+      const data = await ApiService.getAdminMetrics();
+      if (data && data.success) {
+        setLiveMetrics(data);
+        if (data.kycApplications && data.kycApplications.length > 0) {
+          const mapped: KycApplication[] = data.kycApplications.map((k: any) => ({
+            id: k._id || k.id || k.customId,
+            name: k.name,
+            role: k.role || 'CONTRACTOR',
+            tradeOrShop: k.tradeOrShop || 'पंजीकृत भागीदार',
+            phone: k.phone ? `+91 ${k.phone}` : 'फोन उपलब्ध नहीं',
+            docNumber: k.docNumber || 'पहचान पत्र विचाराधीन',
+            appliedDate: k.createdAt ? new Date(k.createdAt).toLocaleDateString('hi-IN') : 'आज',
+            status: k.status || 'PENDING',
+          }));
+          setKycList(mapped);
+        }
+      }
+    } catch (err) {
+      console.log('Error loading admin metrics:', err);
+    }
+  };
+
+  const handleApproveKyc = async (id: string, name: string) => {
     setKycList((prev) =>
       prev.map((k) => (k.id === id ? { ...k, status: 'APPROVED' } : k))
     );
+    try {
+      await ApiService.actionKyc(id, 'APPROVED');
+    } catch (err) {
+      // handled
+    }
     Alert.alert('✅ KYC स्वीकृत!', `${name} को वेरीफाइड 'ब्लू टिक' और लाइव आईडी कार्ड जारी कर दिया गया है।`);
   };
 
-  const handleRejectKyc = (id: string, name: string) => {
+  const handleRejectKyc = async (id: string, name: string) => {
     setKycList((prev) =>
       prev.map((k) => (k.id === id ? { ...k, status: 'REJECTED' } : k))
     );
+    try {
+      await ApiService.actionKyc(id, 'REJECTED');
+    } catch (err) {
+      // handled
+    }
     Alert.alert('KYC अस्वीकृत', `${name} का आवेदन अस्वीकृत कर दिया गया है।`);
   };
 
@@ -133,7 +173,9 @@ export const AdminDashboard: React.FC = () => {
 
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>एक्टिव कारीगर & दुकानें</Text>
-          <Text style={styles.metricValue}>342 / 86</Text>
+          <Text style={styles.metricValue}>
+            {liveMetrics?.totalUsers ? `${liveMetrics.totalUsers} पंजीकृत` : '342 / 86'}
+          </Text>
           <Text style={styles.metricSub}>सत्यापित नेटवर्क</Text>
         </View>
       </View>
