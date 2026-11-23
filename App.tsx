@@ -58,32 +58,43 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isGuestBrowsing, setIsGuestBrowsing] = useState<boolean>(true);
 
-  // Check saved session
+  // Check saved session on app mount and browser refresh (Persists login and active screen)
   React.useEffect(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       try {
-        const sessionActive = window.sessionStorage?.getItem('setu_session_active');
-        if (!sessionActive) {
-          // Fresh visit: show OTP login & registration screen first
-          window.localStorage?.removeItem('setu_current_user');
-          setCurrentUser(null);
-          setIsGuestBrowsing(false);
-        } else {
-          const saved = window.localStorage?.getItem('setu_current_user');
-          if (saved) {
-            const user = JSON.parse(saved);
-            setCurrentUser(user);
-            if (user.role === 'CONTRACTOR') setCurrentRole('CONTRACTOR');
-            else if (user.role === 'VENDOR') setCurrentRole('VENDOR');
-            else if (user.role === 'ADMIN') {
-              setIsAdminAuthenticated(true);
-              setCurrentRole('ADMIN');
-            }
-            if (user.location) setCurrentLocation(user.location);
+        const savedUserStr = window.localStorage?.getItem('setu_current_user');
+        const savedRole = window.localStorage?.getItem('setu_current_role') as UserRole | null;
+        const savedToken = window.localStorage?.getItem('setu_session_token');
+
+        if (savedToken) {
+          ApiService.setAuthToken(savedToken);
+        }
+
+        if (savedUserStr) {
+          const user = JSON.parse(savedUserStr);
+          setCurrentUser(user);
+          setIsGuestBrowsing(true);
+
+          const finalRole = savedRole || user.role || 'CUSTOMER';
+          if (finalRole === 'ADMIN' || user.role === 'ADMIN') {
+            setIsAdminAuthenticated(true);
+            setCurrentRole('ADMIN');
+          } else if (finalRole === 'CONTRACTOR' || user.role === 'CONTRACTOR') {
+            setCurrentRole('CONTRACTOR');
+          } else if (finalRole === 'VENDOR' || user.role === 'VENDOR') {
+            setCurrentRole('VENDOR');
+          } else {
+            setCurrentRole('CUSTOMER');
           }
+
+          if (user.location) setCurrentLocation(user.location);
+        } else {
+          // Keep guest browsing active so refreshing anywhere never kicks the user out
+          setIsGuestBrowsing(true);
         }
       } catch (e) {
         console.error('[SETU] Session init error:', e);
+        setIsGuestBrowsing(true);
       }
     }
   }, []);
@@ -246,6 +257,8 @@ export default function App() {
     // Persist login session on Web
     if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
       window.localStorage.setItem('setu_current_user', JSON.stringify(user));
+      window.localStorage.setItem('setu_current_role', user.role || 'CUSTOMER');
+      window.sessionStorage?.setItem('setu_session_active', 'true');
     }
 
     if (user.role === 'CONTRACTOR') {
@@ -288,6 +301,10 @@ export default function App() {
   };
 
   const handleRoleSwitch = (role: UserRole) => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem('setu_current_role', role);
+    }
+
     if (role === 'ADMIN') {
       if (isAdminAuthenticated) {
         setCurrentRole('ADMIN');
@@ -397,10 +414,17 @@ export default function App() {
           visible={showAdminSecurityModal}
           onClose={() => setShowAdminSecurityModal(false)}
           onSuccess={(token) => {
+            const adminUser = { id: 'admin1', name: 'मुख्य व्यवस्थापक (Super Admin)', role: 'ADMIN', setuId: 'SETU-ADMIN-MASTER' };
             setIsAdminAuthenticated(true);
             ApiService.setAdminToken(token);
             setCurrentRole('ADMIN');
-            setCurrentUser({ id: 'admin1', name: 'मुख्य व्यवस्थापक (Super Admin)', role: 'ADMIN' });
+            setCurrentUser(adminUser);
+            if (Platform.OS === 'web' && typeof window !== 'undefined') {
+              window.localStorage?.setItem('setu_current_user', JSON.stringify(adminUser));
+              window.localStorage?.setItem('setu_current_role', 'ADMIN');
+              window.localStorage?.setItem('setu_session_token', token);
+              window.sessionStorage?.setItem('setu_session_active', 'true');
+            }
           }}
         />
       </SafeAreaView>
@@ -571,9 +595,17 @@ export default function App() {
         visible={showAdminSecurityModal}
         onClose={() => setShowAdminSecurityModal(false)}
         onSuccess={(token) => {
+          const adminUser = { id: 'admin1', name: 'मुख्य व्यवस्थापक (Super Admin)', role: 'ADMIN', setuId: 'SETU-ADMIN-MASTER' };
           setIsAdminAuthenticated(true);
           ApiService.setAdminToken(token);
           setCurrentRole('ADMIN');
+          setCurrentUser(adminUser);
+          if (Platform.OS === 'web' && typeof window !== 'undefined') {
+            window.localStorage?.setItem('setu_current_user', JSON.stringify(adminUser));
+            window.localStorage?.setItem('setu_current_role', 'ADMIN');
+            window.localStorage?.setItem('setu_session_token', token);
+            window.sessionStorage?.setItem('setu_session_active', 'true');
+          }
         }}
       />
 
