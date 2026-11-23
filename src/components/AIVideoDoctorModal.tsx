@@ -392,13 +392,19 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
   };
 
   // ==========================================
-  // TAB 2: 3D KITCHEN & WARDROBE STUDIO STATE
+  // TAB 2: MULTI-TRADE AR 3D SPATIAL STUDIO STATE
+  // (Customer, Carpenter, Mason, Plumber, Electrician)
   // ==========================================
-  const [studioType, setStudioType] = useState<'kitchen' | 'wardrobe'>('kitchen');
-  const [studioLayout, setStudioLayout] = useState<'L_SHAPE' | 'PARALLEL' | 'U_SHAPE' | 'STRAIGHT'>('L_SHAPE');
-  const [studioFinish, setStudioFinish] = useState<'ACRYLIC' | 'PVC_LAMINATE' | 'PU_GLOSS' | 'TEAK_WOOD'>('ACRYLIC');
+  const [studioType, setStudioType] = useState<'kitchen' | 'wardrobe' | 'masonry' | 'plumbing' | 'electrical'>('kitchen');
+  const [studioLayout, setStudioLayout] = useState<string>('L_SHAPE');
+  const [studioFinish, setStudioFinish] = useState<string>('ACRYLIC');
   const [studioLength, setStudioLength] = useState<number>(10);
   const [studioWidth, setStudioWidth] = useState<number>(8);
+  const [showLive3DOverlay, setShowLive3DOverlay] = useState<boolean>(true);
+  const [rotationAngle, setRotationAngle] = useState<number>(15);
+  const [isVoiceListening, setIsVoiceListening] = useState<boolean>(false);
+  const [voiceSpeechBubble, setVoiceSpeechBubble] = useState<string>('');
+
   const [studioDesign, setStudioDesign] = useState<SpaceDesign3D>(
     calculate3DSpaceDesign({
       type: 'kitchen',
@@ -410,7 +416,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
   );
 
   const handleUpdateStudioDesign = (
-    nextType = studioType,
+    nextType: 'kitchen' | 'wardrobe' | 'masonry' | 'plumbing' | 'electrical' = studioType,
     nextLayout = studioLayout,
     nextFinish = studioFinish,
     nextLength = studioLength,
@@ -431,12 +437,93 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
     setStudioDesign(updated);
   };
 
+  // Voice Interaction (AI Ustad Live Hindi Voice Chat)
+  const startVoiceInput = () => {
+    if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+      try {
+        const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        const recognition = new SpeechRec();
+        recognition.lang = 'hi-IN';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        setIsVoiceListening(true);
+        recognition.onstart = () => {
+          setIsVoiceListening(true);
+          setVoiceSpeechBubble('🎤 बोलिए भाई, AI उस्ताद सुन रहा है...');
+        };
+        recognition.onresult = (event: any) => {
+          setIsVoiceListening(false);
+          const transcript = event.results[0][0].transcript;
+          setVoiceSpeechBubble(`🗣️ आपने पूछा: "${transcript}"`);
+          handleProcessVoiceQuery(transcript);
+        };
+        recognition.onerror = () => {
+          setIsVoiceListening(false);
+          setVoiceSpeechBubble('बोलने के लिए माइक पर दोबारा टैप करें');
+        };
+        recognition.onend = () => {
+          setIsVoiceListening(false);
+        };
+        recognition.start();
+      } catch (e) {
+        setIsVoiceListening(false);
+        const promptText = window.prompt('अपनी समस्या या सवाल बोलें/लिखें (जैसे: यहाँ अलमारी कैसी बनेगी?):', 'यहाँ अलमारी कैसी बनेगी?');
+        if (promptText) {
+          setVoiceSpeechBubble(`🗣️ "${promptText}"`);
+          handleProcessVoiceQuery(promptText);
+        }
+      }
+    } else {
+      const promptText = typeof window !== 'undefined' ? window.prompt('अपनी समस्या या सवाल बोलें/लिखें:', 'यहाँ अलमारी कैसी बनेगी?') : null;
+      if (promptText) {
+        setVoiceSpeechBubble(`🗣️ "${promptText}"`);
+        handleProcessVoiceQuery(promptText);
+      }
+    }
+  };
+
+  const handleProcessVoiceQuery = (query: string) => {
+    const q = query.toLowerCase();
+    let detectedTrade: 'kitchen' | 'wardrobe' | 'masonry' | 'plumbing' | 'electrical' = studioType;
+    let reply = '';
+
+    if (q.includes('किचन') || q.includes('रसोई') || q.includes('चूल्हा') || q.includes('सिंक') || q.includes('kitchen')) {
+      detectedTrade = 'kitchen';
+      reply = 'किचन के लिए मैंने L-शेप 3D मॉड्यूलर लेआउट तैयार किया है। नीचे सामान की लिस्ट और कारीगर खर्च देखें।';
+    } else if (q.includes('अलमारी') || q.includes('वॉर्डरोब') || q.includes('कवर्ड') || q.includes('wardrobe') || q.includes('कपड़े') || q.includes('almirah')) {
+      detectedTrade = 'wardrobe';
+      reply = 'अलमारी के लिए 3D वॉर्डरोब डिज़ाइन लोड हो गया है। इसमें 4 इनर ड्रॉअर और लॉफ्ट स्पेस जोड़ा गया है।';
+    } else if (q.includes('मिस्त्री') || q.includes('दीवार') || q.includes('ईंट') || q.includes('सीमेंट') || q.includes('मकान') || q.includes('घर') || q.includes('पिलर') || q.includes('mason')) {
+      detectedTrade = 'masonry';
+      reply = 'राजमिस्त्री के लिए 3D दीवार और 4 RCC पिलर का फ्रेम तैयार है। 14 बोरी सीमेंट और 1400 ईंटों का अनुमान निकला है।';
+    } else if (q.includes('प्लम्बर') || q.includes('नल') || q.includes('पाइप') || q.includes('गीज़र') || q.includes('लीकेज') || q.includes('पानी') || q.includes('drain') || q.includes('plumber')) {
+      detectedTrade = 'plumbing';
+      reply = 'प्लम्बर के लिए हॉट और कोल्ड कंसील्ड 3D पाइपलाइन और 2.5% ढलान वाला ड्रेनेज सर्किट तैयार है।';
+    } else if (q.includes('बिजली') || q.includes('लाइट') || q.includes('तार') || q.includes('बोर्ड') || q.includes('वायरिंग') || q.includes('ac') || q.includes('electrician')) {
+      detectedTrade = 'electrical';
+      reply = 'इलेक्ट्रीशियन के लिए कंसील्ड कंड्यूट वायरिंग और MCB लोड डिस्ट्रीब्यूशन का 3D मैप तैयार है।';
+    } else {
+      reply = `आपकी समस्या "${query}" के लिए 3D विश्लेषण तैयार है।`;
+    }
+
+    handleUpdateStudioDesign(detectedTrade);
+    speakDiagnosis(reply);
+  };
+
   const handleSendStudioWhatsApp = () => {
+    const tradeTitles: Record<string, string> = {
+      kitchen: 'मास्टर कारपेंटर (Modular Kitchen)',
+      wardrobe: 'मास्टर कारपेंटर (Wardrobe & Almirah)',
+      masonry: 'मास्टर राजमिस्त्री / ठेकेदार (House & Masonry)',
+      plumbing: 'मास्टर प्लम्बर (Concealed Plumbing)',
+      electrical: 'मास्टर इलेक्ट्रीशियन (Concealed Wiring)',
+    };
     const msg = format3DStudioWhatsAppMessage({
-      contractorName: 'रमेश शर्मा (मास्टर कारपेंटर)',
-      projectType: studioType === 'kitchen' ? 'मॉड्यूलर किचन (Modular Kitchen)' : 'मास्टर वॉर्डरोब (Wardrobe)',
-      layoutName: studioDesign.layoutTitle,
-      finishType: studioDesign.finishTitle,
+      contractorName: tradeTitles[studioType] || 'सत्यापित कारीगर',
+      projectType: studioDesign.layoutTitle,
+      layoutName: studioDesign.finishTitle,
+      finishType: studioDesign.ustadAdvice.slice(0, 80) + '...',
       dimensions: `${studioLength}x${studioWidth} ft`,
       approxSqFt: studioDesign.totalSqFt,
       estimatedTotal: `₹${studioDesign.grandTotal.toLocaleString('en-IN')} (सामान ₹${studioDesign.totalMaterialCost.toLocaleString('en-IN')} + लेबर ₹${studioDesign.laborCost.toLocaleString('en-IN')})`,
@@ -536,10 +623,36 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
         </View>
 
         {/* ========================================================================= */}
-        {/* TAB 1: AI VIDEO CALL & LIVE PROBLEM DOCTOR */}
+        {/* TAB 1: AI VIDEO CALL & LIVE PROBLEM DOCTOR (MULTI-TRADE 3D SCANNER) */}
         {/* ========================================================================= */}
         {activeTab === 'video' && (
           <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
+            {/* Multi-Trade AR Selector Pills (Customer, Mason, Plumber, Carpenter, Electrician) */}
+            <View style={styles.tradePillBar}>
+              {[
+                { key: 'kitchen', icon: '🍳', label: 'मॉड्यूलर किचन' },
+                { key: 'wardrobe', icon: '🚪', label: '3D अलमारी' },
+                { key: 'masonry', icon: '🧱', label: 'मिस्त्री (घर/दीवार)' },
+                { key: 'plumbing', icon: '🚿', label: 'प्लम्बर (पाइपलाइन)' },
+                { key: 'electrical', icon: '⚡', label: 'बिजली (वायरिंग)' },
+              ].map((tr) => (
+                <TouchableOpacity
+                  key={tr.key}
+                  style={[styles.tradePill, studioType === tr.key && styles.tradePillActive]}
+                  onPress={() => {
+                    handleUpdateStudioDesign(tr.key as any);
+                    setShowLive3DOverlay(true);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.tradePillIcon}>{tr.icon}</Text>
+                  <Text style={[styles.tradePillText, studioType === tr.key && styles.tradePillTextActive]}>
+                    {tr.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
             {/* Live Camera Viewfinder Card */}
             <View style={styles.viewfinderCard}>
               {/* Top Viewfinder Bar */}
@@ -548,14 +661,38 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                   <View style={styles.pulseGreenDot} />
                   <Text style={styles.callTimerText}>{formatTimer(callDuration)}</Text>
                 </View>
+
+                {/* 3D AR & Voice Controls */}
                 <View style={styles.viewfinderActionsRight}>
+                  <TouchableOpacity
+                    style={[styles.viewfinder3DBtn, showLive3DOverlay && styles.viewfinder3DBtnActive]}
+                    onPress={() => setShowLive3DOverlay(!showLive3DOverlay)}
+                    activeOpacity={0.8}
+                  >
+                    <FontAwesome5 name="cube" size={12} color={showLive3DOverlay ? '#F59E0B' : '#FFFFFF'} />
+                    <Text style={[styles.viewfinder3DText, showLive3DOverlay && { color: '#F59E0B' }]}>
+                      {showLive3DOverlay ? '3D AR ON' : '3D AR OFF'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.viewfinderMicBtn, isVoiceListening && styles.viewfinderMicBtnActive]}
+                    onPress={startVoiceInput}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name={isVoiceListening ? 'mic' : 'mic-outline'} size={15} color="#FFFFFF" />
+                    <Text style={styles.viewfinderMicText}>
+                      {isVoiceListening ? 'सुन रहा हूँ...' : 'बोलें'}
+                    </Text>
+                  </TouchableOpacity>
+
                   <TouchableOpacity
                     style={styles.viewfinderSmallBtn}
                     onPress={() =>
                       speakDiagnosis(
                         diagnosisResult
                           ? diagnosisResult.titleHindi + '. ' + diagnosisResult.realProblem
-                          : 'कैमरे के सामने समस्या दिखाइए'
+                          : studioDesign.ustadAdvice
                       )
                     }
                   >
@@ -612,11 +749,65 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                   </View>
                 )}
 
+                {/* 🔮 LIVE 3D AR HOLOGRAPHIC MODEL OVERLAY OVER CAMERA */}
+                {showLive3DOverlay && (
+                  <View style={styles.ar3DOverlayContainer} pointerEvents="box-none">
+                    {/* Glowing AR Perspective Grid */}
+                    <View style={styles.arGridPerspective}>
+                      {studioDesign.schematicBoxes.map((box, bIdx) => (
+                        <View
+                          key={bIdx}
+                          style={[
+                            styles.ar3DBox,
+                            {
+                              borderColor: box.color,
+                              backgroundColor: box.color + '33',
+                              top: box.y * 1.05,
+                              left: box.x * 1.02,
+                              width: box.width * 1.05,
+                              height: box.height * 1.05,
+                              transform: [{ rotate: `${rotationAngle}deg` }],
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.ar3DBoxLabel, { color: box.color }]}>
+                            {box.label}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+
+                    {/* 3D AR Live Badge & Rotation Bar */}
+                    <View style={styles.arControlsBar}>
+                      <View style={styles.arTradeTag}>
+                        <Text style={styles.arTradeTagText}>
+                          🔮 3D {studioDesign.layoutTitle.split('(')[0]} ({studioLength}x{studioWidth} ft)
+                        </Text>
+                      </View>
+                      <View style={styles.arRotateControls}>
+                        <TouchableOpacity
+                          style={styles.arRotateBtn}
+                          onPress={() => setRotationAngle((prev) => (prev - 15) % 360)}
+                        >
+                          <Text style={styles.arRotateBtnText}>⟲</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.arRotateAngleText}>{rotationAngle}°</Text>
+                        <TouchableOpacity
+                          style={styles.arRotateBtn}
+                          onPress={() => setRotationAngle((prev) => (prev + 15) % 360)}
+                        >
+                          <Text style={styles.arRotateBtnText}>⟳</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
                 {/* Laser Scanning Grid Animation Overlay */}
                 {isScanning && (
                   <View style={styles.scanningOverlay}>
                     <View style={styles.laserBar} />
-                    <Text style={styles.scanningText}>🔍 AI उस्ताद फोटो स्कैन कर रहा है...</Text>
+                    <Text style={styles.scanningText}>🔍 AI उस्ताद 3D स्पेस स्कैन कर रहा है...</Text>
                   </View>
                 )}
 
@@ -626,9 +817,9 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                     <Text style={styles.doctorPipEmoji}>👷‍♂️</Text>
                   </View>
                   <View>
-                    <Text style={styles.doctorPipName}>AI उस्ताद (लाइव)</Text>
+                    <Text style={styles.doctorPipName}>AI उस्ताद 3D</Text>
                     <Text style={styles.doctorPipStatus}>
-                      {isScanning ? 'जांच जारी है...' : isCameraLive ? '🟢 लाइव कैमरा ऑन' : '🟢 ऑनलाइन'}
+                      {isScanning ? 'स्पेस स्कैनिंग...' : isCameraLive ? '🟢 लाइव 3D विजन' : '🟢 ऑनलाइन'}
                     </Text>
                   </View>
                 </View>
@@ -681,12 +872,126 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                     <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
                     <>
-                      <Ionicons name="camera" size={18} color="#FFFFFF" />
+                      <Ionicons name="scan" size={18} color="#FFFFFF" />
                       <Text style={styles.scanNowActionText}>
-                        📸 फोटो खींचें & AI स्कैन करें
+                        ⚡ 3D एरिया स्कैन करें
                       </Text>
                     </>
                   )}
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Voice Speech Bubble Banner */}
+            {voiceSpeechBubble ? (
+              <View style={styles.voiceBubbleCard}>
+                <Ionicons name="mic-circle" size={24} color="#4F46E5" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.voiceBubbleText}>{voiceSpeechBubble}</Text>
+                  <Text style={styles.voiceBubbleSub}>AI उस्ताद ने 3D लेआउट और मटीरियल लिस्ट अपडेट कर दी है</Text>
+                </View>
+              </View>
+            ) : null}
+
+            {/* 🌟 3D SPATIAL ESTIMATE & CONTRACTOR MATCH CARD */}
+            <View style={styles.spatialEstimateCard}>
+              <View style={styles.spatialCardHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <FontAwesome5 name="cubes" size={16} color="#4F46E5" />
+                  <Text style={styles.spatialCardTitle}>
+                    {studioDesign.layoutTitle}
+                  </Text>
+                </View>
+                <View style={styles.liveTradeBadge}>
+                  <Text style={styles.liveTradeBadgeText}>3D प्लान तैयार</Text>
+                </View>
+              </View>
+
+              <Text style={styles.spatialCardSubtitle}>
+                {studioDesign.finishTitle} • {studioLength}x{studioWidth} फीट ({studioDesign.totalSqFt} sq.ft)
+              </Text>
+
+              {/* Material Estimate Table */}
+              <View style={styles.materialEstimateTable}>
+                <Text style={styles.tableHeadTitle}>📋 आवश्यक सामान (Bhopal Market Wholesale):</Text>
+                {studioDesign.materialEstimate.map((mat, mIdx) => (
+                  <View key={mIdx} style={styles.tableRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.tableItemName}>{mat.name}</Text>
+                      <Text style={styles.tableItemQty}>{mat.qty}</Text>
+                    </View>
+                    <Text style={styles.tableItemTotal}>₹{mat.total.toLocaleString('en-IN')}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Key Components Breakdown */}
+              <View style={styles.componentBreakdownBox}>
+                <Text style={styles.tableHeadTitle}>🛠️ मुख्य फिटिंग्स & स्ट्रक्चर:</Text>
+                {studioDesign.cabinetBreakdown.map((cb, cIdx) => (
+                  <View key={cIdx} style={styles.cbRow}>
+                    <Text style={styles.cbBullet}>•</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cbItemTitle}>{cb.item} ({cb.qty} नग)</Text>
+                      <Text style={styles.cbItemDesc}>{cb.desc}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              {/* Grand Total Cost Box */}
+              <View style={styles.spatialCostTotalBox}>
+                <View style={styles.costSplitRow}>
+                  <Text style={styles.costSplitLabel}>सामान लागत (Materials):</Text>
+                  <Text style={styles.costSplitVal}>₹{studioDesign.totalMaterialCost.toLocaleString('en-IN')}</Text>
+                </View>
+                <View style={styles.costSplitRow}>
+                  <Text style={styles.costSplitLabel}>कारीगर मजदूरी (Labor Charge):</Text>
+                  <Text style={styles.costSplitVal}>₹{studioDesign.laborCost.toLocaleString('en-IN')}</Text>
+                </View>
+                <View style={styles.costDivider} />
+                <View style={styles.costGrandTotalRow}>
+                  <Text style={styles.grandTotalLabelText}>कुल अनुमानित खर्च (Estimate):</Text>
+                  <Text style={styles.grandTotalValText}>₹{studioDesign.grandTotal.toLocaleString('en-IN')}</Text>
+                </View>
+              </View>
+
+              {/* Ustad Advice */}
+              <View style={styles.spatialUstadAdvice}>
+                <Text style={styles.ustadAdviceIcon}>💡</Text>
+                <Text style={styles.ustadAdviceText}>{studioDesign.ustadAdvice}</Text>
+              </View>
+
+              {/* 1-Click WhatsApp & Hire Actions */}
+              <View style={styles.spatialActionBtns}>
+                <TouchableOpacity
+                  style={styles.spatialWhatsAppBtn}
+                  onPress={handleSendStudioWhatsApp}
+                  activeOpacity={0.88}
+                >
+                  <FontAwesome5 name="whatsapp" size={17} color="#FFFFFF" />
+                  <Text style={styles.spatialWhatsAppText}>व्हाट्सएप पर 3D प्लान & कोटेशन भेजें</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.spatialHireBtn}
+                  onPress={() => {
+                    const tradeMap: Record<string, string> = {
+                      kitchen: 'carpenter',
+                      wardrobe: 'carpenter',
+                      masonry: 'mason',
+                      plumbing: 'plumber',
+                      electrical: 'electrician',
+                    };
+                    if (onOpenContractorCategory) {
+                      onOpenContractorCategory(tradeMap[studioType] || 'carpenter');
+                    }
+                    onClose();
+                  }}
+                  activeOpacity={0.88}
+                >
+                  <Ionicons name="flash" size={16} color="#FFFFFF" />
+                  <Text style={styles.spatialHireText}>⚡ 15 मिनट में कारीगर बुक करें</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -2308,6 +2613,371 @@ const styles = StyleSheet.create({
   paywallSecondaryText: {
     color: '#16A34A',
     fontSize: 12,
+    fontWeight: '800',
+  },
+  // Multi-Trade AR Selector Pills
+  tradePillBar: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#0F172A',
+    overflow: 'scroll',
+  },
+  tradePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  tradePillActive: {
+    backgroundColor: '#4F46E5',
+    borderColor: '#818CF8',
+  },
+  tradePillIcon: {
+    fontSize: 12,
+  },
+  tradePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94A3B8',
+  },
+  tradePillTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  // Viewfinder 3D AR & Voice Buttons
+  viewfinder3DBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  viewfinder3DBtnActive: {
+    backgroundColor: 'rgba(245, 158, 11, 0.25)',
+    borderColor: '#F59E0B',
+  },
+  viewfinder3DText: {
+    color: '#FFFFFF',
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  viewfinderMicBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+  },
+  viewfinderMicBtnActive: {
+    backgroundColor: '#EF4444',
+    borderColor: '#F87171',
+  },
+  viewfinderMicText: {
+    color: '#FFFFFF',
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  // AR 3D Holographic Overlay Container
+  ar3DOverlayContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'space-between',
+    padding: 12,
+    zIndex: 10,
+  },
+  arGridPerspective: {
+    flex: 1,
+    position: 'relative',
+    marginVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(99, 102, 241, 0.4)',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+  },
+  ar3DBox: {
+    position: 'absolute',
+    borderRadius: 6,
+    borderWidth: 1.5,
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  ar3DBoxLabel: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  arControlsBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  arTradeTag: {
+    flex: 1,
+  },
+  arTradeTagText: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  arRotateControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  arRotateBtn: {
+    backgroundColor: '#334155',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  arRotateBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  arRotateAngleText: {
+    color: '#94A3B8',
+    fontSize: 10.5,
+    fontWeight: '700',
+    minWidth: 26,
+    textAlign: 'center',
+  },
+  // Voice Bubble Card
+  voiceBubbleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#EEF2FF',
+    marginHorizontal: 12,
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  voiceBubbleText: {
+    color: '#1E1B4B',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  voiceBubbleSub: {
+    color: '#4F46E5',
+    fontSize: 10.5,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  // Spatial Estimate Card & Tables
+  spatialEstimateCard: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 12,
+    marginTop: 12,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  spatialCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  spatialCardTitle: {
+    color: '#0F172A',
+    fontSize: 14.5,
+    fontWeight: '900',
+  },
+  liveTradeBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  liveTradeBadgeText: {
+    color: '#15803D',
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  spatialCardSubtitle: {
+    color: '#64748B',
+    fontSize: 11.5,
+    fontWeight: '600',
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  materialEstimateTable: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  tableHeadTitle: {
+    color: '#1E293B',
+    fontSize: 11.5,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#E2E8F0',
+  },
+  tableItemName: {
+    color: '#334155',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  tableItemQty: {
+    color: '#64748B',
+    fontSize: 10,
+  },
+  tableItemTotal: {
+    color: '#15803D',
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
+  componentBreakdownBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  cbRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginVertical: 3,
+  },
+  cbBullet: {
+    color: '#4F46E5',
+    fontWeight: '900',
+    fontSize: 14,
+  },
+  cbItemTitle: {
+    color: '#1E293B',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  cbItemDesc: {
+    color: '#64748B',
+    fontSize: 10,
+  },
+  spatialCostTotalBox: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  costSplitRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 2,
+  },
+  costSplitLabel: {
+    color: '#78350F',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  costSplitVal: {
+    color: '#92400E',
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  costGrandTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  grandTotalLabelText: {
+    color: '#78350F',
+    fontSize: 12.5,
+    fontWeight: '900',
+  },
+  grandTotalValText: {
+    color: '#15803D',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  spatialUstadAdvice: {
+    flexDirection: 'row',
+    gap: 6,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 12,
+  },
+  ustadAdviceIcon: {
+    fontSize: 14,
+  },
+  spatialActionBtns: {
+    gap: 8,
+  },
+  spatialWhatsAppBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#25D366',
+    paddingVertical: 11,
+    borderRadius: 10,
+  },
+  spatialWhatsAppText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '800',
+  },
+  spatialHireBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#4F46E5',
+    paddingVertical: 11,
+    borderRadius: 10,
+  },
+  spatialHireText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
     fontWeight: '800',
   },
 });

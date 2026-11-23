@@ -1043,10 +1043,10 @@ export function calculateCustomerEstimate(params: CustomerEstimateParams): Custo
 
 export interface SpaceDesign3D {
   id: string;
-  type: 'kitchen' | 'wardrobe';
-  layoutKey: 'L_SHAPE' | 'PARALLEL' | 'U_SHAPE' | 'STRAIGHT' | 'ISLAND';
+  type: 'kitchen' | 'wardrobe' | 'masonry' | 'plumbing' | 'electrical';
+  layoutKey: string;
   layoutTitle: string;
-  finishKey: 'ACRYLIC' | 'PVC_LAMINATE' | 'PU_GLOSS' | 'TEAK_WOOD';
+  finishKey: string;
   finishTitle: string;
   dimensions: { lengthFt: number; widthFt: number; heightFt: number };
   totalSqFt: number;
@@ -1068,15 +1068,167 @@ export interface SpaceDesign3D {
 }
 
 export function calculate3DSpaceDesign(params: {
-  type: 'kitchen' | 'wardrobe';
-  layout: 'L_SHAPE' | 'PARALLEL' | 'U_SHAPE' | 'STRAIGHT' | 'ISLAND';
-  finish: 'ACRYLIC' | 'PVC_LAMINATE' | 'PU_GLOSS' | 'TEAK_WOOD';
-  lengthFt: number;
-  widthFt: number;
+  type: 'kitchen' | 'wardrobe' | 'masonry' | 'plumbing' | 'electrical';
+  layout?: string;
+  finish?: string;
+  lengthFt?: number;
+  widthFt?: number;
 }): SpaceDesign3D {
-  const { type, layout, finish, lengthFt = 10, widthFt = 8 } = params;
-  const heightFt = type === 'kitchen' ? 7 : 7.5;
+  const { type, layout = 'L_SHAPE', finish = 'ACRYLIC', lengthFt = 10, widthFt = 8 } = params;
 
+  // 1. MASONRY (राजमिस्त्री - घर/दीवार संरचना)
+  if (type === 'masonry') {
+    const heightFt = 10;
+    const wallArea = (lengthFt + widthFt) * 2 * heightFt;
+    const brickCount = Math.round(wallArea * 8.5); // 9 inch brickwork
+    const cementBags = Math.ceil(wallArea / 45); // 1:4 mortar
+    const sandCft = Math.round(cementBags * 8.5);
+    const steelKg = Math.round(lengthFt * widthFt * 1.8);
+
+    const cementCost = cementBags * 390;
+    const brickCost = Math.round(brickCount * 8.2);
+    const sandCost = Math.round(sandCft * 42);
+    const steelCost = Math.round(steelKg * 68);
+    const totalMaterialCost = cementCost + brickCost + sandCost + steelCost;
+    const laborCost = Math.round(wallArea * 48); // Bhopal mason standard
+    const grandTotal = totalMaterialCost + laborCost;
+
+    return {
+      id: `3d_masonry_${Date.now()}`,
+      type: 'masonry',
+      layoutKey: layout || 'ROOM_WALL',
+      layoutTitle: 'मकान / कमरा 3D चिनाई & कॉलम स्ट्रक्चर',
+      finishKey: finish || 'RED_BRICK',
+      finishTitle: '9 इंच अव्वल लाल ईंट + M20 कंक्रीट फ्रेम',
+      dimensions: { lengthFt, widthFt, heightFt },
+      totalSqFt: Math.round(lengthFt * widthFt),
+      runningFt: (lengthFt + widthFt) * 2,
+      cabinetBreakdown: [
+        { item: 'लोड-बेयरिंग RCC कॉलम (Pillars)', qty: 4, desc: '9x9 इंच 4 सूत सरिया + M20 कंक्रीट' },
+        { item: '9 इंच बाहरी सुरक्षा दीवार', qty: 2, desc: '1:4 सीमेंट-रेत अनुपात मजबूत चिनाई' },
+        { item: '7 फीट डोर & विंडो लिटल बीम', qty: 1, desc: 'दरवाजे/खिड़की के ऊपर 6 इंच टाई बीम' },
+        { item: 'वाटरप्रूफ डीपीसी (DPC) लेयर', qty: 1, desc: 'जमीन से सीलन रोकने हेतु डॉक्टर फिक्सिट कोटिंग' },
+      ],
+      materialEstimate: [
+        { name: 'अल्ट्राटेक/एसीसी सीमेंट (PPC)', qty: `${cementBags} बैग्स`, rate: 390, total: cementCost },
+        { name: 'अव्वल क्वालिटी लाल पक्की ईंट', qty: `${brickCount} नग`, rate: 8.2, total: brickCost },
+        { name: 'धुली हुई नर्मदा नदी की रेत', qty: `${sandCft} घन फीट`, rate: 42, total: sandCost },
+        { name: 'टाटा टिस्कॉन 550D 12mm सरिया', qty: `${steelKg} किलोग्राम`, rate: 68, total: steelCost },
+      ],
+      totalMaterialCost,
+      laborCost,
+      grandTotal,
+      ustadAdvice: 'उस्ताद की हिदायत: दीवार चिनाई के बाद लगातार 7 दिनों तक सुबह-शाम तराई (Curing) अवश्य करें। पिलर कास्टिंग के समय वाइब्रेटर चलाएं ताकि हवा के बुलबुले न रहें।',
+      schematicBoxes: [
+        { label: 'कॉलम 1 (9x9")', color: '#64748B', x: 20, y: 30, width: 35, height: 35 },
+        { label: '9" मुख्य दीवार', color: '#EF4444', x: 55, y: 38, width: 180, height: 20 },
+        { label: 'कॉलम 2 (9x9")', color: '#64748B', x: 235, y: 30, width: 35, height: 35 },
+        { label: 'खिड़की & लिंटेल बीम', color: '#3B82F6', x: 100, y: 80, width: 90, height: 45 },
+        { label: '7\' प्रवेश द्वार ओपनिंग', color: '#10B981', x: 70, y: 140, width: 150, height: 40 },
+      ],
+    };
+  }
+
+  // 2. PLUMBING (प्लम्बर - कंसील्ड पाइपलाइन & ड्रेनेज)
+  if (type === 'plumbing') {
+    const pipeLength1In = Math.round((lengthFt + widthFt) * 1.5);
+    const pipeLengthHalfIn = Math.round((lengthFt + widthFt) * 2);
+    const fittingsCount = 14;
+
+    const cpvcPipeCost = Math.round(pipeLength1In * 65);
+    const fittingsCost = fittingsCount * 140;
+    const drainagePipeCost = Math.round(lengthFt * 95);
+    const valvesCost = 1850;
+    const totalMaterialCost = cpvcPipeCost + fittingsCost + drainagePipeCost + valvesCost;
+    const laborCost = 3500; // Complete point-wise bathroom/kitchen plumbing
+    const grandTotal = totalMaterialCost + laborCost;
+
+    return {
+      id: `3d_plumbing_${Date.now()}`,
+      type: 'plumbing',
+      layoutKey: layout || 'CONCEALED_LOOP',
+      layoutTitle: 'कंसील्ड हॉट/कोल्ड जलप्रवाह & ढलान ड्रेनेज',
+      finishKey: finish || 'CPVC_SDR11',
+      finishTitle: 'एस्ट्रल/सुप्रीम CPVC क्लास 1 + PVC SWR ड्रेन',
+      dimensions: { lengthFt, widthFt, heightFt: 7 },
+      totalSqFt: Math.round(lengthFt * widthFt),
+      runningFt: lengthFt + widthFt,
+      cabinetBreakdown: [
+        { item: 'गीज़र इनलेट & आउटलेट लूप', qty: 2, desc: 'हॉट & कोल्ड सेपरेट कंसील्ड सर्किट' },
+        { item: 'शॉवर डाइवर्टर / वाशबेसिन पॉइंट', qty: 3, desc: '1/2 इंच ब्रास एल्बो सॉकेट' },
+        { item: '4 इंच PVC वेस्ट पाइप (2.5% ढलान)', qty: 1, desc: 'बिना रुकावट गंदा पानी निकासी' },
+        { item: 'एंटी-कॉकरोच नाहनी ट्रैप', qty: 2, desc: 'बदबू और कीड़े रोकने हेतु डीप सील' },
+      ],
+      materialEstimate: [
+        { name: 'एस्ट्रल 1" CPVC SDR-11 पाइप', qty: `${pipeLength1In} फीट`, rate: 65, total: cpvcPipeCost },
+        { name: 'ब्रास एल्बो, टी & सॉकेट्स सेट', qty: `${fittingsCount} नग`, rate: 140, total: fittingsCost },
+        { name: 'सुप्रीम 4" SWR ड्रेन पाइप विथ रिंग्स', qty: `${lengthFt} फीट`, rate: 95, total: drainagePipeCost },
+        { name: 'कंसील्ड बॉल वाल्व & टेफ्लॉन सॉल्वेंट', qty: '1 कॉम्बो किट', rate: 1850, total: valvesCost },
+      ],
+      totalMaterialCost,
+      laborCost,
+      grandTotal,
+      ustadAdvice: 'उस्ताद की हिदायत: दीवार में कंसील्ड पाइप लगाने के बाद प्लास्टर से पहले 24 घंटे 100 PSI पर वाटर प्रेशर टेस्टिंग अवश्य कराएं, और ड्रेन पाइप में 1 फीट पर कम से कम 1/4 इंच ढलान रखें।',
+      schematicBoxes: [
+        { label: 'मेन वाटर इनलेट लाइन (1" CPVC)', color: '#0284C7', x: 20, y: 30, width: 250, height: 16 },
+        { label: 'गीज़र हॉट लाइन (रेड CPVC)', color: '#EF4444', x: 40, y: 65, width: 120, height: 16 },
+        { label: 'कंसील्ड डाइवर्टर & शॉवर', color: '#06B6D4', x: 180, y: 65, width: 85, height: 40 },
+        { label: '4" SWR वेस्ट ड्रेन (ढलान)', color: '#10B981', x: 30, y: 130, width: 230, height: 24 },
+      ],
+    };
+  }
+
+  // 3. ELECTRICAL (इलेक्ट्रीशियन - कंसील्ड वायरिंग & लोड)
+  if (type === 'electrical') {
+    const conduitLength = Math.round((lengthFt + widthFt) * 3);
+    const wireBundles = 4;
+    const modularBoxes = 6;
+
+    const conduitCost = Math.round(conduitLength * 22);
+    const wireCost = wireBundles * 1450;
+    const boxCost = modularBoxes * 210;
+    const mcbCost = 1600;
+    const totalMaterialCost = conduitCost + wireCost + boxCost + mcbCost;
+    const laborCost = 2800;
+    const grandTotal = totalMaterialCost + laborCost;
+
+    return {
+      id: `3d_electrical_${Date.now()}`,
+      type: 'electrical',
+      layoutKey: layout || 'CONCEALED_CONDUIT',
+      layoutTitle: '3D कंसील्ड कंड्यूट वायरिंग & MCB सर्किट',
+      finishKey: finish || 'FR_COPPER',
+      finishTitle: 'पॉलीकैब/हैवेल्स FR-LSH शुद्ध कॉपर वायर',
+      dimensions: { lengthFt, widthFt, heightFt: 9 },
+      totalSqFt: Math.round(lengthFt * widthFt),
+      runningFt: lengthFt + widthFt,
+      cabinetBreakdown: [
+        { item: '12-मॉड्यूलर मेन स्विचबोर्ड पॉइंट', qty: 2, desc: 'फैन रेगुलेटर + 6A सॉकेट्स' },
+        { item: '16A पावर सॉकेट (AC/गीज़र)', qty: 2, desc: '4 sq mm हैवी लोड डेडिकेटेड लाइन' },
+        { item: 'सीलिंग फैन & COB प्रोफाइल लाइट हुक', qty: 4, desc: 'कंसील्ड जंक्शन बॉक्स' },
+        { item: 'अर्थिंग सर्किट & सेपरेट न्यूट्रल', qty: 1, desc: 'शॉक-प्रूफ होम प्रोटेक्शन' },
+      ],
+      materialEstimate: [
+        { name: 'पॉलीकैब 1.5 sq mm कॉपर वायर (लाइटिंग)', qty: '2 बंडल (90m)', rate: 1450, total: 2900 },
+        { name: 'पॉलीकैब 2.5 & 4 sq mm कॉपर वायर (पावर/AC)', qty: '2 बंडल (90m)', rate: 1650, total: 3300 },
+        { name: '25mm हैवी ड्यूटी PVC कंड्यूट पाइप', qty: `${conduitLength} फीट`, rate: 22, total: conduitCost },
+        { name: 'हैवेल्स MCB & मेटल कंसील्ड बॉक्स', qty: `${modularBoxes} नग + 32A MCB`, rate: 380, total: boxCost + mcbCost },
+      ],
+      totalMaterialCost,
+      laborCost,
+      grandTotal,
+      ustadAdvice: 'उस्ताद की हिदायत: AC और गीज़र के लिए कभी भी 1.5 mm का तार न लगाएं, हमेशा न्यूनतम 4 sq mm का सेपरेट सर्किट और 2.5 mm शुद्ध कॉपर की अर्थिंग दौड़ाएं।',
+      schematicBoxes: [
+        { label: 'मेन MCB डिस्ट्रीब्यूशन बॉक्स', color: '#F59E0B', x: 20, y: 30, width: 75, height: 50 },
+        { label: '25mm सीलिंग कंड्यूट लाइन', color: '#6366F1', x: 105, y: 40, width: 165, height: 16 },
+        { label: '16A AC पावर सॉकेट', color: '#EF4444', x: 190, y: 75, width: 80, height: 35 },
+        { label: '12-मॉड्यूलर मेन स्विचबोर्ड', color: '#10B981', x: 30, y: 110, width: 130, height: 45 },
+      ],
+    };
+  }
+
+  // 4. KITCHEN & WARDROBE (बढ़ई / कारपेंटर)
+  const heightFt = type === 'kitchen' ? 7 : 7.5;
   let runningFt = lengthFt;
   if (layout === 'L_SHAPE') runningFt = lengthFt + widthFt - 2;
   else if (layout === 'PARALLEL') runningFt = lengthFt * 2;
