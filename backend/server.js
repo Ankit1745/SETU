@@ -9,15 +9,21 @@ const { createToken, verifyToken, requireAuth, requireRole } = require('./auth')
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Directories setup
-const PUBLIC_UPLOADS_DIR = path.join(__dirname, 'uploads', 'public');
-const PRIVATE_UPLOADS_DIR = path.join(__dirname, 'uploads', 'private');
-const LEGACY_UPLOADS_DIR = path.join(__dirname, 'uploads');
-const DB_FILE = path.join(__dirname, 'database.json');
+// Directories setup (Safe for read-only serverless environments like Vercel)
+const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME;
+const UPLOADS_BASE = isServerless ? '/tmp' : __dirname;
+const PUBLIC_UPLOADS_DIR = path.join(UPLOADS_BASE, 'uploads', 'public');
+const PRIVATE_UPLOADS_DIR = path.join(UPLOADS_BASE, 'uploads', 'private');
+const LEGACY_UPLOADS_DIR = path.join(UPLOADS_BASE, 'uploads');
+const DB_FILE = isServerless ? path.join('/tmp', 'database.json') : path.join(__dirname, 'database.json');
 
-[PUBLIC_UPLOADS_DIR, PRIVATE_UPLOADS_DIR, LEGACY_UPLOADS_DIR].forEach((dir) => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-});
+try {
+  [PUBLIC_UPLOADS_DIR, PRIVATE_UPLOADS_DIR, LEGACY_UPLOADS_DIR].forEach((dir) => {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  });
+} catch (e) {
+  console.warn('Notice: upload directories init skipped (serverless environment)');
+}
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
