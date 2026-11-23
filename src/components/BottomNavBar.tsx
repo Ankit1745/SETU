@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
 import { Language, TRANSLATIONS } from '../i18n/translations';
@@ -25,11 +25,13 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         activeOpacity={0.8}
         onPress={() => onTabPress('home')}
       >
-        <Ionicons
-          name={activeTab === 'home' ? 'compass' : 'compass-outline'}
-          size={22}
-          color={activeTab === 'home' ? COLORS.primary : COLORS.textMuted}
-        />
+        <View style={[styles.iconWrap, activeTab === 'home' && styles.iconWrapActive]}>
+          <Ionicons
+            name={activeTab === 'home' ? 'compass' : 'compass-outline'}
+            size={20}
+            color={activeTab === 'home' ? '#FFFFFF' : '#94A3B8'}
+          />
+        </View>
         <Text
           style={[
             styles.tabLabel,
@@ -52,7 +54,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         <Text
           style={[
             styles.tabLabel,
-            activeTab === 'quick' && { color: '#DC2626', fontWeight: '800' },
+            activeTab === 'quick' ? { color: '#EF4444', fontWeight: '900' } : { color: '#F87171' },
           ]}
         >
           {t.navQuick}
@@ -65,11 +67,13 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         activeOpacity={0.8}
         onPress={() => onTabPress('estimator')}
       >
-        <Ionicons
-          name={activeTab === 'estimator' ? 'calculator' : 'calculator-outline'}
-          size={22}
-          color={activeTab === 'estimator' ? COLORS.primary : COLORS.textMuted}
-        />
+        <View style={[styles.iconWrap, activeTab === 'estimator' && styles.iconWrapActive]}>
+          <Ionicons
+            name={activeTab === 'estimator' ? 'calculator' : 'calculator-outline'}
+            size={20}
+            color={activeTab === 'estimator' ? '#FFFFFF' : '#94A3B8'}
+          />
+        </View>
         <Text
           style={[
             styles.tabLabel,
@@ -86,15 +90,17 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         activeOpacity={0.8}
         onPress={() => onTabPress('partner')}
       >
-        <MaterialIcons
-          name="business-center"
-          size={22}
-          color={activeTab === 'partner' ? COLORS.secondary : COLORS.textMuted}
-        />
+        <View style={[styles.iconWrap, activeTab === 'partner' && styles.iconWrapPartnerActive]}>
+          <MaterialIcons
+            name="business-center"
+            size={20}
+            color={activeTab === 'partner' ? '#FFFFFF' : '#94A3B8'}
+          />
+        </View>
         <Text
           style={[
             styles.tabLabel,
-            activeTab === 'partner' && { color: COLORS.secondary, fontWeight: '800' },
+            activeTab === 'partner' && { color: '#FB923C', fontWeight: '900' },
           ]}
         >
           {t.navPartner}
@@ -107,11 +113,13 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         activeOpacity={0.8}
         onPress={() => onTabPress('profile')}
       >
-        <Ionicons
-          name={activeTab === 'profile' ? 'person' : 'person-outline'}
-          size={22}
-          color={activeTab === 'profile' ? COLORS.primary : COLORS.textMuted}
-        />
+        <View style={[styles.iconWrap, activeTab === 'profile' && styles.iconWrapActive]}>
+          <Ionicons
+            name={activeTab === 'profile' ? 'person' : 'person-outline'}
+            size={20}
+            color={activeTab === 'profile' ? '#FFFFFF' : '#94A3B8'}
+          />
+        </View>
         <Text
           style={[
             styles.tabLabel,
@@ -128,40 +136,81 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#0F172A',
     borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    paddingVertical: 8,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    paddingTop: 6,
+    paddingBottom: Platform.OS === 'web' ? 8 : 4,
     paddingHorizontal: 6,
     justifyContent: 'space-around',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 5,
-    elevation: 8,
+    ...Platform.select({
+      web: {
+        position: 'sticky' as any,
+        bottom: 0,
+        zIndex: 100,
+        backdropFilter: 'blur(16px)',
+        boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.4)',
+      },
+      default: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -3 },
+        shadowOpacity: 0.3,
+        shadowRadius: 6,
+        elevation: 10,
+      },
+    }),
   },
   tabItem: {
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
   },
+  iconWrap: {
+    padding: 3,
+    borderRadius: 8,
+  },
+  iconWrapActive: {
+    backgroundColor: '#2563EB',
+    ...Platform.select({
+      web: {
+        boxShadow: '0 2px 8px rgba(37, 99, 235, 0.5)',
+      },
+    }),
+  },
+  iconWrapPartnerActive: {
+    backgroundColor: '#EA580C',
+    ...Platform.select({
+      web: {
+        boxShadow: '0 2px 8px rgba(234, 88, 12, 0.5)',
+      },
+    }),
+  },
   tabLabel: {
-    fontSize: 10,
-    color: COLORS.textMuted,
-    fontWeight: '600',
-    marginTop: 3,
+    fontSize: 9.5,
+    color: '#94A3B8',
+    fontWeight: '700',
+    marginTop: 2,
   },
   tabLabelActive: {
-    color: COLORS.primary,
-    fontWeight: '800',
+    color: '#60A5FA',
+    fontWeight: '900',
   },
   quickIconWrapper: {
     backgroundColor: '#DC2626',
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
+    ...Platform.select({
+      web: {
+        boxShadow: '0 0 10px rgba(220, 38, 38, 0.6)',
+      },
+      default: {
+        elevation: 4,
+      },
+    }),
   },
 });
+

@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Image,
 } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
@@ -201,15 +202,20 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
     onLoginSuccess(selected);
   };
 
+  const logoSource =
+    language === 'hi'
+      ? require('../../assets/setu-logo-hi.jpg')
+      : require('../../assets/setu-logo-en.jpg');
+
   return (
     <View style={styles.root}>
       {/* Top Bar with Language Selector */}
       <View style={styles.topBar}>
         <View style={styles.brandRow}>
-          <View style={styles.logoBadge}>
-            <Text style={styles.logoBadgeText}>सेतु</Text>
+          <View style={styles.topLogoBadgeContainer}>
+            <Image source={logoSource} style={styles.topLogoImage} resizeMode="cover" />
           </View>
-          <Text style={styles.brandTitle}>SETU</Text>
+          <Text style={styles.brandTitle}>{language === 'hi' ? 'सेतु' : 'SETU'}</Text>
         </View>
 
         {/* Tri-Lingual Language Selector */}
@@ -259,14 +265,36 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
           </View>
         )}
 
-        {/* Hero Welcome Card */}
+        {/* 3D Hero Welcome Card with Official Logo */}
         <View style={styles.welcomeCard}>
-          <View style={styles.welcomeIconCircle}>
-            <FontAwesome5 name="hard-hat" size={28} color="#FFFFFF" />
+          <View style={styles.welcomeLogo3DContainer}>
+            <Image source={logoSource} style={styles.welcomeLogo3DImage} resizeMode="cover" />
           </View>
           <Text style={styles.welcomeTitle}>{t.welcomeTitle}</Text>
           <Text style={styles.welcomeTagline}>{t.welcomeSub}</Text>
           <Text style={styles.welcomeDesc}>{t.welcomeDesc}</Text>
+
+          {/* 3 Trust Pillars */}
+          <View style={styles.trustPillarsRow}>
+            <View style={styles.trustPillar}>
+              <Ionicons name="shield-checkmark" size={13} color="#22C55E" />
+              <Text style={styles.trustPillarText}>
+                {language === 'hi' ? '100% वेरिफाइड' : '100% Verified'}
+              </Text>
+            </View>
+            <View style={styles.trustPillar}>
+              <Ionicons name="lock-closed" size={12} color="#0284C7" />
+              <Text style={styles.trustPillarText}>
+                {language === 'hi' ? 'एस्क्रो सुरक्षित' : 'Escrow Safe'}
+              </Text>
+            </View>
+            <View style={styles.trustPillar}>
+              <Ionicons name="flash" size={12} color="#EA580C" />
+              <Text style={styles.trustPillarText}>
+                {language === 'hi' ? '15m आगमन' : '15m Arrival'}
+              </Text>
+            </View>
+          </View>
         </View>
 
         {/* Role Selector Tabs */}
@@ -504,16 +532,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  logoBadge: {
-    backgroundColor: '#3B82F6',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+  topLogoBadgeContainer: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#000000',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 122, 0, 0.5)',
+    ...Platform.select({
+      web: {
+        boxShadow: '0 0 10px rgba(255, 122, 0, 0.4)',
+      },
+    }),
   },
-  logoBadgeText: {
-    color: '#FFFFFF',
-    fontWeight: '900',
-    fontSize: 14,
+  topLogoImage: {
+    width: '100%',
+    height: '100%',
   },
   brandTitle: {
     color: '#FFFFFF',
@@ -606,19 +641,55 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     marginBottom: 14,
   },
-  welcomeIconCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#2563EB',
+  welcomeLogo3DContainer: {
+    width: 84,
+    height: 84,
+    borderRadius: 22,
+    overflow: 'hidden',
+    backgroundColor: '#000000',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 122, 0, 0.6)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 8,
+    marginBottom: 14,
+    ...Platform.select({
+      web: {
+        boxShadow: '0 10px 30px rgba(255, 122, 0, 0.35), 0 0 20px rgba(37, 99, 235, 0.35)',
+      },
+      default: {
+        shadowColor: '#FF7A00',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.5,
+        shadowRadius: 14,
+        elevation: 10,
+      },
+    }),
+  },
+  welcomeLogo3DImage: {
+    width: '100%',
+    height: '100%',
+  },
+  trustPillarsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+  },
+  trustPillar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    gap: 4,
+  },
+  trustPillarText: {
+    color: '#E2E8F0',
+    fontSize: 10,
+    fontWeight: '700',
   },
   welcomeTitle: {
     fontSize: 22,

@@ -10,6 +10,7 @@ import {
   Modal,
   Platform,
   Linking,
+  Image,
 } from 'react-native';
 import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import {
@@ -342,6 +343,11 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
     );
   };
 
+  const logoSource =
+    language === 'hi'
+      ? require('../../assets/setu-logo-hi.jpg')
+      : require('../../assets/setu-logo-en.jpg');
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -349,14 +355,63 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.mainScrollContent}
       >
-        {/* 1. TOP DISCOVERY & SEARCH CARD (Direct Landing without OTP requirement) */}
+        {/* 🌟 3D HERO BRAND SPOTLIGHT CARD */}
+        <View style={styles.heroSpotlightCard}>
+          <View style={styles.heroSpotlightContent}>
+            <View style={styles.heroLogo3DContainer}>
+              <Image source={logoSource} style={styles.heroLogo3DImg} resizeMode="cover" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.heroSpotlightTitle}>
+                  {language === 'hi' ? 'सेतु • विश्वसनीय साथी' : 'SETU • Trusted Network'}
+                </Text>
+                <View style={styles.heroLiveBadge}>
+                  <View style={styles.heroLiveDot} />
+                  <Text style={styles.heroLiveText}>15m LIVE</Text>
+                </View>
+              </View>
+              <Text style={styles.heroSpotlightSub}>
+                {language === 'hi'
+                  ? 'भोपाल का 3D स्मार्ट नेटवर्क: 15 मिनट में सत्यापित कारीगर • उचित दरें'
+                  : 'Bhopal’s 3D Smart Network: 15-min verified contractors • Fixed Rates'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Quick Metrics & Trust Badges Strip */}
+          <View style={styles.heroMetricsStrip}>
+            <View style={styles.heroMetricItem}>
+              <Ionicons name="shield-checkmark" size={13} color="#22C55E" />
+              <Text style={styles.heroMetricText}>
+                {language === 'hi' ? '0% धोखाधड़ी' : '0% Fraud Risk'}
+              </Text>
+            </View>
+            <View style={styles.heroMetricDivider} />
+            <View style={styles.heroMetricItem}>
+              <Ionicons name="flash" size={13} color="#EA580C" />
+              <Text style={styles.heroMetricText}>
+                {language === 'hi' ? '15m एक्सप्रेस' : '15m Express'}
+              </Text>
+            </View>
+            <View style={styles.heroMetricDivider} />
+            <View style={styles.heroMetricItem}>
+              <Ionicons name="lock-closed" size={12} color="#0284C7" />
+              <Text style={styles.heroMetricText}>
+                {language === 'hi' ? 'एस्क्रो सुरक्षित' : 'Escrow Safe'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* 1. TOP DISCOVERY & SEARCH CARD */}
         <View style={styles.topDiscoveryCard}>
           {/* "क्या काम करवाना है?" Search Input */}
           <View style={styles.mainSearchRow}>
-            <Ionicons name="search" size={20} color={COLORS.primary} />
+            <Ionicons name="search" size={20} color="#2563EB" />
             <TextInput
               style={styles.mainSearchInput}
-              placeholder={language === 'hi' ? 'क्या काम करवाना है? (बढ़ई, प्लंबर, वायरिंग...)' : 'What work do you need? (Carpenter, Plumber...)'}
+              placeholder={language === 'hi' ? 'क्या काम करवाना है? (बढ़ई, प्लंबर, वायरिंग, पुट्टी...)' : 'What work do you need? (Carpenter, Plumber, Wiring...)'}
               placeholderTextColor="#94A3B8"
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -370,7 +425,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
               style={[styles.mainMicBtn, isListening && styles.mainMicBtnActive]}
               onPress={handleStartVoiceSearch}
             >
-              <MaterialIcons name="mic" size={20} color={isListening ? '#EF4444' : COLORS.primary} />
+              <MaterialIcons name="mic" size={20} color={isListening ? '#EF4444' : '#2563EB'} />
             </TouchableOpacity>
           </View>
 
@@ -402,16 +457,17 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
           </View>
         </View>
 
-        {/* 2. 5 PRIMARY CATEGORIES */}
+        {/* 2. 3D INTERACTIVE CATEGORIES */}
         <View style={styles.categoriesSection}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryPillsScroll}>
             {[
-              { id: 'all', label: language === 'hi' ? '🌟 सभी' : 'All', action: () => { setSelectedCategory('all'); setSelectedNeed('ALL'); } },
-              { id: 'plumber', label: language === 'hi' ? '🚰 प्लंबर' : 'Plumber', action: () => { setSelectedCategory('plumber'); setSelectedNeed('ALL'); } },
-              { id: 'electrician', label: language === 'hi' ? '⚡ बिजली' : 'Electrician', action: () => { setSelectedCategory('electrician'); setSelectedNeed('ALL'); } },
-              { id: 'carpenter', label: language === 'hi' ? '🪚 बढ़ई' : 'Carpenter', action: () => { setSelectedCategory('carpenter'); setSelectedNeed('ALL'); } },
-              { id: 'mason', label: language === 'hi' ? '🧱 मिस्त्री' : 'Mason', action: () => { setSelectedCategory('mason'); setSelectedNeed('ALL'); } },
-              { id: 'wedding', label: language === 'hi' ? '🎪 इवेंट & शादी' : 'Events', action: () => { setSelectedNeed('WEDDING'); setSelectedCategory('all'); } },
+              { id: 'all', icon: 'sparkles', label: language === 'hi' ? '🌟 सभी' : 'All', action: () => { setSelectedCategory('all'); setSelectedNeed('ALL'); } },
+              { id: 'plumber', icon: 'water', label: language === 'hi' ? '🚰 प्लंबर' : 'Plumber', action: () => { setSelectedCategory('plumber'); setSelectedNeed('ALL'); } },
+              { id: 'electrician', icon: 'flash', label: language === 'hi' ? '⚡ बिजली' : 'Electrician', action: () => { setSelectedCategory('electrician'); setSelectedNeed('ALL'); } },
+              { id: 'carpenter', icon: 'hammer', label: language === 'hi' ? '🪚 बढ़ई' : 'Carpenter', action: () => { setSelectedCategory('carpenter'); setSelectedNeed('ALL'); } },
+              { id: 'mason', icon: 'cube', label: language === 'hi' ? '🧱 मिस्त्री' : 'Mason', action: () => { setSelectedCategory('mason'); setSelectedNeed('ALL'); } },
+              { id: 'painter', icon: 'color-palette', label: language === 'hi' ? '🎨 पेंटर' : 'Painter', action: () => { setSelectedCategory('painter'); setSelectedNeed('ALL'); } },
+              { id: 'wedding', icon: 'heart', label: language === 'hi' ? '🎪 इवेंट' : 'Events', action: () => { setSelectedNeed('WEDDING'); setSelectedCategory('all'); } },
             ].map((cat) => {
               const isActive = (cat.id === 'all' && selectedCategory === 'all' && selectedNeed === 'ALL') ||
                 (cat.id === selectedCategory) ||
@@ -810,6 +866,116 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
+  // 3D Hero Brand Spotlight Styles
+  heroSpotlightCard: {
+    backgroundColor: '#0B1120',
+    marginHorizontal: 10,
+    marginTop: 10,
+    marginBottom: 8,
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 122, 0, 0.35)',
+    ...Platform.select({
+      web: {
+        boxShadow: '0 8px 24px -4px rgba(0, 0, 0, 0.4), 0 0 16px rgba(255, 122, 0, 0.15)',
+      },
+      default: {
+        shadowColor: '#FF7A00',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 8,
+        elevation: 6,
+      },
+    }),
+  },
+  heroSpotlightContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  heroLogo3DContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#000000',
+    borderWidth: 1.5,
+    borderColor: '#FF7A00',
+    ...Platform.select({
+      web: {
+        boxShadow: '0 0 12px rgba(255, 122, 0, 0.5)',
+      },
+    }),
+  },
+  heroLogo3DImg: {
+    width: '100%',
+    height: '100%',
+  },
+  heroSpotlightTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+  heroSpotlightSub: {
+    fontSize: 10,
+    color: '#94A3B8',
+    fontWeight: '600',
+    marginTop: 2,
+    lineHeight: 14,
+  },
+  heroLiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.4)',
+    gap: 4,
+  },
+  heroLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#22C55E',
+  },
+  heroLiveText: {
+    color: '#22C55E',
+    fontSize: 8.5,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  heroMetricsStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    marginTop: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.07)',
+  },
+  heroMetricItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  heroMetricText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#E2E8F0',
+  },
+  heroMetricDivider: {
+    width: 1,
+    height: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+  },
+
   // Top Discovery Search Box & Locality
   topDiscoveryCard: {
     backgroundColor: '#FFFFFF',
@@ -893,13 +1059,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 20,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    ...Platform.select({
+      web: {
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+      },
+    }),
   },
   categoryPillActive: {
-    backgroundColor: '#1E40AF',
-    borderColor: '#1E40AF',
+    backgroundColor: '#2563EB',
+    borderColor: '#3B82F6',
+    ...Platform.select({
+      web: {
+        boxShadow: '0 4px 12px rgba(37, 99, 235, 0.35)',
+      },
+      default: {
+        elevation: 3,
+      },
+    }),
   },
   categoryPillText: {
     fontSize: 12,
@@ -919,12 +1098,20 @@ const styles = StyleSheet.create({
   aiAssistBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EEF2FF',
+    backgroundColor: '#F5F3FF',
     borderWidth: 1.5,
-    borderColor: '#C7D2FE',
+    borderColor: '#DDD6FE',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    ...Platform.select({
+      web: {
+        boxShadow: '0 4px 12px rgba(124, 58, 237, 0.08)',
+      },
+      default: {
+        elevation: 2,
+      },
+    }),
   },
   aiSparkleBadge: {
     width: 26,

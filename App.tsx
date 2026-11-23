@@ -62,7 +62,20 @@ export default function App() {
   const [showPartnerRegistrationModal, setShowPartnerRegistrationModal] = useState<boolean>(false);
   const [partnerRegistrationType, setPartnerRegistrationType] = useState<'CONTRACTOR' | 'VENDOR'>('CONTRACTOR');
   const [activeContractorId, setActiveContractorId] = useState<string>('c1');
-  const [language, setLanguage] = useState<Language>('hi');
+  const [language, setLanguage] = useState<Language>(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const savedLang = window.localStorage?.getItem('setu_lang') as Language | null;
+      if (savedLang && ['hi', 'en', 'hinglish'].includes(savedLang)) return savedLang;
+    }
+    return 'hi';
+  });
+
+  const handleSetLanguage = (lang: Language) => {
+    setLanguage(lang);
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      window.localStorage?.setItem('setu_lang', lang);
+    }
+  };
   const [bottomTab, setBottomTab] = useState<'home' | 'quick' | 'estimator' | 'partner' | 'profile'>('home');
 
   // Security & Role-Based Access Control State
@@ -426,7 +439,7 @@ export default function App() {
         <StatusBar barStyle="light-content" />
         <AuthLandingScreen
           language={language}
-          onToggleLanguage={(lang) => setLanguage(lang)}
+          onToggleLanguage={handleSetLanguage}
           onLoginSuccess={(user) => {
             if (Platform.OS === 'web' && typeof window !== 'undefined') {
               window.sessionStorage?.setItem('setu_session_active', 'true');
@@ -541,7 +554,8 @@ export default function App() {
           onLogout={handleLogout}
           user={currentUser}
           language={language}
-          onToggleLanguage={() => setLanguage((prev) => (prev === 'hi' ? 'en' : prev === 'en' ? 'hinglish' : 'hi'))}
+          onToggleLanguage={() => handleSetLanguage(language === 'hi' ? 'en' : language === 'en' ? 'hinglish' : 'hi')}
+          onSelectLanguage={handleSetLanguage}
         />
       )}
 
