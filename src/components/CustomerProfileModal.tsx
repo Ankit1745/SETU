@@ -10,6 +10,7 @@ import {
   Alert,
   Image,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
@@ -64,6 +65,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
 
   // Real Features State
   const [realOtpReceived, setRealOtpReceived] = useState<string>('');
+  const [verificationToken, setVerificationToken] = useState<string | null>(null);
   const [smsNotification, setSmsNotification] = useState<string | null>(null);
   const [isSendingOtp, setIsSendingOtp] = useState<boolean>(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState<boolean>(false);
@@ -150,7 +152,12 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
 
     setIsSendingOtp(true);
     try {
-      const res = await fetch('/api/auth/send-otp', {
+      const origin =
+        Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin
+          ? window.location.origin
+          : 'https://setu-1-nine.vercel.app';
+
+      const res = await fetch(`${origin}/api/auth/send-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: clean }),
@@ -158,8 +165,12 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
       const data = await res.json();
 
       if (data.success) {
-        const generatedOtp = data.realOtp || '1234';
+        const generatedOtp = data.demoOtp || data.realOtp || '1234';
+        if (data.verificationToken) {
+          setVerificationToken(data.verificationToken);
+        }
         setRealOtpReceived(generatedOtp);
+        setOtp(generatedOtp); // Auto-fill for convenience
         setSmsNotification(generatedOtp);
         setLoginStep('OTP');
       } else {
@@ -169,6 +180,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
       // Fallback in case of network issue
       const mock = Math.floor(1000 + Math.random() * 9000).toString();
       setRealOtpReceived(mock);
+      setOtp(mock);
       setSmsNotification(mock);
       setLoginStep('OTP');
     } finally {
@@ -190,12 +202,18 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
     const clean = phone.replace(/\D/g, '').slice(-10);
 
     try {
-      const res = await fetch('/api/auth/verify-otp', {
+      const origin =
+        Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin
+          ? window.location.origin
+          : 'https://setu-1-nine.vercel.app';
+
+      const res = await fetch(`${origin}/api/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           phone: clean,
           otp: otp.trim(),
+          verificationToken,
           fullName: name.trim() || 'अंकित शर्मा (भोपाल)',
           role: authRole,
           avatarUrl: avatarUrl,
@@ -205,6 +223,9 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
       const data = await res.json();
 
       if (data.success) {
+        if (data.token) {
+          ApiService.setAuthToken(data.token);
+        }
         if (data.user) {
           setVerifiedUser(data.user);
         }

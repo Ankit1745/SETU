@@ -36,6 +36,7 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [name, setName] = useState('');
+  const [tradeOrShop, setTradeOrShop] = useState('');
   const [realOtpReceived, setRealOtpReceived] = useState<string>('');
   const [smsNotification, setSmsNotification] = useState<string | null>(null);
   const [isSendingOtp, setIsSendingOtp] = useState<boolean>(false);
@@ -128,9 +129,9 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
           phone: cleanPhone,
           otp: otp.trim(),
           verificationToken,
-          fullName: name || (authRole === 'CUSTOMER' ? 'अमित कुमार सिंह' : authRole === 'CONTRACTOR' ? 'रमेश शर्मा' : 'गुप्ता जी'),
+          fullName: name.trim() || (authRole === 'CUSTOMER' ? 'अमित कुमार सिंह' : authRole === 'CONTRACTOR' ? 'रमेश शर्मा' : 'गुप्ता जी'),
           role: authRole,
-          tradeOrShop: authRole === 'CONTRACTOR' ? 'मास्टर बढ़ई (Modular Kitchen)' : authRole === 'VENDOR' ? 'गुप्ता हार्डवेयर स्टोर' : '',
+          tradeOrShop: tradeOrShop.trim() || (authRole === 'CONTRACTOR' ? 'मास्टर बढ़ई (Modular Kitchen)' : authRole === 'VENDOR' ? 'गुप्ता हार्डवेयर स्टोर' : ''),
         }),
       });
 
@@ -383,13 +384,41 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
                 style={styles.nameInput}
                 placeholder={
                   language === 'en'
-                    ? 'Your Full Name (Optional)'
-                    : 'आपका पूरा नाम (वैकल्पिक)'
+                    ? 'Your Full Name (e.g. Amit Singh)'
+                    : 'आपका पूरा नाम (जैसे: अमित सिंह)'
                 }
                 placeholderTextColor="#94A3B8"
                 value={name}
                 onChangeText={setName}
               />
+
+              {authRole === 'CONTRACTOR' && (
+                <TextInput
+                  style={styles.nameInput}
+                  placeholder={
+                    language === 'en'
+                      ? 'Trade / Skill (e.g. Carpenter, Plumber, Mason)'
+                      : 'कारीगरी विधा (जैसे: बढ़ई, प्लंबर, राजमिस्त्री)'
+                  }
+                  placeholderTextColor="#94A3B8"
+                  value={tradeOrShop}
+                  onChangeText={setTradeOrShop}
+                />
+              )}
+
+              {authRole === 'VENDOR' && (
+                <TextInput
+                  style={styles.nameInput}
+                  placeholder={
+                    language === 'en'
+                      ? 'Shop / Business Name (e.g. Gupta Hardware)'
+                      : 'दुकान या व्यापार का नाम (जैसे: गुप्ता हार्डवेयर)'
+                  }
+                  placeholderTextColor="#94A3B8"
+                  value={tradeOrShop}
+                  onChangeText={setTradeOrShop}
+                />
+              )}
 
               <TouchableOpacity
                 style={styles.submitBtn}

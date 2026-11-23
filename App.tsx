@@ -64,10 +64,10 @@ export default function App() {
       try {
         const sessionActive = window.sessionStorage?.getItem('setu_session_active');
         if (!sessionActive) {
-          // Fresh visit: clear old demo cache, guest mode active so marketplace is open
+          // Fresh visit: show OTP login & registration screen first
           window.localStorage?.removeItem('setu_current_user');
           setCurrentUser(null);
-          setIsGuestBrowsing(true);
+          setIsGuestBrowsing(false);
         } else {
           const saved = window.localStorage?.getItem('setu_current_user');
           if (saved) {
