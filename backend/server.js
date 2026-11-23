@@ -15,7 +15,16 @@ const UPLOADS_BASE = isServerless ? '/tmp' : __dirname;
 const PUBLIC_UPLOADS_DIR = path.join(UPLOADS_BASE, 'uploads', 'public');
 const PRIVATE_UPLOADS_DIR = path.join(UPLOADS_BASE, 'uploads', 'private');
 const LEGACY_UPLOADS_DIR = path.join(UPLOADS_BASE, 'uploads');
-const DB_FILE = isServerless ? path.join('/tmp', 'database.json') : path.join(__dirname, 'database.json');
+const BUNDLED_DB_FILE = path.join(__dirname, 'database.json');
+const DB_FILE = isServerless ? path.join('/tmp', 'database.json') : BUNDLED_DB_FILE;
+
+try {
+  if (isServerless && !fs.existsSync(DB_FILE) && fs.existsSync(BUNDLED_DB_FILE)) {
+    fs.copyFileSync(BUNDLED_DB_FILE, DB_FILE);
+  }
+} catch (e) {
+  console.warn('Notice: /tmp database.json init warning:', e.message);
+}
 
 try {
   [PUBLIC_UPLOADS_DIR, PRIVATE_UPLOADS_DIR, LEGACY_UPLOADS_DIR].forEach((dir) => {
