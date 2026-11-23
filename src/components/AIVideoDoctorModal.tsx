@@ -30,6 +30,140 @@ import {
 } from '../utils/whatsapp';
 import { pickImageFromGallery, capturePhotoFromCamera } from '../utils/mediaPicker';
 
+export interface TradeVisualPreset {
+  id: string;
+  trade: 'kitchen' | 'wardrobe' | 'masonry' | 'plumbing' | 'electrical';
+  title: string;
+  styleName: string;
+  renderUrl: string;
+  rawSpaceUrl: string;
+  description: string;
+  finishKey: string;
+}
+
+export const TRADE_VISUAL_PRESETS: Record<string, TradeVisualPreset[]> = {
+  kitchen: [
+    {
+      id: 'k_teak',
+      trade: 'kitchen',
+      title: 'प्रीमियम टीकवुड & ब्लैक ग्रेनाइट L-शेप',
+      styleName: 'नेचुरल टीकवुड & मार्बल',
+      renderUrl: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&w=1000&q=80',
+      rawSpaceUrl: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80',
+      description: 'L-शेप मॉड्यूलर काउंटर, 45kg सॉफ्ट क्लोज ड्रॉअर्स, चिमनी व LED प्रोफाइल लाइट',
+      finishKey: 'TEAK_WOOD',
+    },
+    {
+      id: 'k_acrylic',
+      trade: 'kitchen',
+      title: 'मॉडर्न व्हाइट ऐक्रेलिक & क्वार्ट्ज स्लैब',
+      styleName: '1.5mm हाई-ग्लॉस ऐक्रेलिक',
+      renderUrl: 'https://images.unsplash.com/photo-1507089947368-19c1da9775ae?auto=format&fit=crop&w=1000&q=80',
+      rawSpaceUrl: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80',
+      description: 'सेंचुरी BWP मरीन प्लाई, स्क्रैच-रेसिस्टेंट ग्लॉस और हाइड्रॉलिक लिफ्ट-अप कैबिनेट',
+      finishKey: 'ACRYLIC',
+    },
+    {
+      id: 'k_italian',
+      trade: 'kitchen',
+      title: 'इटैलियन मिनिमलिस्ट मैट चारकोल',
+      styleName: 'इटैलियन PU लक्जरी',
+      renderUrl: 'https://images.unsplash.com/photo-1565183997392-2f6f122e5912?auto=format&fit=crop&w=1000&q=80',
+      rawSpaceUrl: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80',
+      description: 'हैंडल-लेस प्रोफ़ाइल शटर, इनबिल्ट पैंट्री और मैजिक कॉर्नर बास्केट्स',
+      finishKey: 'PU_GLOSS',
+    },
+  ],
+  wardrobe: [
+    {
+      id: 'w_walnut',
+      trade: 'wardrobe',
+      title: 'फ्लोर-टू-सीलिंग डार्क वॉलनट स्लाइडिंग वॉर्डरोब',
+      styleName: 'डार्क वॉलनट स्लाइडिंग',
+      renderUrl: 'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=1000&q=80',
+      rawSpaceUrl: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80',
+      description: '3 हैवी-ड्यूटी स्लाइडिंग शटर, फुल-लेंथ ड्रेसिंग मिरर, 4 इनर ड्रॉअर विथ डिजिटल लॉक',
+      finishKey: 'TEAK_WOOD',
+    },
+    {
+      id: 'w_glass',
+      trade: 'wardrobe',
+      title: 'ग्लास शटर वॉक-इन वॉर्डरोब विथ वार्म LED',
+      styleName: 'ग्लास शटर प्रोफाइल',
+      renderUrl: 'https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?auto=format&fit=crop&w=1000&q=80',
+      rawSpaceUrl: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80',
+      description: 'टिन्टेड टफन्ड ग्लास, एल्युमिनियम प्रोफाइल फ्रेम और ऑटोमैटिक सेंसर वार्डरोब लाइट्स',
+      finishKey: 'ACRYLIC',
+    },
+  ],
+  masonry: [
+    {
+      id: 'm_duplex',
+      trade: 'masonry',
+      title: 'मॉडर्न 2-मंजिला होम 3D एलिवेशन',
+      styleName: '2-मंजिला आधुनिक मकान',
+      renderUrl: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1000&q=80',
+      rawSpaceUrl: 'https://images.unsplash.com/photo-1541888946425-d0fbb186f5f7?auto=format&fit=crop&w=800&q=80',
+      description: '4 RCC लोड-बेयरिंग कॉलम, 9 इंच लाल पक्की ईंट दीवार, लिंटेल बीम और ग्लास बालकनी',
+      finishKey: 'RED_BRICK',
+    },
+    {
+      id: 'm_brick',
+      trade: 'masonry',
+      title: 'रस्टिक रेड ब्रिक एक्सेन्ट & कंक्रीट बीम',
+      styleName: 'रेड ब्रिक स्ट्रक्चर',
+      renderUrl: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=1000&q=80',
+      rawSpaceUrl: 'https://images.unsplash.com/photo-1541888946425-d0fbb186f5f7?auto=format&fit=crop&w=800&q=80',
+      description: '1:4 सीमेंट-रेत अनुपात मजबूत चिनाई, डॉक्टर फिक्सिट DPC और 7 फीट प्रवेश द्वार',
+      finishKey: 'RED_BRICK',
+    },
+  ],
+  plumbing: [
+    {
+      id: 'p_luxury',
+      trade: 'plumbing',
+      title: 'कंसील्ड क्रोम डाइवर्टर & सीलिंग रेन शॉवर',
+      styleName: 'लक्जरी कंसील्ड बाथरूम',
+      renderUrl: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?auto=format&fit=crop&w=1000&q=80',
+      rawSpaceUrl: 'https://images.unsplash.com/photo-1584622781564-1d987f7333c1?auto=format&fit=crop&w=800&q=80',
+      description: '1" CPVC मेन इनफ्लो, हॉट & कोल्ड सेपरेट सर्किट, 4" SWR ढलान ड्रेन और एंटी-कॉकरोच ट्रैप',
+      finishKey: 'CPVC_SDR11',
+    },
+    {
+      id: 'p_basin',
+      trade: 'plumbing',
+      title: 'वॉल-हंग प्रीमियम बेसिन & बॉटल ट्रैप',
+      styleName: 'वॉल-हंग बेसिन फिटिंग',
+      renderUrl: 'https://images.unsplash.com/photo-1620626011761-996317b8d101?auto=format&fit=crop&w=1000&q=80',
+      rawSpaceUrl: 'https://images.unsplash.com/photo-1584622781564-1d987f7333c1?auto=format&fit=crop&w=800&q=80',
+      description: 'ब्रास एल्बो सॉकेट, कंसील्ड स्टॉप कॉक और 100 PSI प्रेशर टेस्टेड पाइपलाइन',
+      finishKey: 'CPVC_SDR11',
+    },
+  ],
+  electrical: [
+    {
+      id: 'e_profile',
+      trade: 'electrical',
+      title: 'वार्म COB सीलिंग प्रोफाइल लाइटिंग & टीवी वॉल',
+      styleName: 'कंसील्ड प्रोफाइल लाइटिंग',
+      renderUrl: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1000&q=80',
+      rawSpaceUrl: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80',
+      description: '25mm PVC कंड्यूट पाइप, 4 sq.mm AC पावर लाइन, 12-मॉड्यूलर मेन स्विचबोर्ड और शुद्ध कॉपर अर्थिंग',
+      finishKey: 'FR_COPPER',
+    },
+    {
+      id: 'e_living',
+      trade: 'electrical',
+      title: 'स्मार्ट होम ऑटोमेशन & एम्बिएंट लाइटिंग',
+      styleName: 'स्मार्ट होम स्विचबोर्ड',
+      renderUrl: 'https://images.unsplash.com/photo-1600585154526-990dced4db0d?auto=format&fit=crop&w=1000&q=80',
+      rawSpaceUrl: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=800&q=80',
+      description: 'हैवेल्स 32A MCB डिस्ट्रीब्यूशन, सीलिंग फैन जंक्शन और LED बैकलाइटिंग सर्किट',
+      finishKey: 'FR_COPPER',
+    },
+  ],
+};
+
 interface AIVideoDoctorModalProps {
   visible: boolean;
   onClose: () => void;
@@ -404,6 +538,11 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
   const [rotationAngle, setRotationAngle] = useState<number>(15);
   const [isVoiceListening, setIsVoiceListening] = useState<boolean>(false);
   const [voiceSpeechBubble, setVoiceSpeechBubble] = useState<string>('');
+  const [visualMode, setVisualMode] = useState<'after' | 'before'>('after');
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('k_teak');
+
+  const currentPresets = TRADE_VISUAL_PRESETS[studioType] || TRADE_VISUAL_PRESETS.kitchen;
+  const activePreset = currentPresets.find((p) => p.id === selectedPresetId) || currentPresets[0];
 
   const [studioDesign, setStudioDesign] = useState<SpaceDesign3D>(
     calculate3DSpaceDesign({
@@ -420,13 +559,24 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
     nextLayout = studioLayout,
     nextFinish = studioFinish,
     nextLength = studioLength,
-    nextWidth = studioWidth
+    nextWidth = studioWidth,
+    nextPresetId?: string
   ) => {
     setStudioType(nextType);
     setStudioLayout(nextLayout);
     setStudioFinish(nextFinish);
     setStudioLength(nextLength);
     setStudioWidth(nextWidth);
+
+    if (nextPresetId) {
+      setSelectedPresetId(nextPresetId);
+    } else if (nextType !== studioType) {
+      const presets = TRADE_VISUAL_PRESETS[nextType] || [];
+      if (presets.length > 0) {
+        setSelectedPresetId(presets[0].id);
+      }
+    }
+
     const updated = calculate3DSpaceDesign({
       type: nextType,
       layout: nextLayout,
@@ -707,7 +857,19 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
 
               {/* Viewfinder Main Video Frame */}
               <View style={styles.cameraFrame}>
-                {attachedMediaUrl ? (
+                {showLive3DOverlay ? (
+                  // 🌟 Photorealistic 3D Visual Experience (Before/After)
+                  <Image
+                    source={{
+                      uri:
+                        visualMode === 'after'
+                          ? activePreset.renderUrl
+                          : attachedMediaUrl || activePreset.rawSpaceUrl,
+                    }}
+                    style={styles.cameraSnapshot}
+                    resizeMode="cover"
+                  />
+                ) : attachedMediaUrl ? (
                   <Image
                     source={{ uri: attachedMediaUrl }}
                     style={styles.cameraSnapshot}
@@ -749,56 +911,74 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                   </View>
                 )}
 
-                {/* 🔮 LIVE 3D AR HOLOGRAPHIC MODEL OVERLAY OVER CAMERA */}
+                {/* 🔮 Visual Status Badge & Before/After Switch */}
                 {showLive3DOverlay && (
                   <View style={styles.ar3DOverlayContainer} pointerEvents="box-none">
-                    {/* Glowing AR Perspective Grid */}
-                    <View style={styles.arGridPerspective}>
-                      {studioDesign.schematicBoxes.map((box, bIdx) => (
-                        <View
-                          key={bIdx}
-                          style={[
-                            styles.ar3DBox,
-                            {
-                              borderColor: box.color,
-                              backgroundColor: box.color + '33',
-                              top: box.y * 1.05,
-                              left: box.x * 1.02,
-                              width: box.width * 1.05,
-                              height: box.height * 1.05,
-                              transform: [{ rotate: `${rotationAngle}deg` }],
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.ar3DBoxLabel, { color: box.color }]}>
-                            {box.label}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-
-                    {/* 3D AR Live Badge & Rotation Bar */}
-                    <View style={styles.arControlsBar}>
-                      <View style={styles.arTradeTag}>
-                        <Text style={styles.arTradeTagText}>
-                          🔮 3D {studioDesign.layoutTitle.split('(')[0]} ({studioLength}x{studioWidth} ft)
+                    {/* Top Info Banner */}
+                    <View style={styles.visualBadgeOverlay}>
+                      <View style={styles.visualModeTag}>
+                        <Text style={styles.visualModeTagText}>
+                          {visualMode === 'after'
+                            ? `✨ AI 3D तैयार डिज़ाइन: ${activePreset.styleName}`
+                            : '📸 कच्चा स्थान (Unfinished Space)'}
                         </Text>
                       </View>
-                      <View style={styles.arRotateControls}>
-                        <TouchableOpacity
-                          style={styles.arRotateBtn}
-                          onPress={() => setRotationAngle((prev) => (prev - 15) % 360)}
+                    </View>
+
+                    {/* Interactive Before ⟷ After Switch Pill */}
+                    <View style={styles.beforeAfterSwitchContainer}>
+                      <TouchableOpacity
+                        style={[
+                          styles.beforeAfterSwitchBtn,
+                          visualMode === 'before' && styles.beforeAfterSwitchBtnActive,
+                        ]}
+                        onPress={() => setVisualMode('before')}
+                        activeOpacity={0.85}
+                      >
+                        <Ionicons
+                          name="camera-outline"
+                          size={13}
+                          color={visualMode === 'before' ? '#FFFFFF' : '#94A3B8'}
+                        />
+                        <Text
+                          style={[
+                            styles.beforeAfterSwitchText,
+                            visualMode === 'before' && styles.beforeAfterSwitchTextActive,
+                          ]}
                         >
-                          <Text style={styles.arRotateBtnText}>⟲</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.arRotateAngleText}>{rotationAngle}°</Text>
-                        <TouchableOpacity
-                          style={styles.arRotateBtn}
-                          onPress={() => setRotationAngle((prev) => (prev + 15) % 360)}
+                          कच्चा स्थान (Before)
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.beforeAfterSwitchBtn,
+                          visualMode === 'after' && styles.beforeAfterSwitchBtnActive,
+                        ]}
+                        onPress={() => setVisualMode('after')}
+                        activeOpacity={0.85}
+                      >
+                        <Ionicons
+                          name="sparkles"
+                          size={13}
+                          color={visualMode === 'after' ? '#0F172A' : '#F59E0B'}
+                        />
+                        <Text
+                          style={[
+                            styles.beforeAfterSwitchText,
+                            visualMode === 'after' && styles.beforeAfterSwitchTextActive,
+                          ]}
                         >
-                          <Text style={styles.arRotateBtnText}>⟳</Text>
-                        </TouchableOpacity>
-                      </View>
+                          तैयार 3D (After)
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Bottom Specs Glass Bar */}
+                    <View style={styles.visualBottomInfoBar}>
+                      <Text style={styles.visualBottomInfoText}>
+                        📐 {studioLength}x{studioWidth} फीट ({studioDesign.totalSqFt} sq.ft) • कुल ₹{studioDesign.grandTotal.toLocaleString('en-IN')}
+                      </Text>
                     </View>
                   </View>
                 )}
@@ -839,6 +1019,50 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                   </TouchableOpacity>
                 )}
               </View>
+
+              {/* 🎨 Finish Style Chips Selector */}
+              {showLive3DOverlay && (
+                <View style={styles.styleSelectorContainer}>
+                  <Text style={styles.styleSelectorHeader}>🎨 3D फिनिश व डिजाइन चुनें:</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.styleChipsRow}
+                  >
+                    {currentPresets.map((preset) => {
+                      const isSelected = preset.id === activePreset.id;
+                      return (
+                        <TouchableOpacity
+                          key={preset.id}
+                          style={[styles.styleChip, isSelected && styles.styleChipActive]}
+                          onPress={() => {
+                            setSelectedPresetId(preset.id);
+                            setVisualMode('after');
+                            handleUpdateStudioDesign(
+                              studioType,
+                              studioLayout,
+                              preset.finishKey,
+                              studioLength,
+                              studioWidth,
+                              preset.id
+                            );
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <Text
+                            style={[
+                              styles.styleChipText,
+                              isSelected && styles.styleChipTextActive,
+                            ]}
+                          >
+                            {isSelected ? '✓ ' : ''}{preset.styleName}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              )}
 
               {/* Viewfinder Bottom Toolbar */}
               <View style={styles.viewfinderBottomToolbar}>
@@ -1366,45 +1590,33 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
               </View>
             </View>
 
-            {/* Interactive 3D Visual Schematic Diagram */}
+            {/* Interactive 3D Realistic Architectural Elevation & Design Card */}
             <View style={styles.schematicCanvasCard}>
               <View style={styles.schematicCanvasHeader}>
                 <View style={styles.canvasLiveBadge}>
-                  <Ionicons name="eye" size={14} color="#FFFFFF" />
-                  <Text style={styles.canvasLiveText}>3D स्कीमेटिक विजुअलाइज़र</Text>
+                  <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                  <Text style={styles.canvasLiveText}>3D रियलिस्टिक आर्किटेक्चरल मॉडल</Text>
                 </View>
-                <Text style={styles.schematicSubtitle}>{studioDesign.layoutTitle}</Text>
+                <Text style={styles.schematicSubtitle}>{activePreset.title}</Text>
               </View>
 
-              {/* Visual Isometric Blueprint */}
+              {/* Realistic 3D Design Render Preview */}
               <View style={styles.blueprintArea}>
-                <View style={styles.blueprintGrid}>
-                  {studioDesign.schematicBoxes.map((box, idx) => (
-                    <View
-                      key={idx}
-                      style={[
-                        styles.blueprintBox,
-                        {
-                          backgroundColor: box.color + '22',
-                          borderColor: box.color,
-                          top: box.y,
-                          left: box.x,
-                          width: box.width,
-                          height: box.height,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.blueprintBoxLabel, { color: box.color }]}>
-                        {box.label}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
+                <Image
+                  source={{ uri: activePreset.renderUrl }}
+                  style={styles.blueprintRenderImage}
+                  resizeMode="cover"
+                />
                 <View style={styles.blueprintWatermark}>
                   <Text style={styles.blueprintWatermarkText}>
-                    SETU 3D CAD ENGINE • {studioLength}ft x {studioWidth}ft
+                    ✨ SETU AI 3D • {studioLength}ft x {studioWidth}ft ({studioDesign.totalSqFt} sq.ft)
                   </Text>
                 </View>
+              </View>
+              <View style={styles.blueprintSpecsRow}>
+                <Text style={styles.blueprintSpecItem}>🪵 शैली: {activePreset.styleName}</Text>
+                <Text style={styles.blueprintSpecItem}>📐 माप: {studioLength}x{studioWidth} फीट</Text>
+                <Text style={styles.blueprintSpecItem}>💰 कुल: ₹{studioDesign.grandTotal.toLocaleString('en-IN')}</Text>
               </View>
             </View>
 
@@ -2692,7 +2904,7 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     fontWeight: '800',
   },
-  // AR 3D Holographic Overlay Container
+  // AR 3D Photorealistic Overlay Container
   ar3DOverlayContainer: {
     position: 'absolute',
     top: 0,
@@ -2700,74 +2912,135 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     justifyContent: 'space-between',
-    padding: 12,
     zIndex: 10,
   },
-  arGridPerspective: {
-    flex: 1,
-    position: 'relative',
-    marginVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: 'rgba(99, 102, 241, 0.4)',
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
-  },
-  ar3DBox: {
+  visualBadgeOverlay: {
     position: 'absolute',
-    borderRadius: 6,
-    borderWidth: 1.5,
-    padding: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
+    top: 10,
+    left: 10,
+    right: 10,
+    alignItems: 'flex-start',
+    zIndex: 12,
   },
-  ar3DBoxLabel: {
-    fontSize: 9.5,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  arControlsBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+  visualModeTag: {
+    backgroundColor: 'rgba(15, 23, 42, 0.88)',
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: 'rgba(245, 158, 11, 0.6)',
   },
-  arTradeTag: {
-    flex: 1,
-  },
-  arTradeTagText: {
-    color: '#38BDF8',
+  visualModeTagText: {
+    color: '#FBBF24',
     fontSize: 11,
     fontWeight: '800',
   },
-  arRotateControls: {
+  beforeAfterSwitchContainer: {
+    position: 'absolute',
+    bottom: 34,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    borderRadius: 24,
+    padding: 3,
+    borderWidth: 1.5,
+    borderColor: 'rgba(245, 158, 11, 0.5)',
+    zIndex: 15,
+  },
+  beforeAfterSwitchBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 5,
   },
-  arRotateBtn: {
-    backgroundColor: '#334155',
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+  beforeAfterSwitchBtnActive: {
+    backgroundColor: '#F59E0B',
   },
-  arRotateBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
+  beforeAfterSwitchText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  beforeAfterSwitchTextActive: {
+    color: '#0F172A',
     fontWeight: '900',
   },
-  arRotateAngleText: {
+  visualBottomInfoBar: {
+    position: 'absolute',
+    bottom: 6,
+    left: 10,
+    right: 10,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+  },
+  visualBottomInfoText: {
+    color: '#38BDF8',
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  styleSelectorContainer: {
+    backgroundColor: '#0F172A',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#1E293B',
+  },
+  styleSelectorHeader: {
     color: '#94A3B8',
     fontSize: 10.5,
     fontWeight: '700',
-    minWidth: 26,
-    textAlign: 'center',
+    marginBottom: 6,
+  },
+  styleChipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  styleChip: {
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  styleChipActive: {
+    backgroundColor: 'rgba(245, 158, 11, 0.18)',
+    borderColor: '#F59E0B',
+  },
+  styleChipText: {
+    color: '#CBD5E1',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  styleChipTextActive: {
+    color: '#F59E0B',
+    fontWeight: '900',
+  },
+  blueprintRenderImage: {
+    width: '100%',
+    height: 190,
+    borderRadius: 8,
+  },
+  blueprintSpecsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#1E293B',
+    gap: 6,
+  },
+  blueprintSpecItem: {
+    color: '#CBD5E1',
+    fontSize: 10.5,
+    fontWeight: '700',
   },
   // Voice Bubble Card
   voiceBubbleCard: {
