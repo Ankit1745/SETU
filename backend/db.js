@@ -1,6 +1,14 @@
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
+const dns = require('dns');
+
+// Configure public DNS resolution for cloud SRV lookups (prevents ISP/local DNS querySrv ECONNREFUSED)
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch (dnsErr) {
+  // Ignored if custom dns servers cannot be set
+}
 
 // Models
 const User = require('./models/User');
