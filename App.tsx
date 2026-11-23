@@ -40,7 +40,9 @@ export default function App() {
   const [currentRole, setCurrentRole] = useState<UserRole>(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       const savedRole = window.localStorage?.getItem('setu_current_role') as UserRole | null;
-      if (savedRole) return savedRole;
+      if (savedRole && ['CUSTOMER', 'CONTRACTOR', 'VENDOR', 'ADMIN'].includes(savedRole)) {
+        return savedRole;
+      }
       try {
         const saved = window.localStorage?.getItem('setu_current_user');
         if (saved) {
@@ -103,13 +105,16 @@ export default function App() {
           setCurrentUser(user);
           setIsGuestBrowsing(true);
 
-          const finalRole = savedRole || user.role || 'CUSTOMER';
-          if (finalRole === 'ADMIN' || user.role === 'ADMIN') {
+          const finalRole = (savedRole && ['CUSTOMER', 'CONTRACTOR', 'VENDOR', 'ADMIN'].includes(savedRole))
+            ? savedRole
+            : (user.role || 'CUSTOMER');
+
+          if (finalRole === 'ADMIN') {
             setIsAdminAuthenticated(true);
             setCurrentRole('ADMIN');
-          } else if (finalRole === 'CONTRACTOR' || user.role === 'CONTRACTOR') {
+          } else if (finalRole === 'CONTRACTOR') {
             setCurrentRole('CONTRACTOR');
-          } else if (finalRole === 'VENDOR' || user.role === 'VENDOR') {
+          } else if (finalRole === 'VENDOR') {
             setCurrentRole('VENDOR');
           } else {
             setCurrentRole('CUSTOMER');
@@ -468,7 +473,12 @@ export default function App() {
         <View style={styles.partnerTopBanner}>
           <TouchableOpacity
             style={styles.backToCustomerBtn}
-            onPress={() => setCurrentRole('CUSTOMER')}
+            onPress={() => {
+              setCurrentRole('CUSTOMER');
+              if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                window.localStorage?.setItem('setu_current_role', 'CUSTOMER');
+              }
+            }}
             activeOpacity={0.8}
           >
             <MaterialIcons name="arrow-back" size={18} color="#FFFFFF" />
@@ -502,6 +512,9 @@ export default function App() {
                 onPress={() => {
                   setIsAdminAuthenticated(false);
                   setCurrentRole('CUSTOMER');
+                  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                    window.localStorage?.setItem('setu_current_role', 'CUSTOMER');
+                  }
                   Alert.alert('🔒 एडमिन सत्र समाप्त', 'केंद्रीय नियंत्रण कक्ष को सुरक्षित लॉक कर दिया गया है।');
                 }}
               >
