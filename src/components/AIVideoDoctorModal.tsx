@@ -779,7 +779,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
           </TouchableOpacity>
         </View>
 
-        {/* 3 Main Modes Navigation Bar */}
+        {/* Simplified 2-Mode Navigation Bar */}
         <View style={styles.navTabsRow}>
           <TouchableOpacity
             style={[styles.navTabBtn, activeTab === 'video' && styles.navTabBtnActive]}
@@ -787,7 +787,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
             activeOpacity={0.8}
           >
             <Ionicons
-              name="videocam"
+              name="sparkles"
               size={18}
               color={activeTab === 'video' ? COLORS.primary : COLORS.textMuted}
             />
@@ -797,27 +797,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                 activeTab === 'video' && styles.navTabTextActive,
               ]}
             >
-              लाइव वीडियो कॉल
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.navTabBtn, activeTab === 'studio' && styles.navTabBtnActive]}
-            onPress={() => setActiveTab('studio')}
-            activeOpacity={0.8}
-          >
-            <FontAwesome5
-              name="cube"
-              size={16}
-              color={activeTab === 'studio' ? '#8B5CF6' : COLORS.textMuted}
-            />
-            <Text
-              style={[
-                styles.navTabText,
-                activeTab === 'studio' && { color: '#8B5CF6', fontWeight: '800' },
-              ]}
-            >
-              3D रूम स्टूडियो
+              ✨ 3D रूम डिज़ाइनर
             </Text>
           </TouchableOpacity>
 
@@ -837,1063 +817,331 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                 activeTab === 'gyan' && { color: '#10B981', fontWeight: '800' },
               ]}
             >
-              उस्ताद ज्ञान
+              📚 उस्ताद ज्ञान & नियम
             </Text>
           </TouchableOpacity>
         </View>
 
         {/* ========================================================================= */}
-        {/* TAB 1: AI VIDEO CALL & LIVE PROBLEM DOCTOR (MULTI-TRADE 3D SCANNER) */}
+        {/* ========================================================================= */}
+        {/* TAB 1: 3D रूम डिज़ाइनर & आसान एआई समाधान (EASY 3-STEP FLOW FOR EVERYONE) */}
         {/* ========================================================================= */}
         {activeTab === 'video' && (
           <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
-            {/* Multi-Trade AR Selector Pills (Customer, Mason, Plumber, Carpenter, Electrician) */}
-            <View style={styles.tradePillBar}>
-              {[
-                { key: 'kitchen', icon: '🍳', label: 'मॉड्यूलर किचन' },
-                { key: 'wardrobe', icon: '🚪', label: '3D अलमारी' },
-                { key: 'masonry', icon: '🧱', label: 'मिस्त्री (घर/दीवार)' },
-                { key: 'plumbing', icon: '🚿', label: 'प्लम्बर (पाइपलाइन)' },
-                { key: 'electrical', icon: '⚡', label: 'बिजली (वायरिंग)' },
-              ].map((tr) => (
-                <TouchableOpacity
-                  key={tr.key}
-                  style={[styles.tradePill, studioType === tr.key && styles.tradePillActive]}
-                  onPress={() => {
-                    handleUpdateStudioDesign(tr.key as any);
-                    setShowLive3DOverlay(true);
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.tradePillIcon}>{tr.icon}</Text>
-                  <Text style={[styles.tradePillText, studioType === tr.key && styles.tradePillTextActive]}>
-                    {tr.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            {/* Step 1-2-3 Progress Stepper */}
+            <View style={styles.easyStepperCard}>
+              <View style={styles.easyStepBadge}>
+                <View style={styles.easyStepCircle}><Text style={styles.easyStepNum}>1</Text></View>
+                <Text style={styles.easyStepTitle}>फोटो दिखाएं</Text>
+              </View>
+              <View style={styles.easyStepLine} />
+              <View style={styles.easyStepBadge}>
+                <View style={[styles.easyStepCircle, { backgroundColor: '#8B5CF6' }]}><Text style={styles.easyStepNum}>2</Text></View>
+                <Text style={styles.easyStepTitle}>काम चुनें / बोलें</Text>
+              </View>
+              <View style={styles.easyStepLine} />
+              <View style={styles.easyStepBadge}>
+                <View style={[styles.easyStepCircle, { backgroundColor: '#10B981' }]}><Text style={styles.easyStepNum}>3</Text></View>
+                <Text style={styles.easyStepTitle}>3D & खर्च देखें</Text>
+              </View>
             </View>
 
-            {/* Live Camera Viewfinder Card */}
-            <View style={styles.viewfinderCard}>
-              {/* Top Viewfinder Bar */}
-              <View style={styles.viewfinderTopBar}>
-                <View style={styles.callBadge}>
-                  <View style={styles.pulseGreenDot} />
-                  <Text style={styles.callTimerText}>{formatTimer(callDuration)}</Text>
-                </View>
+            {/* STEP 1: फोटो दिखाएं */}
+            <View style={styles.stepSectionCard}>
+              <View style={styles.stepHeaderRow}>
+                <Text style={styles.stepHeaderBadge}>स्टेप 1</Text>
+                <Text style={styles.stepHeaderTitle}>📸 अपने कमरे / जगह की फोटो दिखाएं</Text>
+              </View>
 
-                {/* 3D AR & Voice Controls */}
-                <View style={styles.viewfinderActionsRight}>
+              <View style={styles.photoActionRow}>
+                <TouchableOpacity
+                  style={styles.photoActionPrimaryBtn}
+                  onPress={() => {
+                    setIsCallActive(true);
+                    handleUploadSiteMedia('photo');
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="camera" size={18} color="#FFFFFF" />
+                  <Text style={styles.photoActionPrimaryText}>कैमरा से फोटो लें</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.photoActionSecondaryBtn}
+                  onPress={() => handleUploadSiteMedia('photo')}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="images" size={18} color="#0F172A" />
+                  <Text style={styles.photoActionSecondaryText}>गैलरी से फोटो चुनें</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* STEP 2: आप क्या काम कराना चाहते हैं? */}
+            <View style={styles.stepSectionCard}>
+              <View style={styles.stepHeaderRow}>
+                <Text style={[styles.stepHeaderBadge, { backgroundColor: '#8B5CF6' }]}>स्टेप 2</Text>
+                <Text style={styles.stepHeaderTitle}>✨ आप क्या काम कराना चाहते हैं?</Text>
+              </View>
+
+              <View style={styles.tradeGridRow}>
+                {[
+                  { key: 'wardrobe', icon: '🚪', label: '3D अलमारी', query: 'इस जगह में अलमारी बनानी है, कैसी बनेगी?' },
+                  { key: 'kitchen', icon: '🍳', label: 'मॉड्यूलर किचन', query: 'यहाँ आधुनिक मॉड्यूलर किचन बनाना है' },
+                  { key: 'masonry', icon: '🧱', label: 'मकान / दीवार', query: 'दीवार व मकान का काम कराना है' },
+                  { key: 'plumbing', icon: '🚿', label: 'प्लम्बर / पाइप', query: 'पाइपलाइन व लीकेज ठीक करानी है' },
+                  { key: 'electrical', icon: '⚡', label: 'बिजली / लाइट', query: 'वायरिंग व लाइटिंग का काम है' },
+                  { key: 'general', icon: '🔧', label: 'सामान्य रिपेयर', query: 'घर की सामान्य मरम्मत करानी है' },
+                ].map((item) => (
                   <TouchableOpacity
-                    style={[styles.viewfinder3DBtn, showLive3DOverlay && styles.viewfinder3DBtnActive]}
-                    onPress={() => setShowLive3DOverlay(!showLive3DOverlay)}
-                    activeOpacity={0.8}
+                    key={item.key}
+                    style={[
+                      styles.tradeCardTile,
+                      studioType === item.key && styles.tradeCardTileActive,
+                    ]}
+                    onPress={() => {
+                      if (item.key !== 'general') {
+                        handleUpdateStudioDesign(item.key as any);
+                      }
+                      setCustomQuery(item.query);
+                      handleCustomScan(item.query);
+                    }}
+                    activeOpacity={0.85}
                   >
-                    <FontAwesome5 name="cube" size={12} color={showLive3DOverlay ? '#F59E0B' : '#FFFFFF'} />
-                    <Text style={[styles.viewfinder3DText, showLive3DOverlay && { color: '#F59E0B' }]}>
-                      {showLive3DOverlay ? '3D AR ON' : '3D AR OFF'}
+                    <Text style={styles.tradeCardIcon}>{item.icon}</Text>
+                    <Text
+                      style={[
+                        styles.tradeCardLabel,
+                        studioType === item.key && styles.tradeCardLabelActive,
+                      ]}
+                    >
+                      {item.label}
                     </Text>
                   </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Voice Mic or Quick Typing */}
+              <View style={styles.voiceChatBar}>
+                <TouchableOpacity
+                  style={[styles.voiceMicBigBtn, isVoiceListening && styles.voiceMicBigBtnActive]}
+                  onPress={startVoiceInput}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name={isVoiceListening ? 'mic' : 'mic-outline'} size={20} color="#FFFFFF" />
+                  <Text style={styles.voiceMicBigText}>
+                    {isVoiceListening ? 'सुन रहे हैं...' : 'बोलकर बताएं'}
+                  </Text>
+                </TouchableOpacity>
+
+                <View style={styles.simpleQueryInputRow}>
+                  <TextInput
+                    style={styles.simpleQueryInput}
+                    value={customQuery}
+                    onChangeText={setCustomQuery}
+                    placeholder="उदा: मुझे यहाँ अलमारी बनवानी है..."
+                    placeholderTextColor="#64748B"
+                    onSubmitEditing={() => handleCustomScan()}
+                  />
 
                   <TouchableOpacity
-                    style={[styles.viewfinderMicBtn, isVoiceListening && styles.viewfinderMicBtnActive]}
-                    onPress={startVoiceInput}
-                    activeOpacity={0.8}
+                    style={styles.simpleQuerySubmitBtn}
+                    onPress={() => handleCustomScan()}
+                    activeOpacity={0.85}
                   >
-                    <Ionicons name={isVoiceListening ? 'mic' : 'mic-outline'} size={15} color="#FFFFFF" />
-                    <Text style={styles.viewfinderMicText}>
-                      {isVoiceListening ? 'सुन रहा हूँ...' : 'बोलें'}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.viewfinderSmallBtn}
-                    onPress={() =>
-                      speakDiagnosis(
-                        diagnosisResult
-                          ? diagnosisResult.titleHindi + '. ' + diagnosisResult.realProblem
-                          : studioDesign.ustadAdvice
-                      )
-                    }
-                  >
-                    <Ionicons
-                      name={isSpeaking ? 'volume-high' : 'volume-medium'}
-                      size={18}
-                      color={isSpeaking ? '#10B981' : '#FFFFFF'}
-                    />
+                    <Ionicons name="sparkles" size={16} color="#FFFFFF" />
                   </TouchableOpacity>
                 </View>
               </View>
 
-              {/* Viewfinder Main Video Frame */}
-              <View style={styles.cameraFrame}>
-                {showLive3DOverlay ? (
-                  // 🌟 Photorealistic 3D Visual Experience (Before/After)
+              {voiceSpeechBubble ? (
+                <Text style={{ color: '#FBBF24', fontSize: 11.5, marginTop: 6, fontWeight: '700' }}>
+                  {voiceSpeechBubble}
+                </Text>
+              ) : null}
+            </View>
+
+            {/* STEP 3: 3D डिज़ाइन & खर्च देखें */}
+            <View style={styles.stepSectionCard}>
+              <View style={styles.stepHeaderRow}>
+                <Text style={[styles.stepHeaderBadge, { backgroundColor: '#10B981' }]}>स्टेप 3</Text>
+                <Text style={styles.stepHeaderTitle}>📐 आपका 3D डिज़ाइन & खर्च का सटीक हिसाब</Text>
+              </View>
+
+              {/* Clean Viewport Card */}
+              <View style={styles.cleanViewportCard}>
+                <View style={styles.beforeAfterHeaderPill}>
+                  <TouchableOpacity
+                    style={[styles.togglePillBtn, visualMode === 'before' && styles.togglePillBtnActive]}
+                    onPress={() => setVisualMode('before')}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.togglePillText, visualMode === 'before' && styles.togglePillTextActive]}>
+                      📸 आपकी जगह (Before)
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.togglePillBtn, visualMode === 'after' && styles.togglePillBtnActive]}
+                    onPress={() => setVisualMode('after')}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.togglePillText, visualMode === 'after' && styles.togglePillTextActive]}>
+                      ✨ 3D डिज़ाइन (After)
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.cleanImageContainer}>
                   <Image
                     source={{
                       uri:
-                        visualMode === 'after'
-                          ? activePreset.renderUrl
-                          : attachedMediaUrl || activePreset.rawSpaceUrl,
+                        visualMode === 'before'
+                          ? attachedMediaUrl || activePreset.rawSpaceUrl
+                          : activePreset.renderUrl,
                     }}
-                    style={styles.cameraSnapshot}
+                    style={styles.cleanViewportImage}
                     resizeMode="cover"
                   />
-                ) : attachedMediaUrl ? (
-                  <Image
-                    source={{ uri: attachedMediaUrl }}
-                    style={styles.cameraSnapshot}
-                    resizeMode="cover"
-                  />
-                ) : isCameraLive ? (
-                  Platform.OS === 'web' ? (
-                    React.createElement('video', {
-                      ref: videoRef,
-                      autoPlay: true,
-                      playsInline: true,
-                      muted: true,
-                      style: {
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                      },
-                    })
-                  ) : (
-                    <View style={styles.cameraPlaceholder}>
-                      <Ionicons name="camera-reverse" size={54} color="#10B981" />
-                      <Text style={styles.cameraPromptText}>लाइव कैमरा सक्रिय है</Text>
-                    </View>
-                  )
-                ) : (
-                  <View style={styles.cameraPlaceholder}>
-                    <Ionicons name="videocam-outline" size={54} color="#60A5FA" />
-                    <Text style={styles.cameraPromptText}>
-                      {cameraPermissionError || 'AI उस्ताद से लाइव वीडियो परामर्श शुरू करें'}
-                    </Text>
-                    <TouchableOpacity
-                      style={styles.startLiveCameraBtn}
-                      onPress={startRealCamera}
-                      activeOpacity={0.85}
-                    >
-                      <Ionicons name="camera" size={16} color="#FFFFFF" />
-                      <Text style={styles.startLiveCameraText}>📹 लाइव कैमरा चालू करें</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-
-                {/* 🔮 Visual Status Badge & Before/After Switch */}
-                {showLive3DOverlay && (
-                  <View style={styles.ar3DOverlayContainer} pointerEvents="box-none">
-                    {/* Top Info Banner */}
-                    <View style={styles.visualBadgeOverlay}>
-                      <View style={styles.visualModeTag}>
-                        <Text style={styles.visualModeTagText}>
-                          {visualMode === 'after'
-                            ? `✨ AI 3D तैयार डिज़ाइन: ${activePreset.styleName}`
-                            : '📸 कच्चा स्थान (Unfinished Space)'}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Interactive Before ⟷ After Switch Pill */}
-                    <View style={styles.beforeAfterSwitchContainer}>
-                      <TouchableOpacity
-                        style={[
-                          styles.beforeAfterSwitchBtn,
-                          visualMode === 'before' && styles.beforeAfterSwitchBtnActive,
-                        ]}
-                        onPress={() => setVisualMode('before')}
-                        activeOpacity={0.85}
-                      >
-                        <Ionicons
-                          name="camera-outline"
-                          size={13}
-                          color={visualMode === 'before' ? '#FFFFFF' : '#94A3B8'}
-                        />
-                        <Text
-                          style={[
-                            styles.beforeAfterSwitchText,
-                            visualMode === 'before' && styles.beforeAfterSwitchTextActive,
-                          ]}
-                        >
-                          कच्चा स्थान (Before)
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.beforeAfterSwitchBtn,
-                          visualMode === 'after' && styles.beforeAfterSwitchBtnActive,
-                        ]}
-                        onPress={() => setVisualMode('after')}
-                        activeOpacity={0.85}
-                      >
-                        <Ionicons
-                          name="sparkles"
-                          size={13}
-                          color={visualMode === 'after' ? '#0F172A' : '#F59E0B'}
-                        />
-                        <Text
-                          style={[
-                            styles.beforeAfterSwitchText,
-                            visualMode === 'after' && styles.beforeAfterSwitchTextActive,
-                          ]}
-                        >
-                          तैयार 3D (After)
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Bottom Specs Glass Bar */}
-                    <View style={styles.visualBottomInfoBar}>
-                      <Text style={styles.visualBottomInfoText}>
-                        📐 {studioLength}x{studioWidth} फीट ({studioDesign.totalSqFt} sq.ft) • कुल ₹{studioDesign.grandTotal.toLocaleString('en-IN')}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-
-                {/* Laser Scanning Grid Animation Overlay */}
-                {isScanning && (
-                  <View style={styles.scanningOverlay}>
-                    <View style={styles.laserBar} />
-                    <Text style={styles.scanningText}>🔍 AI उस्ताद 3D स्पेस स्कैन कर रहा है...</Text>
-                  </View>
-                )}
-
-                {/* Floating AI Doctor PiP Avatar */}
-                <View style={styles.doctorPipBadge}>
-                  <View style={styles.doctorPipAvatar}>
-                    <Text style={styles.doctorPipEmoji}>👷‍♂️</Text>
-                  </View>
-                  <View>
-                    <Text style={styles.doctorPipName}>AI उस्ताद 3D</Text>
-                    <Text style={styles.doctorPipStatus}>
-                      {isScanning ? 'स्पेस स्कैनिंग...' : isCameraLive ? '🟢 लाइव 3D विजन' : '🟢 ऑनलाइन'}
+                  <View style={styles.viewportWatermarkBadge}>
+                    <Text style={styles.viewportWatermarkText}>
+                      {visualMode === 'before' ? '📸 आपकी मूल जगह' : `✨ 3D मॉडल: ${activePreset.title}`}
                     </Text>
                   </View>
                 </View>
 
-                {/* Retake Button if photo attached */}
-                {attachedMediaUrl && (
-                  <TouchableOpacity
-                    style={styles.retakeLiveBtn}
-                    onPress={() => {
-                      setAttachedMediaUrl('');
-                      startRealCamera();
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="refresh" size={13} color="#FFFFFF" />
-                    <Text style={styles.retakeLiveText}>दोबारा लाइव देखें</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* 🎨 Finish Style Chips Selector */}
-              {showLive3DOverlay && (
-                <View style={styles.styleSelectorContainer}>
-                  <Text style={styles.styleSelectorHeader}>🎨 3D फिनिश व डिजाइन चुनें:</Text>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.styleChipsRow}
-                  >
-                    {currentPresets.map((preset) => {
-                      const isSelected = preset.id === activePreset.id;
-                      return (
+                {/* Quick Finish Selection Chips */}
+                <View style={styles.finishChipsWrap}>
+                  <Text style={styles.finishLabel}>पसंदीदा फिनिश चुनें:</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.finishChipsRow}>
+                      {currentPresets.map((preset) => (
                         <TouchableOpacity
                           key={preset.id}
-                          style={[styles.styleChip, isSelected && styles.styleChipActive]}
+                          style={[
+                            styles.finishChipPill,
+                            selectedPresetId === preset.id && styles.finishChipPillActive,
+                          ]}
                           onPress={() => {
                             setSelectedPresetId(preset.id);
                             setVisualMode('after');
-                            handleUpdateStudioDesign(
-                              studioType,
-                              studioLayout,
-                              preset.finishKey,
-                              studioLength,
-                              studioWidth,
-                              preset.id
-                            );
                           }}
                           activeOpacity={0.8}
                         >
                           <Text
                             style={[
-                              styles.styleChipText,
-                              isSelected && styles.styleChipTextActive,
+                              styles.finishChipPillText,
+                              selectedPresetId === preset.id && styles.finishChipPillTextActive,
                             ]}
                           >
-                            {isSelected ? '✓ ' : ''}{preset.styleName}
+                            {preset.title}
                           </Text>
                         </TouchableOpacity>
-                      );
-                    })}
+                      ))}
+                    </View>
                   </ScrollView>
                 </View>
-              )}
-
-              {/* Viewfinder Bottom Toolbar */}
-              <View style={styles.viewfinderBottomToolbar}>
-                {isCameraLive && (
-                  <TouchableOpacity
-                    style={styles.cameraToolBtn}
-                    onPress={handleToggleFlipCamera}
-                  >
-                    <Ionicons name="camera-reverse" size={18} color="#FFFFFF" />
-                    <Text style={styles.cameraToolText}>फ्लिप</Text>
-                  </TouchableOpacity>
-                )}
-
-                <TouchableOpacity
-                  style={styles.cameraToolBtn}
-                  onPress={() => handleUploadSiteMedia('photo')}
-                  disabled={isUploadingMedia}
-                >
-                  <Ionicons name="images" size={18} color="#FFFFFF" />
-                  <Text style={styles.cameraToolText}>
-                    {isUploadingMedia ? 'अपलोड...' : 'गैलरी'}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.scanNowActionBtn}
-                  onPress={handleCaptureLiveFrame}
-                  disabled={isScanning}
-                >
-                  {isScanning ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <>
-                      <Ionicons name="scan" size={18} color="#FFFFFF" />
-                      <Text style={styles.scanNowActionText}>
-                        ⚡ 3D एरिया स्कैन करें
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Voice Speech Bubble Banner */}
-            {voiceSpeechBubble ? (
-              <View style={styles.voiceBubbleCard}>
-                <Ionicons name="mic-circle" size={24} color="#4F46E5" />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.voiceBubbleText}>{voiceSpeechBubble}</Text>
-                  <Text style={styles.voiceBubbleSub}>AI उस्ताद ने 3D लेआउट और मटीरियल लिस्ट अपडेट कर दी है</Text>
-                </View>
-              </View>
-            ) : null}
-
-            {/* 🌟 3D SPATIAL ESTIMATE & CONTRACTOR MATCH CARD */}
-            <View style={styles.spatialEstimateCard}>
-              <View style={styles.spatialCardHeader}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <FontAwesome5 name="cubes" size={16} color="#4F46E5" />
-                  <Text style={styles.spatialCardTitle}>
-                    {studioDesign.layoutTitle}
-                  </Text>
-                </View>
-                <View style={styles.liveTradeBadge}>
-                  <Text style={styles.liveTradeBadgeText}>3D प्लान तैयार</Text>
-                </View>
               </View>
 
-              <Text style={styles.spatialCardSubtitle}>
-                {studioDesign.finishTitle} • {studioLength}x{studioWidth} फीट ({studioDesign.totalSqFt} sq.ft)
-              </Text>
-
-              {/* Material Estimate Table */}
-              <View style={styles.materialEstimateTable}>
-                <Text style={styles.tableHeadTitle}>📋 आवश्यक सामान (Bhopal Market Wholesale):</Text>
-                {studioDesign.materialEstimate.map((mat, mIdx) => (
-                  <View key={mIdx} style={styles.tableRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.tableItemName}>{mat.name}</Text>
-                      <Text style={styles.tableItemQty}>{mat.qty}</Text>
-                    </View>
-                    <Text style={styles.tableItemTotal}>₹{mat.total.toLocaleString('en-IN')}</Text>
-                  </View>
-                ))}
-              </View>
-
-              {/* Key Components Breakdown */}
-              <View style={styles.componentBreakdownBox}>
-                <Text style={styles.tableHeadTitle}>🛠️ मुख्य फिटिंग्स & स्ट्रक्चर:</Text>
-                {studioDesign.cabinetBreakdown.map((cb, cIdx) => (
-                  <View key={cIdx} style={styles.cbRow}>
-                    <Text style={styles.cbBullet}>•</Text>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.cbItemTitle}>{cb.item} ({cb.qty} नग)</Text>
-                      <Text style={styles.cbItemDesc}>{cb.desc}</Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-
-              {/* Grand Total Cost Box */}
-              <View style={styles.spatialCostTotalBox}>
-                <View style={styles.costSplitRow}>
-                  <Text style={styles.costSplitLabel}>सामान लागत (Materials):</Text>
-                  <Text style={styles.costSplitVal}>₹{studioDesign.totalMaterialCost.toLocaleString('en-IN')}</Text>
-                </View>
-                <View style={styles.costSplitRow}>
-                  <Text style={styles.costSplitLabel}>कारीगर मजदूरी (Labor Charge):</Text>
-                  <Text style={styles.costSplitVal}>₹{studioDesign.laborCost.toLocaleString('en-IN')}</Text>
-                </View>
-                <View style={styles.costDivider} />
-                <View style={styles.costGrandTotalRow}>
-                  <Text style={styles.grandTotalLabelText}>कुल अनुमानित खर्च (Estimate):</Text>
-                  <Text style={styles.grandTotalValText}>₹{studioDesign.grandTotal.toLocaleString('en-IN')}</Text>
-                </View>
-              </View>
-
-              {/* Ustad Advice */}
-              <View style={styles.spatialUstadAdvice}>
-                <Text style={styles.ustadAdviceIcon}>💡</Text>
-                <Text style={styles.ustadAdviceText}>{studioDesign.ustadAdvice}</Text>
-              </View>
-
-              {/* 1-Click WhatsApp & Hire Actions */}
-              <View style={styles.spatialActionBtns}>
-                <TouchableOpacity
-                  style={styles.spatialWhatsAppBtn}
-                  onPress={handleSendStudioWhatsApp}
-                  activeOpacity={0.88}
-                >
-                  <FontAwesome5 name="whatsapp" size={17} color="#FFFFFF" />
-                  <Text style={styles.spatialWhatsAppText}>व्हाट्सएप पर 3D प्लान & कोटेशन भेजें</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.spatialHireBtn}
-                  onPress={() => {
-                    const tradeMap: Record<string, string> = {
-                      kitchen: 'carpenter',
-                      wardrobe: 'carpenter',
-                      masonry: 'mason',
-                      plumbing: 'plumber',
-                      electrical: 'electrician',
-                    };
-                    if (onOpenContractorCategory) {
-                      onOpenContractorCategory(tradeMap[studioType] || 'carpenter');
-                    }
-                    onClose();
-                  }}
-                  activeOpacity={0.88}
-                >
-                  <Ionicons name="flash" size={16} color="#FFFFFF" />
-                  <Text style={styles.spatialHireText}>⚡ 15 मिनट में कारीगर बुक करें</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Quick Scenario Selector Chips */}
-            <View style={styles.scenariosSection}>
-              <Text style={styles.sectionHeaderTitle}>
-                💡 Demo उदाहरण देखें (1-क्लिक जांच):
-              </Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scenarioChipsRow}>
-                {Object.values(VISUAL_PROBLEM_SCENARIOS).map((sc) => {
-                  const isSelected = selectedScenarioKey === sc.id;
-                  return (
-                    <TouchableOpacity
-                      key={sc.id}
-                      style={[styles.scenarioChip, isSelected && styles.scenarioChipSelected]}
-                      onPress={() => handlePerformDiagnosis(sc.id)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.scenarioChipText, isSelected && styles.scenarioChipTextSelected]}>
-                        {sc.titleHindi.split('(')[0]}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-
-            {/* Quick Prompts Chips for Space Design & Renovation */}
-            <View style={styles.quickPromptsSection}>
-              <Text style={styles.quickPromptsHeader}>💡 उस्ताद से तुरंत पूछें (क्लिक करें):</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.quickPromptsRow}
-              >
-                {QUICK_PROMPTS.map((prompt, pIdx) => (
-                  <TouchableOpacity
-                    key={pIdx}
-                    style={styles.quickPromptChip}
-                    onPress={() => handleCustomScan(prompt.query)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.quickPromptChipText}>{prompt.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-
-            {/* Custom Query Search Box */}
-            <View style={styles.customQueryBox}>
-              <TextInput
-                style={styles.customInput}
-                placeholder="उस्ताद से पूछें (जैसे: यहाँ अलमारी बनानी है, खर्चा कितना होगा?)..."
-                placeholderTextColor="#94A3B8"
-                value={customQuery}
-                onChangeText={setCustomQuery}
-                onSubmitEditing={() => handleCustomScan()}
-              />
-              <TouchableOpacity
-                style={styles.customQueryBtn}
-                onPress={() => handleCustomScan()}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Vision Error Notice if photo is blurry or service offline */}
-            {visionError ? (
-              <View style={styles.visionErrorBox}>
-                <Ionicons name="alert-circle" size={24} color="#DC2626" />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.visionErrorTitle}>फोटो का विश्लेषण अभी उपलब्ध नहीं है</Text>
-                  <Text style={styles.visionErrorText}>{visionError}</Text>
-                  <Text style={styles.visionErrorSub}>
-                    💡 ऊपर दिए बॉक्स में समस्या का नाम लिखकर तुरंत समाधान व कारीगर प्राप्त करें।
-                  </Text>
-                </View>
-              </View>
-            ) : null}
-
-            {/* AI Space Design & Renovation Consultation Report Card */}
-            {aiDesignConsultation && (
-              <View style={styles.designConsultCard}>
-                <View style={styles.designConsultHeader}>
-                  <View style={styles.designConsultBadge}>
-                    <Ionicons name="sparkles" size={15} color="#FFFFFF" />
-                    <Text style={styles.designConsultBadgeText}>
-                      ✓ AI उस्ताद स्पेस विश्लेषण & 3D मॉडल रिपोर्ट
+              {/* Simple Summary Card */}
+              <View style={styles.simpleSummaryCard}>
+                <View style={styles.summaryTopRow}>
+                  <View style={styles.summaryMetricItem}>
+                    <Text style={styles.summaryMetricLabel}>नाप (लंबाई x चौड़ाई)</Text>
+                    <Text style={styles.summaryMetricValue}>
+                      {aiDesignConsultation?.dimensions
+                        ? `${aiDesignConsultation.dimensions.lengthFt} x ${aiDesignConsultation.dimensions.widthFt} फीट`
+                        : `${studioLength} x ${studioWidth} फीट`}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    style={styles.listenVoiceBtn}
-                    onPress={() => speakDiagnosis(aiDesignConsultation.ustadGuidance)}
-                  >
-                    <Ionicons name="volume-high" size={16} color="#F59E0B" />
-                    <Text style={[styles.listenVoiceText, { color: '#F59E0B' }]}>उस्ताद से सुनें</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Space Observation & Dimensions */}
-                <View style={styles.spaceMetricsRow}>
-                  <View style={styles.spaceMetricBox}>
-                    <Text style={styles.spaceMetricLabel}>📏 अनुमानित स्पेस</Text>
-                    <Text style={styles.spaceMetricVal}>
-                      {aiDesignConsultation.dimensions.lengthFt} x {aiDesignConsultation.dimensions.widthFt} फीट
+                  <View style={styles.summaryMetricItem}>
+                    <Text style={styles.summaryMetricLabel}>अनुमानित क्षेत्रफल</Text>
+                    <Text style={styles.summaryMetricValue}>
+                      {aiDesignConsultation?.dimensions
+                        ? `${aiDesignConsultation.dimensions.approxSqFt} sq ft`
+                        : `${studioDesign.totalSqFt} sq ft`}
                     </Text>
                   </View>
-                  <View style={styles.spaceMetricBox}>
-                    <Text style={styles.spaceMetricLabel}>📐 कुल क्षेत्रफल</Text>
-                    <Text style={styles.spaceMetricVal}>{aiDesignConsultation.dimensions.approxSqFt} sq.ft</Text>
-                  </View>
-                  <View style={styles.spaceMetricBox}>
-                    <Text style={styles.spaceMetricLabel}>⏱️ अनुमानित समय</Text>
-                    <Text style={styles.spaceMetricVal}>{aiDesignConsultation.estimatedFixTime || '4-5 दिन'}</Text>
+                  <View style={styles.summaryMetricItem}>
+                    <Text style={styles.summaryMetricLabel}>बनने का समय</Text>
+                    <Text style={styles.summaryMetricValue}>
+                      {aiDesignConsultation?.estimatedFixTime || '3 से 4 दिन'}
+                    </Text>
                   </View>
                 </View>
 
-                {/* Ustad Guidance Quote */}
-                <View style={styles.ustadSpeechCard}>
-                  <Text style={styles.ustadSpeechEmoji}>👷‍♂️</Text>
+                {/* Total Cost Box */}
+                <View style={styles.summaryCostBox}>
+                  <View style={styles.summaryCostRow}>
+                    <Text style={styles.summaryCostSubLabel}>📦 सामग्री लागत (प्लाई, माइका, फिटिंग्स):</Text>
+                    <Text style={styles.summaryCostSubVal}>
+                      ₹{(aiDesignConsultation?.totalEstimate
+                        ? Math.round(aiDesignConsultation.totalEstimate * 0.65)
+                        : studioDesign.totalMaterialCost
+                      ).toLocaleString('en-IN')}
+                    </Text>
+                  </View>
+                  <View style={styles.summaryCostRow}>
+                    <Text style={styles.summaryCostSubLabel}>🔨 कुशल कारीगर मजदूरी:</Text>
+                    <Text style={styles.summaryCostSubVal}>
+                      ₹{(aiDesignConsultation?.estimatedLaborCharge || studioDesign.laborCost).toLocaleString('en-IN')}
+                    </Text>
+                  </View>
+                  <View style={styles.summaryCostDivider} />
+                  <View style={styles.summaryTotalRow}>
+                    <Text style={styles.summaryTotalLabel}>कुल खर्च (सामान + मजदूरी):</Text>
+                    <Text style={styles.summaryTotalVal}>
+                      ₹{(aiDesignConsultation?.totalEstimate || studioDesign.grandTotal).toLocaleString('en-IN')}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Ustad Advice */}
+                <View style={styles.simpleUstadCard}>
+                  <Text style={styles.simpleUstadEmoji}>👳‍♂️</Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.ustadSpeechTitle}>उस्ताद SETU की सीधी सलाह:</Text>
-                    <Text style={styles.ustadSpeechBody}>{aiDesignConsultation.ustadGuidance}</Text>
-                  </View>
-                </View>
-
-                {/* Proposed Design & Finish */}
-                <View style={styles.designDetailSection}>
-                  <Text style={styles.designSectionTitle}>🎨 प्रस्तावित मॉडल व फिनिश:</Text>
-                  <Text style={styles.designProposedText}>
-                    ✨ {aiDesignConsultation.proposedDesign}
-                  </Text>
-                  <Text style={styles.designFinishTag}>
-                    🪵 अनुशंसित फिनिश: {aiDesignConsultation.finishStyleName}
-                  </Text>
-                </View>
-
-                {/* Cabinet & Storage Plan */}
-                {aiDesignConsultation.cabinetBreakdown && aiDesignConsultation.cabinetBreakdown.length > 0 && (
-                  <View style={styles.designDetailSection}>
-                    <Text style={styles.designSectionTitle}>🗄️ स्टोरेज & कैबिनेट विभाजन:</Text>
-                    {aiDesignConsultation.cabinetBreakdown.map((cab, cIdx) => (
-                      <View key={cIdx} style={styles.cabRowItem}>
-                        <Text style={styles.cabRowQty}>{cab.qty}x</Text>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.cabRowTitle}>{cab.item}</Text>
-                          <Text style={styles.cabRowDesc}>{cab.description}</Text>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {/* Wholesale Material Estimate */}
-                {aiDesignConsultation.materialBreakdown && aiDesignConsultation.materialBreakdown.length > 0 && (
-                  <View style={styles.designDetailSection}>
-                    <Text style={styles.designSectionTitle}>🧱 सामग्री खर्च (भोपाल थोक रेट):</Text>
-                    {aiDesignConsultation.materialBreakdown.map((mat, mIdx) => (
-                      <View key={mIdx} style={styles.matEstimateRow}>
-                        <Text style={styles.matEstimateName}>• {mat.name}</Text>
-                        <Text style={styles.matEstimateRate}>
-                          ₹{mat.approxRate}/{mat.unit} {mat.total ? `(₹${mat.total})` : ''}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {/* Total Cost & Action */}
-                <View style={styles.costGrandCard}>
-                  <View style={styles.costGrandRow}>
-                    <Text style={styles.costGrandLabel}>👷 कारीगर मजदूरी:</Text>
-                    <Text style={styles.costGrandVal}>₹{aiDesignConsultation.estimatedLaborCharge.toLocaleString('en-IN')}</Text>
-                  </View>
-                  <View style={styles.costGrandRow}>
-                    <Text style={styles.costGrandLabelTotal}>💰 कुल अनुमानित खर्च:</Text>
-                    <Text style={styles.costGrandValTotal}>₹{aiDesignConsultation.totalEstimate.toLocaleString('en-IN')}</Text>
-                  </View>
-
-                  <TouchableOpacity
-                    style={styles.bookKarigarActionBtn}
-                    onPress={() => {
-                      const msg = `नमस्ते उस्ताद! मैंने SETU AI पर अपनी जगह का 3D डिजाइन देखा:\n• काम: ${aiDesignConsultation.title}\n• नाप: ${aiDesignConsultation.dimensions.lengthFt}x${aiDesignConsultation.dimensions.widthFt} फीट\n• अनुमानित खर्च: ₹${aiDesignConsultation.totalEstimate.toLocaleString('en-IN')}\n\nमुझे इसके लिए कुशल कारीगर चाहिए।`;
-                      openWhatsAppChat('9812345678', msg);
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <Ionicons name="logo-whatsapp" size={18} color="#FFFFFF" />
-                    <Text style={styles.bookKarigarActionText}>इस डिजाइन के लिए कारीगर बुक करें</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            {/* Live Diagnosis Report Card */}
-            {diagnosisResult && (
-              <View style={styles.reportCard}>
-                <View style={styles.reportBadgeRow}>
-                  <View style={styles.reportBadge}>
-                    <Text style={styles.reportBadgeText}>
-                      ✓ AI उस्ताद डायग्नोस्टिक रिपोर्ट {diagnosisResult.sourceContext === 'video_frame' ? '(लाइव वीडियो फ्रेम)' : diagnosisResult.sourceContext === 'photo' ? '(फोटो विश्लेषण)' : '(Demo उदाहरण)'}
+                    <Text style={styles.simpleUstadTitle}>SETU उस्ताद की सीधी सलाह:</Text>
+                    <Text style={styles.simpleUstadText}>
+                      {aiDesignConsultation?.ustadGuidance ||
+                        activePreset.description ||
+                        studioDesign.ustadAdvice}
                     </Text>
                   </View>
                   <TouchableOpacity
-                    style={styles.listenVoiceBtn}
+                    style={styles.speakerBtn}
                     onPress={() =>
                       speakDiagnosis(
-                        diagnosisResult.titleHindi + '. ' + (diagnosisResult.visibleObservation || diagnosisResult.realProblem)
+                        aiDesignConsultation?.ustadGuidance ||
+                          activePreset.description ||
+                          studioDesign.ustadAdvice
                       )
                     }
                   >
-                    <Ionicons name="volume-high" size={16} color={COLORS.primary} />
-                    <Text style={styles.listenVoiceText}>उस्ताद से सुनें</Text>
+                    <Ionicons
+                      name={isSpeaking ? 'volume-high' : 'volume-medium-outline'}
+                      size={20}
+                      color="#A5B4FC"
+                    />
                   </TouchableOpacity>
                 </View>
 
-                {/* 1. Problem title */}
-                <Text style={styles.reportTitle}>{diagnosisResult.titleHindi}</Text>
-
-                {/* 2. Distinct Visible Observation */}
-                <View style={styles.observationBox}>
-                  <View style={styles.observationHeader}>
-                    <Ionicons name="eye" size={16} color="#2563EB" />
-                    <Text style={styles.observationTitle}>👁️ प्रत्यक्ष दृश्य लक्षण (Visible Observation):</Text>
-                  </View>
-                  <Text style={styles.observationText}>
-                    {diagnosisResult.sourceContext === 'video_frame'
-                      ? 'इस frame में: '
-                      : diagnosisResult.sourceContext === 'photo'
-                      ? 'अपलोड की गई फोटो में: '
-                      : 'Demo नमूना: '}
-                    {diagnosisResult.visibleObservation || diagnosisResult.visualSymptom}
+                {/* One Direct WhatsApp Button to Hire Verified Contractor */}
+                <TouchableOpacity
+                  style={styles.bigGreenConnectBtn}
+                  onPress={handleSendStudioWhatsApp}
+                  activeOpacity={0.85}
+                >
+                  <FontAwesome5 name="whatsapp" size={18} color="#FFFFFF" />
+                  <Text style={styles.bigGreenConnectText}>
+                    💬 भोपाल के वेरिफ़ाईड कारीगर से बात करें
                   </Text>
-                </View>
-
-                {/* 3. Distinct Inferred Root Cause */}
-                <View style={styles.realCauseBox}>
-                  <View style={styles.realCauseHeader}>
-                    <Ionicons name="bulb" size={18} color="#D97706" />
-                    <Text style={styles.realCauseTitle}>🔍 संभावित अनुमान व वजह (Inferred Cause):</Text>
-                  </View>
-                  <Text style={styles.realCauseDesc}>{diagnosisResult.inferredCause || diagnosisResult.realProblem}</Text>
-                </View>
-
-                {/* 4. Safety Hazard Warning */}
-                {diagnosisResult.isSafetyHazard && (
-                  <View style={styles.hazardWarningBanner}>
-                    <Ionicons name="warning" size={24} color="#DC2626" />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.hazardWarningTitle}>आपातकालीन सुरक्षा चेतावनी</Text>
-                      <Text style={styles.hazardWarningText}>
-                        {diagnosisResult.safetyMessage || '⚠️ तुरंत मुख्य DP / MCB (मेन स्विच) बंद करें! किसी भी नंगे तार या बोर्ड को हाथ न लगाएं।'}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-
-                {/* 5. Parts Needed with Bhopal MRP */}
-                {diagnosisResult.neededHardware && diagnosisResult.neededHardware.length > 0 && (
-                  <View style={styles.reportSectionBox}>
-                    <Text style={styles.reportSectionTitle}>📦 क्या सामान लगेगा (मार्केट रेट):</Text>
-                    {diagnosisResult.neededHardware.map((hw, idx) => (
-                      <View key={idx} style={styles.hardwareRow}>
-                        <View style={styles.hwInfo}>
-                          <Ionicons name="cube-outline" size={14} color={COLORS.textPrimary} />
-                          <Text style={styles.hwName}>{hw.name}</Text>
-                        </View>
-                        <View style={styles.hwPriceBadge}>
-                          <Text style={styles.hwPriceText}>
-                            ₹{hw.approxPrice} ({hw.unit})
-                          </Text>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                )}
-
-                {/* 6. Cost Breakdown */}
-                <View style={styles.costBreakdownCard}>
-                  <View style={styles.costRow}>
-                    <Text style={styles.costLabel}>
-                      सामान का कुल खर्च:
-                    </Text>
-                    <Text style={styles.costValue}>
-                      ₹{diagnosisResult.neededHardware.reduce((acc, h) => acc + h.approxPrice, 0)}
-                    </Text>
-                  </View>
-                  <View style={styles.costRow}>
-                    <Text style={styles.costLabel}>
-                      {diagnosisResult.laborEstimate?.description || 'मानक कारीगर मजदूरी'}:
-                    </Text>
-                    <Text style={styles.costValue}>
-                      ₹{diagnosisResult.laborEstimate?.approxPrice || 180}
-                    </Text>
-                  </View>
-                  <View style={styles.costDivider} />
-                  <View style={styles.grandCostRow}>
-                    <Text style={styles.grandCostLabel}>कुल उचित बजट (Total Fair Price):</Text>
-                    <Text style={styles.grandCostValue}>
-                      ₹{diagnosisResult.totalEstimatedCost}
-                    </Text>
-                  </View>
-                  <Text style={styles.fairPriceNote}>
-                    💡 भोपाल मार्केट का मानक रेट: कारीगर या दुकानदार इससे ज्यादा नहीं ले सकते।
-                  </Text>
-                </View>
-
-                {/* 7. DIY Steps (ONLY if NOT a safety hazard) */}
-                {!diagnosisResult.isSafetyHazard && diagnosisResult.diySteps && diagnosisResult.diySteps.length > 0 && (
-                  <View style={styles.diyBox}>
-                    <Text style={styles.diyTitle}>🛠️ अगर खुद ठीक करना चाहें (3 आसान स्टेप्स):</Text>
-                    {diagnosisResult.diySteps.map((step, idx) => (
-                      <Text key={idx} style={styles.diyStepText}>
-                        {step}
-                      </Text>
-                    ))}
-                  </View>
-                )}
-
-                {/* 8. Ustad Advice / Fraud Prevention */}
-                <View style={styles.ustadAdviceBox}>
-                  <Text style={styles.ustadAdviceText}>
-                    {diagnosisResult.karigarAdvice}
-                  </Text>
-                </View>
-
-                {/* 6. 1-Click WhatsApp & Call Karigar Buttons */}
-                <View style={styles.actionButtonsRow}>
-                  <TouchableOpacity
-                    style={styles.whatsAppCallBtn}
-                    onPress={handleSendToKarigarWhatsApp}
-                    activeOpacity={0.85}
-                  >
-                    <FontAwesome5 name="whatsapp" size={18} color="#FFFFFF" />
-                    <Text style={styles.whatsAppCallText}>
-                      कारीगर को WhatsApp पर फ़ोटो भेजें
-                    </Text>
-                  </TouchableOpacity>
-
-                  {onOpenContractorCategory && (
-                    <TouchableOpacity
-                      style={styles.openCategoryBtn}
-                      onPress={() => {
-                        onOpenContractorCategory(diagnosisResult.category);
-                        onClose();
-                      }}
-                      activeOpacity={0.85}
-                    >
-                      <Ionicons name="people" size={16} color={COLORS.primary} />
-                      <Text style={styles.openCategoryText}>
-                        भोपाल के {diagnosisResult.category === 'plumber' ? 'प्लंबर' : 'कारीगर'} सूची
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
+                </TouchableOpacity>
               </View>
-            )}
-
-            <View style={{ height: 40 }} />
-          </ScrollView>
-        )}
-
-        {/* ========================================================================= */}
-        {/* TAB 2: 3D MODULAR KITCHEN & WARDROBE STUDIO */}
-        {/* ========================================================================= */}
-        {activeTab === 'studio' && (
-          <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
-            {/* Space Type Selector */}
-            <View style={styles.studioTypeRow}>
-              <TouchableOpacity
-                style={[styles.studioTypeBtn, studioType === 'kitchen' && styles.studioTypeBtnActive]}
-                onPress={() => handleUpdateStudioDesign('kitchen', studioLayout, studioFinish, studioLength, studioWidth)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.studioTypeEmoji}>🍳</Text>
-                <Text style={[styles.studioTypeText, studioType === 'kitchen' && styles.studioTypeTextActive]}>
-                  मॉड्यूलर किचन
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.studioTypeBtn, studioType === 'wardrobe' && styles.studioTypeBtnActive]}
-                onPress={() => handleUpdateStudioDesign('wardrobe', studioLayout, studioFinish, studioLength, studioWidth)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.studioTypeEmoji}>🪚</Text>
-                <Text style={[styles.studioTypeText, studioType === 'wardrobe' && styles.studioTypeTextActive]}>
-                  मास्टर वॉर्डरोब
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Layout Options */}
-            <View style={styles.studioSection}>
-              <Text style={styles.studioSectionHeader}>📐 लेआउट चुनें (Layout Type):</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.studioChipsScroll}>
-                {[
-                  { key: 'L_SHAPE', label: 'एल-शेप (L-Shape)' },
-                  { key: 'PARALLEL', label: 'समानांतर (Parallel)' },
-                  { key: 'U_SHAPE', label: 'यू-शेप (U-Shape)' },
-                  { key: 'STRAIGHT', label: 'स्ट्रेट लाइन (Single Wall)' },
-                ].map((l) => (
-                  <TouchableOpacity
-                    key={l.key}
-                    style={[styles.studioChip, studioLayout === l.key && styles.studioChipActive]}
-                    onPress={() =>
-                      handleUpdateStudioDesign(
-                        studioType,
-                        l.key as any,
-                        studioFinish,
-                        studioLength,
-                        studioWidth
-                      )
-                    }
-                    activeOpacity={0.8}
-                  >
-                    <Text
-                      style={[
-                        styles.studioChipText,
-                        studioLayout === l.key && styles.studioChipTextActive,
-                      ]}
-                    >
-                      {l.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-
-            {/* Finish Options */}
-            <View style={styles.studioSection}>
-              <Text style={styles.studioSectionHeader}>✨ सामग्री & फिनिश चुनें (Finishes):</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.studioChipsScroll}>
-                {[
-                  { key: 'ACRYLIC', label: '1.5mm ऐक्रेलिक हाई-ग्लॉस' },
-                  { key: 'PVC_LAMINATE', label: '1mm PVC वाटरप्रूफ माइका' },
-                  { key: 'PU_GLOSS', label: 'इटैलियन PU पेंट' },
-                  { key: 'TEAK_WOOD', label: 'नेचुरल टीकवुड वेनियर' },
-                ].map((f) => (
-                  <TouchableOpacity
-                    key={f.key}
-                    style={[styles.studioChip, studioFinish === f.key && styles.studioChipActive]}
-                    onPress={() =>
-                      handleUpdateStudioDesign(
-                        studioType,
-                        studioLayout,
-                        f.key as any,
-                        studioLength,
-                        studioWidth
-                      )
-                    }
-                    activeOpacity={0.8}
-                  >
-                    <Text
-                      style={[
-                        styles.studioChipText,
-                        studioFinish === f.key && styles.studioChipTextActive,
-                      ]}
-                    >
-                      {f.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-
-            {/* Room Dimensions Selector */}
-            <View style={styles.dimensionsBox}>
-              <Text style={styles.dimensionsTitle}>
-                📏 माप (Dimensions): {studioLength} x {studioWidth} फीट • कुल {studioDesign.totalSqFt} sq.ft
-              </Text>
-              <View style={styles.dimButtonsRow}>
-                {[
-                  { l: 8, w: 6, label: '8x6 ft (छोटा)' },
-                  { l: 10, w: 8, label: '10x8 ft (स्टैंडर्ड)' },
-                  { l: 12, w: 10, label: '12x10 ft (बड़ा)' },
-                  { l: 14, w: 12, label: '14x12 ft (लक्जरी)' },
-                ].map((dim, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    style={[
-                      styles.dimPillBtn,
-                      studioLength === dim.l && studioWidth === dim.w && styles.dimPillBtnActive,
-                    ]}
-                    onPress={() =>
-                      handleUpdateStudioDesign(
-                        studioType,
-                        studioLayout,
-                        studioFinish,
-                        dim.l,
-                        dim.w
-                      )
-                    }
-                    activeOpacity={0.8}
-                  >
-                    <Text
-                      style={[
-                        styles.dimPillText,
-                        studioLength === dim.l && studioWidth === dim.w && styles.dimPillTextActive,
-                      ]}
-                    >
-                      {dim.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            {/* Interactive 3D Realistic Architectural Elevation & Design Card */}
-            <View style={styles.schematicCanvasCard}>
-              <View style={styles.schematicCanvasHeader}>
-                <View style={styles.canvasLiveBadge}>
-                  <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-                  <Text style={styles.canvasLiveText}>3D रियलिस्टिक आर्किटेक्चरल मॉडल</Text>
-                </View>
-                <Text style={styles.schematicSubtitle}>{activePreset.title}</Text>
-              </View>
-
-              {/* Realistic 3D Design Render Preview */}
-              <View style={styles.blueprintArea}>
-                <Image
-                  source={{ uri: activePreset.renderUrl }}
-                  style={styles.blueprintRenderImage}
-                  resizeMode="cover"
-                />
-                <View style={styles.blueprintWatermark}>
-                  <Text style={styles.blueprintWatermarkText}>
-                    ✨ SETU AI 3D • {studioLength}ft x {studioWidth}ft ({studioDesign.totalSqFt} sq.ft)
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.blueprintSpecsRow}>
-                <Text style={styles.blueprintSpecItem}>🪵 शैली: {activePreset.styleName}</Text>
-                <Text style={styles.blueprintSpecItem}>📐 माप: {studioLength}x{studioWidth} फीट</Text>
-                <Text style={styles.blueprintSpecItem}>💰 कुल: ₹{studioDesign.grandTotal.toLocaleString('en-IN')}</Text>
-              </View>
-            </View>
-
-            {/* Cabinet & Storage Breakdown */}
-            <View style={styles.breakdownCard}>
-              <Text style={styles.breakdownTitle}>🗄️ कैबिनेट्स & स्टोरेज विभाजन:</Text>
-              {studioDesign.cabinetBreakdown.map((cab, idx) => (
-                <View key={idx} style={styles.cabRow}>
-                  <View style={styles.cabBadge}>
-                    <Text style={styles.cabBadgeQty}>{cab.qty}x</Text>
-                  </View>
-                  <View style={styles.cabDetails}>
-                    <Text style={styles.cabItemName}>{cab.item}</Text>
-                    <Text style={styles.cabItemDesc}>{cab.desc}</Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-
-            {/* Material & Cost Calculation */}
-            <View style={styles.studioEstimateCard}>
-              <Text style={styles.estimateTitle}>💰 सामग्री & लेबर बजट अनुमान:</Text>
-              {studioDesign.materialEstimate.map((mat, idx) => (
-                <View key={idx} style={styles.matCostRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.matName}>{mat.name}</Text>
-                    <Text style={styles.matQty}>मात्रा: {mat.qty}</Text>
-                  </View>
-                  <Text style={styles.matTotal}>₹{mat.total.toLocaleString('en-IN')}</Text>
-                </View>
-              ))}
-
-              <View style={styles.matCostRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.matName}>मास्टर कारपेंटर लेबर चार्ज</Text>
-                  <Text style={styles.matQty}>
-                    {studioDesign.totalSqFt} sq.ft @ ₹{studioType === 'kitchen' ? '380' : '350'}/sq.ft
-                  </Text>
-                </View>
-                <Text style={styles.matTotal}>₹{studioDesign.laborCost.toLocaleString('en-IN')}</Text>
-              </View>
-
-              <View style={styles.costDivider} />
-              <View style={styles.grandCostRow}>
-                <Text style={styles.grandCostLabel}>कुल प्रोजेक्ट बजट:</Text>
-                <Text style={styles.grandCostValue}>
-                  ₹{studioDesign.grandTotal.toLocaleString('en-IN')}
-                </Text>
-              </View>
-
-              <View style={styles.ustadAdviceBox}>
-                <Text style={styles.ustadAdviceText}>{studioDesign.ustadAdvice}</Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.whatsAppCallBtn}
-                onPress={handleSendStudioWhatsApp}
-                activeOpacity={0.85}
-              >
-                <FontAwesome5 name="whatsapp" size={18} color="#FFFFFF" />
-                <Text style={styles.whatsAppCallText}>
-                  मास्टर कारपेंटर को 3D डिज़ाइन & कोटेशन भेजें
-                </Text>
-              </TouchableOpacity>
             </View>
 
             <View style={{ height: 40 }} />
           </ScrollView>
         )}
 
-        {/* ========================================================================= */}
         {/* TAB 3: USTAD GYAN & KARIGAR TRAINING */}
         {/* ========================================================================= */}
         {activeTab === 'gyan' && (
@@ -2105,6 +1353,424 @@ const styles = StyleSheet.create({
   tabContent: {
     flex: 1,
     padding: 12,
+  },
+  // Simple 3-Step Stepper Header
+  easyStepperCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0F172A',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  easyStepBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  easyStepCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  easyStepNum: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  easyStepTitle: {
+    color: '#E2E8F0',
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
+  easyStepLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: '#334155',
+    marginHorizontal: 8,
+  },
+  // Step Section Card
+  stepSectionCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#1E293B',
+  },
+  stepHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  stepHeaderBadge: {
+    backgroundColor: COLORS.primary,
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '900',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  stepHeaderTitle: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+    flex: 1,
+  },
+  // Step 1: Photo Action Row
+  photoActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  photoActionPrimaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  photoActionPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  photoActionSecondaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#E2E8F0',
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  photoActionSecondaryText: {
+    color: '#0F172A',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  photoActionFlipBtn: {
+    backgroundColor: '#334155',
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Step 2: Trade Cards Grid
+  tradeGridRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  tradeCardTile: {
+    width: '48%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#1E293B',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#334155',
+  },
+  tradeCardTileActive: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: '#F59E0B',
+  },
+  tradeCardIcon: {
+    fontSize: 18,
+  },
+  tradeCardLabel: {
+    color: '#CBD5E1',
+    fontSize: 11,
+    fontWeight: '700',
+    flex: 1,
+  },
+  tradeCardLabelActive: {
+    color: '#F59E0B',
+    fontWeight: '900',
+  },
+  // Voice Chat Bar
+  voiceChatBar: {
+    marginTop: 2,
+    gap: 8,
+  },
+  voiceMicBigBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#4F46E5',
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  voiceMicBigBtnActive: {
+    backgroundColor: '#EF4444',
+  },
+  voiceMicBigText: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
+  simpleQueryInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
+    paddingHorizontal: 10,
+  },
+  simpleQueryInput: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 12,
+    paddingVertical: 8,
+  },
+  simpleQuerySubmitBtn: {
+    backgroundColor: COLORS.primary,
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Step 3: Clean Viewport Card
+  cleanViewportCard: {
+    backgroundColor: '#020617',
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#334155',
+    marginBottom: 10,
+  },
+  beforeAfterHeaderPill: {
+    flexDirection: 'row',
+    backgroundColor: '#1E293B',
+    padding: 4,
+    borderRadius: 8,
+    margin: 8,
+    gap: 6,
+  },
+  togglePillBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 7,
+    borderRadius: 6,
+    gap: 4,
+  },
+  togglePillBtnActive: {
+    backgroundColor: '#F59E0B',
+  },
+  togglePillText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  togglePillTextActive: {
+    color: '#0F172A',
+    fontWeight: '900',
+  },
+  cleanImageContainer: {
+    width: '100%',
+    height: 220,
+    position: 'relative',
+    backgroundColor: '#0F172A',
+  },
+  cleanViewportImage: {
+    width: '100%',
+    height: '100%',
+  },
+  viewportWatermarkBadge: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  viewportWatermarkText: {
+    color: '#FBBF24',
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  finishChipsWrap: {
+    padding: 8,
+    backgroundColor: '#0F172A',
+    borderTopWidth: 1,
+    borderTopColor: '#1E293B',
+  },
+  finishLabel: {
+    color: '#94A3B8',
+    fontSize: 10.5,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  finishChipsRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  finishChipPill: {
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  finishChipPillActive: {
+    backgroundColor: 'rgba(245, 158, 11, 0.18)',
+    borderColor: '#F59E0B',
+  },
+  finishChipPillText: {
+    color: '#CBD5E1',
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  finishChipPillTextActive: {
+    color: '#F59E0B',
+    fontWeight: '900',
+  },
+  // Step 3: Simple Summary Card
+  simpleSummaryCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  summaryTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#1E293B',
+    borderRadius: 10,
+    padding: 8,
+    marginBottom: 10,
+  },
+  summaryMetricItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  summaryMetricLabel: {
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  summaryMetricValue: {
+    color: '#FBBF24',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  summaryCostBox: {
+    backgroundColor: '#1E293B',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+  },
+  summaryCostRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 5,
+  },
+  summaryCostSubLabel: {
+    color: '#CBD5E1',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  summaryCostSubVal: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  summaryCostDivider: {
+    height: 1,
+    backgroundColor: '#334155',
+    marginVertical: 6,
+  },
+  summaryTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  summaryTotalLabel: {
+    color: '#F59E0B',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  summaryTotalVal: {
+    color: '#F59E0B',
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  simpleUstadCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#1E1B4B',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#6366F1',
+    marginBottom: 12,
+    gap: 8,
+  },
+  simpleUstadEmoji: {
+    fontSize: 22,
+  },
+  simpleUstadTitle: {
+    color: '#A5B4FC',
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  simpleUstadText: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  speakerBtn: {
+    padding: 4,
+  },
+  bigGreenConnectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#16A34A',
+    borderRadius: 12,
+    paddingVertical: 12,
+    shadowColor: '#16A34A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  bigGreenConnectText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontWeight: '900',
   },
   viewfinderCard: {
     backgroundColor: '#1E293B',
