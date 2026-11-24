@@ -30,6 +30,29 @@ import {
 } from '../utils/whatsapp';
 import { pickImageFromGallery, capturePhotoFromCamera } from '../utils/mediaPicker';
 
+export interface AIDesignConsultation {
+  isDesign: boolean;
+  projectType: 'wardrobe' | 'kitchen' | 'masonry' | 'plumbing' | 'electrical' | 'repair';
+  title: string;
+  spaceObservation: string;
+  dimensions: { lengthFt: number; widthFt: number; approxSqFt: number };
+  proposedDesign: string;
+  finishStyleName: string;
+  cabinetBreakdown: Array<{ item: string; qty: number; description: string }>;
+  materialBreakdown: Array<{ name: string; approxRate: number; unit: string; total?: number }>;
+  estimatedLaborCharge: number;
+  totalEstimate: number;
+  ustadGuidance: string;
+  estimatedFixTime?: string;
+}
+
+export const QUICK_PROMPTS = [
+  { label: '🗄️ यहाँ अलमारी बनानी है', query: 'इस दीवार पर 3-डोर मॉडर्न अलमारी बनवानी है, स्पेस नाप और खर्च बताएं।' },
+  { label: '🍳 यहाँ मॉड्यूलर किचन कैसा रहेगा?', query: 'यहाँ L-शेप मॉड्यूलर किचन बनवाना है, क्या साइज और बजट रहेगा?' },
+  { label: '💰 कम बजट में क्या विकल्प है?', query: 'कम से कम बजट में यहाँ क्या और कैसे बन सकता है?' },
+  { label: '⏱️ बनने में कितने दिन लगेंगे?', query: 'यह काम पूरा होने में कारीगर को कितने दिन लगेंगे?' },
+];
+
 export interface TradeVisualPreset {
   id: string;
   trade: 'kitchen' | 'wardrobe' | 'masonry' | 'plumbing' | 'electrical';
@@ -229,6 +252,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
   const [callDuration, setCallDuration] = useState<number>(12);
   const [selectedScenarioKey, setSelectedScenarioKey] = useState<string>('tap_leakage');
   const [diagnosisResult, setDiagnosisResult] = useState<VisualProblemDiagnosis | null>(null);
+  const [aiDesignConsultation, setAiDesignConsultation] = useState<AIDesignConsultation | null>(null);
   const [visionError, setVisionError] = useState<string>('');
   const [sourceContext, setSourceContext] = useState<'photo' | 'video_frame' | 'sample_demo'>('photo');
   const [customQuery, setCustomQuery] = useState<string>('');
@@ -342,7 +366,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
   };
 
   // AI Multimodal Vision Diagnosis Runner (Gemini Multimodal Vision Engine)
-  const runAIVisionDiagnosis = async (imageBase64: string, query: string, ctx: 'photo' | 'video_frame' = 'photo') => {
+  const runAIVisionDiagnosis = async (imageBase64: string, query: string, ctx: 'photo' | 'video_frame' | 'sample_demo' = 'photo') => {
     setIsScanning(true);
     setVisionError('');
     setSourceContext(ctx);
@@ -356,6 +380,55 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
       );
       if (apiResp?.success && apiResp.diagnosis) {
         const d = apiResp.diagnosis;
+
+        // Check if this is a space design / renovation request (e.g. almirah, kitchen, wardrobe, elevation, etc.)
+        const isDesign =
+          d.isDesignRequest ||
+          ['wardrobe', 'kitchen', 'masonry', 'plumbing', 'electrical'].includes(d.projectType) ||
+          /अलमारी|अलमरी|wardrobe|almirah|kitchen|किचन|दीवार|छत|elevation|मॉडल|डिजाइन|design/i.test(activeUserQuery);
+
+        if (isDesign) {
+          const detectedTrade: 'wardrobe' | 'kitchen' | 'masonry' | 'plumbing' | 'electrical' =
+            (d.projectType === 'wardrobe' || /अलमारी|अलमरी|wardrobe|almirah/i.test(activeUserQuery)) ? 'wardrobe' :
+            (d.projectType === 'kitchen' || /kitchen|किचन/i.test(activeUserQuery)) ? 'kitchen' :
+            (d.projectType === 'masonry' || /elevation|मकान|दीवार|brick/i.test(activeUserQuery)) ? 'masonry' :
+            (d.projectType === 'plumbing' || /bath|बाथरूम|नल/i.test(activeUserQuery)) ? 'plumbing' :
+            (d.projectType === 'electrical' || /light|लाइट|वायरिंग/i.test(activeUserQuery)) ? 'electrical' : 'wardrobe';
+
+          const nextL = Number(d.estimatedDimensions?.lengthFt) || 8;
+          const nextW = Number(d.estimatedDimensions?.widthFt) || 7;
+          const nextFinish = d.recommendedFinish || (detectedTrade === 'wardrobe' ? 'TEAK_WOOD' : 'ACRYLIC');
+
+          handleUpdateStudioDesign(detectedTrade, studioLayout, nextFinish, nextL, nextW);
+          setVisualMode('after');
+
+          const consultation: AIDesignConsultation = {
+            isDesign: true,
+            projectType: detectedTrade,
+            title: d.problemTitle || `${detectedTrade === 'wardrobe' ? 'अलमारी / वार्डरोब' : 'मॉड्यूलर स्पेस'} 3D डिजाइन`,
+            spaceObservation: d.spaceObservationHindi || d.visibleObservation || 'दीवार व कमरे का स्पेस विश्लेषण पूरा हुआ।',
+            dimensions: {
+              lengthFt: nextL,
+              widthFt: nextW,
+              approxSqFt: Number(d.estimatedDimensions?.approxSqFt) || nextL * nextW,
+            },
+            proposedDesign: d.proposedDesignHindi || `${nextL}x${nextW} फीट के लिए कस्टम 3D मॉडल तैयार किया गया है।`,
+            finishStyleName: d.finishStyleName || 'प्रीमियम फिनिश विथ सॉफ्ट-क्लोज हार्डवेयर',
+            cabinetBreakdown: d.cabinetBreakdown || [],
+            materialBreakdown: d.requiredParts || [],
+            estimatedLaborCharge: d.estimatedLaborCharge || 12000,
+            totalEstimate: d.totalEstimate || 42000,
+            ustadGuidance: d.ustadGuidanceHindi || d.ustadAdvice || 'मिया! इस जगह पर शानदार मॉडल बन सकता है। नीचे 3D डिजाइन और सामग्री लागत देखें।',
+            estimatedFixTime: d.estimatedFixTime || '4 से 5 कार्य दिवस',
+          };
+
+          setAiDesignConsultation(consultation);
+          setDiagnosisResult(null);
+          setIsScanning(false);
+          speakDiagnosis(consultation.ustadGuidance);
+          return;
+        }
+
         const mapped: VisualProblemDiagnosis = {
           id: 'vision_' + Date.now(),
           category: d.tradeCategory || 'plumber',
@@ -383,6 +456,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
           karigarAdvice: d.ustadAdvice || '',
         };
         setDiagnosisResult(mapped);
+        setAiDesignConsultation(null);
         setIsScanning(false);
         speakDiagnosis(mapped.titleHindi + '. ' + mapped.visibleObservation);
         return;
@@ -401,6 +475,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
       const diag = diagnoseVisualProblem(activeText, undefined, ctx);
       if (diag) {
         setDiagnosisResult(diag);
+        setAiDesignConsultation(null);
         setIsScanning(false);
         speakDiagnosis(diag.titleHindi + '. ' + diag.visibleObservation);
         return;
@@ -440,6 +515,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
     setTimeout(() => {
       const diag = diagnoseVisualProblem(scenarioKey, undefined, 'sample_demo');
       setDiagnosisResult(diag);
+      setAiDesignConsultation(null);
       setIsScanning(false);
 
       if (diag) {
@@ -448,24 +524,18 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
     }, 800);
   };
 
-  const handleCustomScan = () => {
-    if (!customQuery.trim()) {
-      Alert.alert('कृपया लिखें', 'अपनी समस्या या ख़राब सामान का नाम लिखें।');
+  const handleCustomScan = (overrideQuery?: string) => {
+    const textToScan = (overrideQuery || customQuery).trim();
+    if (!textToScan) {
+      Alert.alert('कृपया लिखें', 'अपनी समस्या, अलमारी या डिजाइन का नाम लिखें।');
       return;
+    }
+    if (overrideQuery) {
+      setCustomQuery(overrideQuery);
     }
     if (!consumeCredit()) return;
 
-    setIsScanning(true);
-    setTimeout(() => {
-      const diag = diagnoseVisualProblem(customQuery, undefined, 'photo');
-      setDiagnosisResult(diag);
-      setIsScanning(false);
-      if (diag) {
-        speakDiagnosis(diag.titleHindi + '. ' + (diag.visibleObservation || diag.realProblem || ''));
-      } else {
-        setVisionError('इस समस्या का विवरण स्पष्ट नहीं है। कृपया स्पष्ट विवरण लिखें।');
-      }
-    }, 1200);
+    runAIVisionDiagnosis(attachedMediaUrl, textToScan, attachedMediaUrl ? 'photo' : 'sample_demo');
   };
 
   // Text-To-Speech (AI Ustad speaks Hindi)
@@ -1244,18 +1314,40 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
               </ScrollView>
             </View>
 
+            {/* Quick Prompts Chips for Space Design & Renovation */}
+            <View style={styles.quickPromptsSection}>
+              <Text style={styles.quickPromptsHeader}>💡 उस्ताद से तुरंत पूछें (क्लिक करें):</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.quickPromptsRow}
+              >
+                {QUICK_PROMPTS.map((prompt, pIdx) => (
+                  <TouchableOpacity
+                    key={pIdx}
+                    style={styles.quickPromptChip}
+                    onPress={() => handleCustomScan(prompt.query)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.quickPromptChipText}>{prompt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
             {/* Custom Query Search Box */}
             <View style={styles.customQueryBox}>
               <TextInput
                 style={styles.customInput}
-                placeholder="या अपनी समस्या यहाँ लिखें (जैसे: सिंक जाम है, गीजर चालू नहीं हो रहा)..."
+                placeholder="उस्ताद से पूछें (जैसे: यहाँ अलमारी बनानी है, खर्चा कितना होगा?)..."
                 placeholderTextColor="#94A3B8"
                 value={customQuery}
                 onChangeText={setCustomQuery}
+                onSubmitEditing={() => handleCustomScan()}
               />
               <TouchableOpacity
                 style={styles.customQueryBtn}
-                onPress={handleCustomScan}
+                onPress={() => handleCustomScan()}
                 activeOpacity={0.8}
               >
                 <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
@@ -1275,6 +1367,120 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                 </View>
               </View>
             ) : null}
+
+            {/* AI Space Design & Renovation Consultation Report Card */}
+            {aiDesignConsultation && (
+              <View style={styles.designConsultCard}>
+                <View style={styles.designConsultHeader}>
+                  <View style={styles.designConsultBadge}>
+                    <Ionicons name="sparkles" size={15} color="#FFFFFF" />
+                    <Text style={styles.designConsultBadgeText}>
+                      ✓ AI उस्ताद स्पेस विश्लेषण & 3D मॉडल रिपोर्ट
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.listenVoiceBtn}
+                    onPress={() => speakDiagnosis(aiDesignConsultation.ustadGuidance)}
+                  >
+                    <Ionicons name="volume-high" size={16} color="#F59E0B" />
+                    <Text style={[styles.listenVoiceText, { color: '#F59E0B' }]}>उस्ताद से सुनें</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Space Observation & Dimensions */}
+                <View style={styles.spaceMetricsRow}>
+                  <View style={styles.spaceMetricBox}>
+                    <Text style={styles.spaceMetricLabel}>📏 अनुमानित स्पेस</Text>
+                    <Text style={styles.spaceMetricVal}>
+                      {aiDesignConsultation.dimensions.lengthFt} x {aiDesignConsultation.dimensions.widthFt} फीट
+                    </Text>
+                  </View>
+                  <View style={styles.spaceMetricBox}>
+                    <Text style={styles.spaceMetricLabel}>📐 कुल क्षेत्रफल</Text>
+                    <Text style={styles.spaceMetricVal}>{aiDesignConsultation.dimensions.approxSqFt} sq.ft</Text>
+                  </View>
+                  <View style={styles.spaceMetricBox}>
+                    <Text style={styles.spaceMetricLabel}>⏱️ अनुमानित समय</Text>
+                    <Text style={styles.spaceMetricVal}>{aiDesignConsultation.estimatedFixTime || '4-5 दिन'}</Text>
+                  </View>
+                </View>
+
+                {/* Ustad Guidance Quote */}
+                <View style={styles.ustadSpeechCard}>
+                  <Text style={styles.ustadSpeechEmoji}>👷‍♂️</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.ustadSpeechTitle}>उस्ताद SETU की सीधी सलाह:</Text>
+                    <Text style={styles.ustadSpeechBody}>{aiDesignConsultation.ustadGuidance}</Text>
+                  </View>
+                </View>
+
+                {/* Proposed Design & Finish */}
+                <View style={styles.designDetailSection}>
+                  <Text style={styles.designSectionTitle}>🎨 प्रस्तावित मॉडल व फिनिश:</Text>
+                  <Text style={styles.designProposedText}>
+                    ✨ {aiDesignConsultation.proposedDesign}
+                  </Text>
+                  <Text style={styles.designFinishTag}>
+                    🪵 अनुशंसित फिनिश: {aiDesignConsultation.finishStyleName}
+                  </Text>
+                </View>
+
+                {/* Cabinet & Storage Plan */}
+                {aiDesignConsultation.cabinetBreakdown && aiDesignConsultation.cabinetBreakdown.length > 0 && (
+                  <View style={styles.designDetailSection}>
+                    <Text style={styles.designSectionTitle}>🗄️ स्टोरेज & कैबिनेट विभाजन:</Text>
+                    {aiDesignConsultation.cabinetBreakdown.map((cab, cIdx) => (
+                      <View key={cIdx} style={styles.cabRowItem}>
+                        <Text style={styles.cabRowQty}>{cab.qty}x</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.cabRowTitle}>{cab.item}</Text>
+                          <Text style={styles.cabRowDesc}>{cab.description}</Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Wholesale Material Estimate */}
+                {aiDesignConsultation.materialBreakdown && aiDesignConsultation.materialBreakdown.length > 0 && (
+                  <View style={styles.designDetailSection}>
+                    <Text style={styles.designSectionTitle}>🧱 सामग्री खर्च (भोपाल थोक रेट):</Text>
+                    {aiDesignConsultation.materialBreakdown.map((mat, mIdx) => (
+                      <View key={mIdx} style={styles.matEstimateRow}>
+                        <Text style={styles.matEstimateName}>• {mat.name}</Text>
+                        <Text style={styles.matEstimateRate}>
+                          ₹{mat.approxRate}/{mat.unit} {mat.total ? `(₹${mat.total})` : ''}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Total Cost & Action */}
+                <View style={styles.costGrandCard}>
+                  <View style={styles.costGrandRow}>
+                    <Text style={styles.costGrandLabel}>👷 कारीगर मजदूरी:</Text>
+                    <Text style={styles.costGrandVal}>₹{aiDesignConsultation.estimatedLaborCharge.toLocaleString('en-IN')}</Text>
+                  </View>
+                  <View style={styles.costGrandRow}>
+                    <Text style={styles.costGrandLabelTotal}>💰 कुल अनुमानित खर्च:</Text>
+                    <Text style={styles.costGrandValTotal}>₹{aiDesignConsultation.totalEstimate.toLocaleString('en-IN')}</Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.bookKarigarActionBtn}
+                    onPress={() => {
+                      const msg = `नमस्ते उस्ताद! मैंने SETU AI पर अपनी जगह का 3D डिजाइन देखा:\n• काम: ${aiDesignConsultation.title}\n• नाप: ${aiDesignConsultation.dimensions.lengthFt}x${aiDesignConsultation.dimensions.widthFt} फीट\n• अनुमानित खर्च: ₹${aiDesignConsultation.totalEstimate.toLocaleString('en-IN')}\n\nमुझे इसके लिए कुशल कारीगर चाहिए।`;
+                      openWhatsAppChat('9812345678', msg);
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="logo-whatsapp" size={18} color="#FFFFFF" />
+                    <Text style={styles.bookKarigarActionText}>इस डिजाइन के लिए कारीगर बुक करें</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
 
             {/* Live Diagnosis Report Card */}
             {diagnosisResult && (
@@ -2127,6 +2333,223 @@ const styles = StyleSheet.create({
   },
   scenarioChipTextSelected: {
     color: '#FFFFFF',
+    fontWeight: '900',
+  },
+  quickPromptsSection: {
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  quickPromptsHeader: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  quickPromptsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  quickPromptChip: {
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  quickPromptChipText: {
+    color: '#E2E8F0',
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  designConsultCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 16,
+    padding: 14,
+    marginTop: 14,
+    borderWidth: 1.5,
+    borderColor: '#F59E0B',
+  },
+  designConsultHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  designConsultBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#B45309',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  designConsultBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  spaceMetricsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#1E293B',
+    borderRadius: 10,
+    padding: 8,
+    marginBottom: 12,
+    gap: 6,
+  },
+  spaceMetricBox: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  spaceMetricLabel: {
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  spaceMetricVal: {
+    color: '#FBBF24',
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  ustadSpeechCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#1E1B4B',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#6366F1',
+    marginBottom: 12,
+    gap: 8,
+  },
+  ustadSpeechEmoji: {
+    fontSize: 24,
+  },
+  ustadSpeechTitle: {
+    color: '#A5B4FC',
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  ustadSpeechBody: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  designDetailSection: {
+    backgroundColor: '#1E293B',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+  },
+  designSectionTitle: {
+    color: '#F59E0B',
+    fontSize: 11.5,
+    fontWeight: '900',
+    marginBottom: 6,
+  },
+  designProposedText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginBottom: 4,
+  },
+  designFinishTag: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  cabRowItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    paddingVertical: 4,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#334155',
+  },
+  cabRowQty: {
+    color: '#FBBF24',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  cabRowTitle: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
+  cabRowDesc: {
+    color: '#94A3B8',
+    fontSize: 10.5,
+  },
+  matEstimateRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 3,
+  },
+  matEstimateName: {
+    color: '#E2E8F0',
+    fontSize: 11,
+    fontWeight: '600',
+    flex: 1,
+  },
+  matEstimateRate: {
+    color: '#FBBF24',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  costGrandCard: {
+    backgroundColor: '#1E293B',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+    marginTop: 4,
+  },
+  costGrandRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  costGrandLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  costGrandVal: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  costGrandLabelTotal: {
+    color: '#FBBF24',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  costGrandValTotal: {
+    color: '#FBBF24',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  bookKarigarActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#16A34A',
+    borderRadius: 10,
+    paddingVertical: 10,
+    marginTop: 10,
+  },
+  bookKarigarActionText: {
+    color: '#FFFFFF',
+    fontSize: 13,
     fontWeight: '900',
   },
   customQueryBox: {

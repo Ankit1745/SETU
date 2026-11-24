@@ -301,30 +301,39 @@ export const ApiService = {
         const mimeType = matches && matches[1] ? matches[1] : 'image/jpeg';
         const cleanBase64 = matches && matches[2] ? matches[2] : imageBase64;
 
-        const querySection = userQuery ? `User notes: "${userQuery}"\n` : '';
-        const promptText = `You are 'Ustad SETU', India's senior home repair and construction expert in ${locality}, MP.
-Analyze this photo of a domestic repair or construction problem carefully based on what is actually visible in the image.
-${querySection}If the image is completely dark, blurry, unreadable, or not related to home repair, return:
-{ "unreadable": true, "error": "फोटो साफ नहीं है या समस्या स्पष्ट नहीं है, कृपया लाइट में साफ फोटो लें या समस्या का विवरण लिखें।" }
-
-Otherwise return PURE JSON matching this schema:
+        const querySection = userQuery ? `User notes / question: "${userQuery}"\n` : '';
+        const promptText = `You are 'Ustad SETU', India's senior home renovation, interior design, and construction expert in ${locality}, MP.
+Analyze this photo carefully. Determine whether the user wants a Space Design / Renovation (e.g. Almirah, Wardrobe, Kitchen, Bathroom, Elevation, Wall, Lighting) or a Repair problem.
+${querySection}
+If unreadable or black, return: { "unreadable": true, "error": "फोटो साफ नहीं है, कृपया लाइट में साफ फोटो लें या समस्या का विवरण लिखें।" }
+Otherwise return PURE JSON:
 {
   "unreadable": false,
+  "isDesignRequest": boolean,
+  "projectType": "wardrobe" | "kitchen" | "masonry" | "plumbing" | "electrical" | "repair",
   "problemTitle": "string in Hindi",
+  "spaceObservationHindi": "string in Hindi",
+  "estimatedDimensions": { "lengthFt": 8, "widthFt": 7, "approxSqFt": 56 },
+  "proposedDesignHindi": "string in Hindi",
+  "recommendedFinish": "TEAK_WOOD" | "ACRYLIC" | "PU_GLOSS" | "LAMINATE" | "RED_BRICK" | "CPVC_SDR11" | "FR_COPPER",
+  "finishStyleName": "string in Hindi",
   "visibleObservation": "string in Hindi",
   "inferredCause": "string in Hindi",
-  "tradeCategory": "plumber" | "carpenter" | "electrician" | "mason" | "painter",
+  "tradeCategory": "carpenter" | "plumber" | "electrician" | "mason" | "painter",
   "severity": "LOW" | "MEDIUM" | "HIGH" | "EMERGENCY",
-  "isSafetyHazard": boolean,
+  "isSafetyHazard": false,
   "safetyMessage": "string in Hindi",
-  "requiredParts": [ { "name": "string", "approxRate": 0, "unit": "string" } ],
-  "estimatedLaborCharge": 0,
+  "cabinetBreakdown": [ { "item": "string", "qty": 1, "description": "string in Hindi" } ],
+  "requiredParts": [ { "name": "string", "approxRate": 100, "unit": "string", "total": 1000 } ],
+  "estimatedLaborCharge": 5000,
+  "totalEstimate": 25000,
   "diySteps": [ "string" ],
   "ustadAdvice": "string in Hindi",
+  "ustadGuidanceHindi": "string in conversational, friendly Bhopali Hindi answering client questions and explaining design & cost.",
   "estimatedFixTime": "string in Hindi"
 }`;
 
-        for (const model of ['gemini-3.1-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.5-flash-lite']) {
+        for (const model of ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-flash-lite-latest']) {
           try {
             const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${clientKey}`;
             const geminiResp = await fetch(geminiUrl, {

@@ -1080,33 +1080,59 @@ app.post('/api/ai/diagnose-vision', async (req, res) => {
 
     const candidateModels = [
       process.env.GEMINI_MODEL,
-      'gemini-3.1-flash-lite',
-      'gemini-flash-lite-latest',
+      'gemini-3.6-flash',
+      'gemini-3.5-flash',
       'gemini-3.5-flash-lite',
+      'gemini-3-flash-preview',
+      'gemini-flash-lite-latest',
     ].filter(Boolean);
 
-    const querySection = userQuery ? `उपयोगकर्ता ने बताया: "${userQuery}"\n` : '';
+    const querySection = userQuery ? `उपयोगकर्ता का अनुरोध / प्रश्न: "${userQuery}"\n` : '';
 
-    const promptText = `You are 'Ustad SETU', India's senior home repair and construction expert in ${locality}, MP.
-${imageBase64 ? 'Analyze this photo of a domestic repair or construction problem carefully based on what is actually visible in the image.' : 'The user has described a home repair problem below. Provide expert diagnosis based on their description.'}
-${querySection}If the image is completely dark, blurry, unreadable, or not related to home repair, return:
-{ "unreadable": true, "error": "फोटो साफ नहीं है या समस्या स्पष्ट नहीं है, कृपया लाइट में साफ फोटो लें या समस्या का विवरण लिखें।" }
+    const promptText = `You are 'Ustad SETU', India's senior home renovation, interior design, and construction expert in ${locality}, MP.
+${imageBase64 ? 'Analyze this photo carefully. The user has provided this image of their space or a domestic issue.' : 'The user has described their requirement or home repair problem below.'}
+${querySection}
+Determine whether the user wants:
+A) A SPACE DESIGN / RENOVATION / CONSTRUCTION (e.g. wants to build an almirah/wardrobe on a wall, modular kitchen in a room, false ceiling, bathroom renovation, house elevation, masonry wall, electrical layout, or asks "here what can be built/how it will look").
+OR
+B) A REPAIR / MAINTENANCE PROBLEM (e.g. water leakage, faulty switch, broken tile, seepage, plumbing block).
 
-Otherwise return PURE JSON matching this schema:
+If the image is completely pitch black or corrupted beyond recognition, return:
+{ "unreadable": true, "error": "फोटो साफ नहीं है, कृपया लाइट में साफ फोटो लें या समस्या का विवरण लिखें।" }
+
+Otherwise return PURE JSON matching this unified schema:
 {
   "unreadable": false,
-  "problemTitle": "string in Hindi",
-  "visibleObservation": "string in Hindi (what is directly visible without jumping to conclusions)",
-  "inferredCause": "string in Hindi (inferred root cause)",
-  "tradeCategory": "plumber" | "carpenter" | "electrician" | "mason" | "painter",
+  "isDesignRequest": true,
+  "projectType": "wardrobe" | "kitchen" | "masonry" | "plumbing" | "electrical" | "repair",
+  "problemTitle": "string in Hindi (e.g. 'दीवार पर वार्डरोब/अलमारी निर्माण' or 'किचन सिंक मरम्मत')",
+  "spaceObservationHindi": "string in Hindi describing what is visible in the space/room/wall (e.g. 'दीवार पर लगभग 7x8 फीट की खाली जगह है')",
+  "estimatedDimensions": {
+    "lengthFt": 8,
+    "widthFt": 7,
+    "approxSqFt": 56
+  },
+  "proposedDesignHindi": "string in Hindi (detailed design proposal tailored to this space)",
+  "recommendedFinish": "TEAK_WOOD" | "ACRYLIC" | "PU_GLOSS" | "LAMINATE" | "RED_BRICK" | "CPVC_SDR11" | "FR_COPPER",
+  "finishStyleName": "string in Hindi (e.g. '1mm हाई-ग्लॉस लैमिनेट & सॉफ्ट-क्लोज' or 'नेचुरल टीकवुड फिनिश')",
+  "visibleObservation": "string in Hindi",
+  "inferredCause": "string in Hindi",
+  "tradeCategory": "carpenter" | "plumber" | "electrician" | "mason" | "painter",
   "severity": "LOW" | "MEDIUM" | "HIGH" | "EMERGENCY",
   "isSafetyHazard": false,
-  "safetyMessage": "string in Hindi (only if hazard)",
-  "requiredParts": [ { "name": "string", "approxRate": 0, "unit": "string" } ],
-  "estimatedLaborCharge": 0,
-  "diySteps": [ "step 1", "step 2" ],
+  "safetyMessage": "string in Hindi (if any)",
+  "cabinetBreakdown": [
+    { "item": "string", "qty": 1, "description": "string in Hindi" }
+  ],
+  "requiredParts": [
+    { "name": "string", "approxRate": 100, "unit": "string", "total": 1000 }
+  ],
+  "estimatedLaborCharge": 5000,
+  "totalEstimate": 25000,
+  "diySteps": [ "string" ],
   "ustadAdvice": "string in Hindi",
-  "estimatedFixTime": "string in Hindi"
+  "ustadGuidanceHindi": "string in warm, conversational, colloquial Bhopali Hindi from Ustad SETU directly answering the client's questions, explaining how the model will look, why this design fits their space, exact costs, and next steps.",
+  "estimatedFixTime": "string in Hindi (e.g. '3 से 4 दिन')"
 }`;
 
     // Build request parts — image + text, or text-only
