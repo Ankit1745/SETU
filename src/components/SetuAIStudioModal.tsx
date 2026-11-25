@@ -55,6 +55,11 @@ export interface SetuAssistantPayload {
   visualPlan?: SetuVisualPlan;
   renderedImageUrl?: string | null;
   editedImageBase64?: string | null;
+  inPlaceEditRequired?: boolean;
+  inPlaceEditPrompt?: string;
+  serverHasPaidImageEditor?: boolean;
+  isEditingInPhoto?: boolean;
+  inPhotoEditError?: string | null;
   quotation?: SetuQuotation;
   upsellPrompt?: string;
   quickReplies?: string[];
@@ -170,6 +175,57 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
     setSceneContextPrompt('');
   };
 
+  const triggerInPlaceEdit = useCallback(async (
+    targetMsgId: string,
+    sitePhotoB64: string,
+    editPrompt: string,
+    seed = 0,
+    preferServer = false
+  ) => {
+    if (!sitePhotoB64 || !editPrompt) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === targetMsgId && m.payload
+          ? { ...m, payload: { ...m.payload, isEditingInPhoto: true, inPhotoEditError: null } }
+          : m
+      )
+    );
+
+    const editRes = await ApiService.editPhotoInPlace({
+      imageBase64: sitePhotoB64,
+      editPrompt,
+      seed,
+      preferServer,
+    });
+
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== targetMsgId || !m.payload) return m;
+        if (editRes.success && editRes.editedImageBase64) {
+          return {
+            ...m,
+            payload: {
+              ...m.payload,
+              editedImageBase64: editRes.editedImageBase64,
+              isEditingInPhoto: false,
+              inPhotoEditError: null,
+            },
+          };
+        }
+        return {
+          ...m,
+          payload: {
+            ...m.payload,
+            isEditingInPhoto: false,
+            inPhotoEditError: editRes.quotaExceeded
+              ? 'QUOTA_EXCEEDED'
+              : editRes.error || 'In-photo edit failed',
+          },
+        };
+      })
+    );
+  }, []);
+
   const handleSendMessage = useCallback(async (
     overrideText?: string,
     chosenProducts?: ShowroomProduct[],
@@ -223,14 +279,34 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
       if (payload.sceneContextPrompt) {
         setSceneContextPrompt(payload.sceneContextPrompt);
       }
+      const needsInPlaceEdit = Boolean(
+        payload.visualPreviewReady &&
+        payload.inPlaceEditRequired &&
+        !payload.editedImageBase64 &&
+        photoToSendB64
+      );
+      const assistantId = 'a_' + Date.now();
       const assistantMsg: ChatMessage = {
-        id: 'a_' + Date.now(),
+        id: assistantId,
         role: 'assistant',
         text: payload.replyText,
-        payload,
+        payload: needsInPlaceEdit ? { ...payload, isEditingInPhoto: true } : payload,
       };
       setMessages((prev) => [...prev, assistantMsg]);
       scrollToBottom();
+
+      if (needsInPlaceEdit) {
+        const fallbackEditPrompt =
+          payload.inPlaceEditPrompt ||
+          `Keep the exact same room walls, floor, ceiling, doors, windows, camera angle and lighting completely unchanged. Seamlessly install ${payload.visualPlan?.title || 'requested modern interior installation'} (${payload.visualPlan?.finishLabel || 'realistic natural wood and stone finish'}) inside this photo, raw DSLR photography, no text.`;
+        triggerInPlaceEdit(
+          assistantId,
+          photoToSendB64,
+          fallbackEditPrompt,
+          regenerateSeed,
+          Boolean(payload.serverHasPaidImageEditor)
+        );
+      }
     } else {
       const errText =
         resp?.error ||
@@ -259,6 +335,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
     contractors,
     materials,
     sceneContextPrompt,
+    triggerInPlaceEdit,
   ]);
 
   useEffect(() => {
@@ -513,6 +590,18 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                         <SpaceDesignCanvas
                           userPhotoUri={activeSitePhotoUri}
                           renderedImageUri={p.editedImageBase64 || p.renderedImageUrl}
+                          isEditingPhoto={Boolean(p.isEditingInPhoto)}
+                          inPhotoEditError={p.inPhotoEditError}
+                          onRetryInPhotoEdit={() =>
+                            triggerInPlaceEdit(
+                              msg.id,
+                              activeSitePhotoBase64,
+                              p.inPlaceEditPrompt ||
+                                `Keep the exact same room unchanged and install ${p.visualPlan?.title || 'requested finish'} cleanly in place.`,
+                              Math.floor(Math.random() * 900000) + 100,
+                              Boolean(p.serverHasPaidImageEditor)
+                            )
+                          }
                           visualPlan={p.visualPlan}
                           language={language}
                           onRegenerateAngle={() =>

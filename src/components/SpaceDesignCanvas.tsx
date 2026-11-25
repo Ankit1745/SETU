@@ -21,6 +21,9 @@ export interface SetuVisualPlan {
 interface SpaceDesignCanvasProps {
   userPhotoUri?: string;
   renderedImageUri?: string | null;
+  isEditingPhoto?: boolean;
+  inPhotoEditError?: string | null;
+  onRetryInPhotoEdit?: () => void;
   visualPlan: SetuVisualPlan;
   language?: string;
   onRegenerateAngle?: () => void;
@@ -40,6 +43,9 @@ const FALLBACK_REAL_RENDERS: Record<string, string> = {
 export const SpaceDesignCanvas: React.FC<SpaceDesignCanvasProps> = ({
   userPhotoUri,
   renderedImageUri,
+  isEditingPhoto = false,
+  inPhotoEditError = null,
+  onRetryInPhotoEdit,
   visualPlan,
   language = 'hi',
   onRegenerateAngle,
@@ -50,14 +56,19 @@ export const SpaceDesignCanvas: React.FC<SpaceDesignCanvasProps> = ({
 
   const isEn = language === 'en';
   const hasImgError = !!(renderedImageUri && failedUri === renderedImageUri);
+  const isInPlaceDataImg = !!(renderedImageUri && renderedImageUri.startsWith('data:image/'));
   const isImgLoading = !!(
-    renderedImageUri &&
-    viewMode === 'after' &&
-    !hasImgError &&
-    loadedUri !== renderedImageUri
+    isEditingPhoto ||
+    (renderedImageUri &&
+      viewMode === 'after' &&
+      !hasImgError &&
+      loadedUri !== renderedImageUri)
   );
 
-  const fallbackPhoto = FALLBACK_REAL_RENDERS[visualPlan.designType] || FALLBACK_REAL_RENDERS.kitchen;
+  // CRITICAL: When user uploaded their own room/plot photo, NEVER substitute an unrelated random sample room!
+  const fallbackPhoto = userPhotoUri
+    ? userPhotoUri
+    : FALLBACK_REAL_RENDERS[visualPlan.designType] || FALLBACK_REAL_RENDERS.kitchen;
   const afterUri = hasImgError ? fallbackPhoto : renderedImageUri || fallbackPhoto;
   const activeImageUri = viewMode === 'before' && userPhotoUri ? userPhotoUri : afterUri;
 
@@ -104,7 +115,9 @@ export const SpaceDesignCanvas: React.FC<SpaceDesignCanvasProps> = ({
           source={{ uri: activeImageUri }}
           style={[
             styles.realPhoto,
-            viewMode === 'after' && renderedImageUri && !hasImgError ? styles.cropWatermarkEdge : null,
+            viewMode === 'after' && renderedImageUri && !isInPlaceDataImg && !hasImgError
+              ? styles.cropWatermarkEdge
+              : null,
           ]}
           resizeMode="cover"
           onLoad={() => {
@@ -123,12 +136,41 @@ export const SpaceDesignCanvas: React.FC<SpaceDesignCanvasProps> = ({
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#F59E0B" />
             <Text style={styles.loadingRenderText}>
-              {isEn
-                ? 'Rendering photorealistic design...'
-                : 'SETU बिल्कुल असली डिज़ाइन फोटो तैयार कर रहा है...'}
+              {isEditingPhoto
+                ? isEn
+                  ? 'Installing design right inside your real photo (15-25s)...'
+                  : 'आपकी असली फोटो के अंदर ही नया डिज़ाइन फिट किया जा रहा है (15-25 सेकंड)...'
+                : isEn
+                  ? 'Rendering photorealistic design...'
+                  : 'SETU बिल्कुल असली डिज़ाइन फोटो तैयार कर रहा है...'}
             </Text>
           </View>
         )}
+
+        {!isImgLoading && inPhotoEditError && !renderedImageUri && viewMode === 'after' ? (
+          <View style={styles.quotaBannerOverlay}>
+            <Ionicons name="alert-circle" size={20} color="#FBBF24" />
+            <Text style={styles.quotaBannerText}>
+              {inPhotoEditError === 'QUOTA_EXCEEDED'
+                ? isEn
+                  ? 'Free GPU in-photo edit daily quota reached for this device IP. Your original room photo is preserved above without fake substitution.'
+                  : 'इस डिवाइस का आज का फ़्री इन-फोटो 3D एडिटिंग GPU कोटा पूरा हो गया है — हमने गलत कमरा दिखाने के बजाय आपकी असली फोटो सुरक्षित रखी है।'
+                : inPhotoEditError}
+            </Text>
+            {onRetryInPhotoEdit ? (
+              <TouchableOpacity
+                style={styles.retryEditBtn}
+                onPress={onRetryInPhotoEdit}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="refresh" size={13} color="#0F172A" />
+                <Text style={styles.retryEditText}>
+                  {isEn ? 'Retry Real Photo Edit' : 'असली फोटो एडिट पुनः प्रयास करें'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
 
         {onRegenerateAngle && viewMode === 'after' && !isImgLoading ? (
           <TouchableOpacity
@@ -269,5 +311,40 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 2,
     fontWeight: '600',
+  },
+  quotaBannerOverlay: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    right: 12,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    gap: 8,
+    zIndex: 11,
+  },
+  quotaBannerText: {
+    color: '#FDE68A',
+    fontSize: 11.5,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+  retryEditBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+  },
+  retryEditText: {
+    color: '#0F172A',
+    fontSize: 11.5,
+    fontWeight: '900',
   },
 });

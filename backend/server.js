@@ -1347,6 +1347,7 @@ Return ONLY valid JSON matching this exact schema:
   "safetyMessage": "string (only if spark/shock/structural emergency)",
   "visualPreviewReady": boolean,
   "photorealisticPrompt": "Vivid 50-word English DSLR architectural photography prompt combining sceneContextPrompt + selected materials + photorealistic lighting (required whenever visualPreviewReady is true).",
+  "inPlaceEditPrompt": "Strict pixel-preserving in-photo editing prompt: 'Keep the exact same room walls, ceiling, floor, doors, windows, surrounding furniture, camera angle and lighting completely unchanged. Only seamlessly install/build <specific requested items and finishes> inside the space, realistic perspective and shadows, raw camera photo, no text.' (Required whenever visualPreviewReady is true).",
   "visualPlan": {
     "designType": "kitchen" | "wardrobe" | "bedroom" | "house" | "bathroom" | "electrical" | "painting" | "repair_fix",
     "title": "Short Hindi title e.g. 10x8 फीट मॉड्यूलर किचन (टीकवुड माइका)",
@@ -1464,12 +1465,20 @@ Return ONLY valid JSON matching this exact schema:
               }
             }
 
+            const hasUploadedPhoto = Boolean(imageBase64);
+            const serverHasPaidImageEditor = Boolean(
+              process.env.HF_TOKEN || process.env.ENABLE_PAID_NANO_BANANA === 'true'
+            );
             const renderSeed = Number(regenerateSeed) || (Math.floor(Math.random() * 900000) + 100);
             const rawRenderPrompt = parsed.photorealisticPrompt || (parsed.visualPlan
               ? `Real architectural interior photograph of ${parsed.visualPlan.title}, ${parsed.visualPlan.finishLabel}, shot on 35mm DSLR lens, realistic natural lighting, no text`
               : '');
+            const inPlaceEditPrompt = parsed.inPlaceEditPrompt || (parsed.visualPlan
+              ? `Keep the exact same room walls, ceiling, floor, doors, windows, existing objects, background, camera perspective and natural lighting completely unchanged. Seamlessly install and build ONLY ${parsed.visualPlan.title} (${parsed.visualPlan.finishLabel}) naturally in place, realistic scale and shadows, raw photograph.`
+              : '');
+            // When user uploaded a real photo, NEVER return an unrelated random text-to-image room!
             const renderedImageUrl =
-              parsed.visualPreviewReady && rawRenderPrompt
+              !hasUploadedPhoto && parsed.visualPreviewReady && rawRenderPrompt
                 ? `https://image.pollinations.ai/prompt/${encodeURIComponent(rawRenderPrompt)}?width=800&height=540&model=flux&nologo=true&seed=${renderSeed}`
                 : null;
 
@@ -1480,6 +1489,9 @@ Return ONLY valid JSON matching this exact schema:
                 ...parsed,
                 renderedImageUrl,
                 editedImageBase64,
+                inPlaceEditRequired: Boolean(hasUploadedPhoto && parsed.visualPreviewReady && !editedImageBase64),
+                inPlaceEditPrompt,
+                serverHasPaidImageEditor,
               },
             });
           }
@@ -1494,12 +1506,17 @@ Return ONLY valid JSON matching this exact schema:
       }
     }
 
-    // Deterministic Showroom Fallback when customer explicitly picked exact supplier products (zero guessing, exact math + real Flux visual!)
+    // Deterministic Showroom Fallback when customer explicitly picked exact supplier products (zero guessing, exact math!)
     if (Array.isArray(selectedProducts) && selectedProducts.length > 0) {
       const renderSeed = Number(regenerateSeed) || (Math.floor(Math.random() * 900000) + 100);
       const descriptors = selectedProducts.map((p) => p.visualDescriptor || p.name).join(', ');
       const sceneBase = sceneContextPrompt || 'modern Indian home interior room with clean flooring and natural daylight';
+      const hasUploadedPhoto = Boolean(imageBase64);
+      const serverHasPaidImageEditor = Boolean(
+        process.env.HF_TOKEN || process.env.ENABLE_PAID_NANO_BANANA === 'true'
+      );
       const fluxPrompt = `Real interior architectural DSLR photograph: ${sceneBase}, installed with ${descriptors}, crisp natural textures, warm lighting, ultra photorealistic, no text`;
+      const inPlaceEditPrompt = `Keep the exact same room walls, ceiling, floor, doors, windows, existing surrounding objects, camera perspective and natural lighting completely unchanged. Seamlessly install and build ONLY these selected items into the empty/target area: ${descriptors}. Match perspective, shadows and room lighting photorealistically, no text.`;
       const items = selectedProducts.map((p) => {
         const qty = Number(p.approxQtyMultiplier) || 1;
         return {
@@ -1524,7 +1541,12 @@ Return ONLY valid JSON matching this exact schema:
           isSafetyHazard: false,
           visualPreviewReady: true,
           photorealisticPrompt: fluxPrompt,
-          renderedImageUrl: `https://image.pollinations.ai/prompt/${encodeURIComponent(fluxPrompt)}?width=800&height=540&model=flux&nologo=true&seed=${renderSeed}`,
+          inPlaceEditRequired: hasUploadedPhoto,
+          inPlaceEditPrompt,
+          serverHasPaidImageEditor,
+          renderedImageUrl: hasUploadedPhoto
+            ? null
+            : `https://image.pollinations.ai/prompt/${encodeURIComponent(fluxPrompt)}?width=800&height=540&model=flux&nologo=true&seed=${renderSeed}`,
           visualPlan: {
             designType: descriptors.includes('bed') ? 'bedroom' : descriptors.includes('house') || descriptors.includes('brick') ? 'house' : 'kitchen',
             title: 'कस्टम SETU सप्लायर डिज़ाइन',
@@ -1551,7 +1573,7 @@ Return ONLY valid JSON matching this exact schema:
 
     // Smart Domain Fallback when customer described their problem/project textually & Free Tier AI is busy
     const msgLower = latestUserMsg.toLowerCase().trim();
-    if (msgLower) {
+    if (msgLower || imageBase64) {
       const renderSeed = Number(regenerateSeed) || (Math.floor(Math.random() * 900000) + 100);
       const isRepairQuery =
         /leak|tapak|टपक|seelan|सीलन|spark|चिंगारी|switch|शॉर्ट|choke|खराब|toot|टूट|repair|मरम्मत|प्लंब|nal|नल|drain/.test(msgLower);
@@ -1642,6 +1664,11 @@ Return ONLY valid JSON matching this exact schema:
           electrical: 'modern Indian bedroom ceiling with recessed COB LED spotlights, false ceiling cove lighting and sleek modular switches',
         };
         const fluxPrompt = `Real architectural interior DSLR photograph: ${sceneContextPrompt || scenePrompts[pType]}, ultra photorealistic textures, 35mm lens, no text`;
+        const hasUploadedPhoto = Boolean(imageBase64);
+        const serverHasPaidImageEditor = Boolean(
+          process.env.HF_TOKEN || process.env.ENABLE_PAID_NANO_BANANA === 'true'
+        );
+        const inPlaceEditPrompt = `Keep the exact same room walls, ceiling, floor, doors, windows, existing objects, background, camera perspective and natural lighting completely unchanged. Seamlessly install and build ONLY ${scenePrompts[pType]} naturally into the empty/target area of this uploaded photo, realistic scale and shadows, no text.`;
         return res.json({
           success: true,
           engine: 'SETU Domain Visual Builder',
@@ -1649,13 +1676,20 @@ Return ONLY valid JSON matching this exact schema:
             unreadable: false,
             intentMode: 'build_design',
             tradeCategory: tCat,
-            replyText: `जी बिल्कुल! आपकी जरूरत के हिसाब से ${locality} के मानक रेट्स पर हमने यह असली फोटोरियलिस्टिक डिज़ाइन और शुरुआती कोटेशन तैयार किया है। आप नीचे बटन दबाकर अपने पसंद का माइका, ड्रॉअर या रेंज भी बदल सकते हैं!`,
+            replyText: hasUploadedPhoto
+              ? `जी बिल्कुल! आपकी इसी असली फोटो के अंदर ही ${locality} के मानक रेट्स पर हमने डिज़ाइन और शुरुआती कोटेशन तैयार किया है। आप नीचे बटन दबाकर अपने पसंद का माइका, ड्रॉअर या रेंज भी बदल सकते हैं!`
+              : `जी बिल्कुल! आपकी जरूरत के हिसाब से ${locality} के मानक रेट्स पर हमने यह असली फोटोरियलिस्टिक डिज़ाइन और शुरुआती कोटेशन तैयार किया है। आप नीचे बटन दबाकर अपने पसंद का माइका, ड्रॉअर या रेंज भी बदल सकते हैं!`,
             showMaterialPicker: false,
             productPickerProjectType: pType,
             sceneContextPrompt: sceneContextPrompt || scenePrompts[pType],
             visualPreviewReady: true,
             photorealisticPrompt: fluxPrompt,
-            renderedImageUrl: `https://image.pollinations.ai/prompt/${encodeURIComponent(fluxPrompt)}?width=800&height=540&model=flux&nologo=true&seed=${renderSeed}`,
+            inPlaceEditRequired: hasUploadedPhoto,
+            inPlaceEditPrompt,
+            serverHasPaidImageEditor,
+            renderedImageUrl: hasUploadedPhoto
+              ? null
+              : `https://image.pollinations.ai/prompt/${encodeURIComponent(fluxPrompt)}?width=800&height=540&model=flux&nologo=true&seed=${renderSeed}`,
             visualPlan: {
               designType: pType,
               title: pType === 'house' ? 'आधुनिक 2-मंजिला मकान डिज़ाइन' : pType === 'bedroom' ? 'सॉलिड टीकवुड बेड & वॉर्डरोब' : 'मॉड्यूलर कस्टम डिज़ाइन',
@@ -1708,6 +1742,130 @@ Return ONLY valid JSON matching this exact schema:
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'SETU चैट त्रुटि: ' + err.message });
+  }
+});
+
+// 16C. True Pixel-Preserving In-Photo Image Editing Endpoint (/api/ai/edit-photo)
+app.post('/api/ai/edit-photo', async (req, res) => {
+  try {
+    const { imageBase64, editPrompt, seed = 42 } = req.body || {};
+    if (!imageBase64 || !editPrompt) {
+      return res.status(400).json({
+        success: false,
+        error: 'फोटो और एडिट निर्देश दोनों आवश्यक हैं।',
+      });
+    }
+
+    const normalizedUri = imageBase64.startsWith('data:')
+      ? imageBase64
+      : `data:image/jpeg;base64,${imageBase64}`;
+
+    // Engine 1: Optional Paid Google Gemini / Nano Banana Image Editing when explicitly enabled
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (process.env.ENABLE_PAID_NANO_BANANA === 'true' && apiKey) {
+      const m = normalizedUri.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      const mimeType = (m && m[1]) || 'image/jpeg';
+      const rawB64 = (m && m[2]) || imageBase64;
+      for (const gModel of ['gemini-3.1-flash-image', 'gemini-2.5-flash-image']) {
+        try {
+          const gRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${gModel}:generateContent?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    parts: [
+                      { text: editPrompt },
+                      { inline_data: { mime_type: mimeType, data: rawB64 } },
+                    ],
+                  },
+                ],
+                generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+              }),
+              signal: AbortSignal.timeout(25000),
+            }
+          );
+          if (gRes.ok) {
+            const gJson = await gRes.json();
+            const imgPart = (gJson?.candidates?.[0]?.content?.parts || []).find((pt) => pt.inlineData?.data);
+            if (imgPart?.inlineData?.data) {
+              const outMime = imgPart.inlineData.mimeType || 'image/png';
+              return res.json({
+                success: true,
+                engine: `SETU Gemini In-Photo (${gModel})`,
+                editedImageBase64: `data:${outMime};base64,${imgPart.inlineData.data}`,
+              });
+            }
+          }
+        } catch (gErr) {
+          console.warn(`Gemini in-photo (${gModel}) skipped:`, gErr.message);
+        }
+      }
+    }
+
+    // Engine 2: Open FireRed-Image-Edit-1.0-Fast (preserves surrounding room/walls/door/floor pixels)
+    const hfHeaders = { 'Content-Type': 'application/json' };
+    if (process.env.HF_TOKEN) {
+      hfHeaders.Authorization = `Bearer ${process.env.HF_TOKEN}`;
+    }
+
+    const submitResp = await fetch(
+      'https://prithivmlmods-firered-image-edit-1-0-fast.hf.space/gradio_api/call/edit_image',
+      {
+        method: 'POST',
+        headers: hfHeaders,
+        body: JSON.stringify({
+          data: [JSON.stringify([normalizedUri]), editPrompt, Number(seed) || 42, true, 1.0, 4],
+        }),
+        signal: AbortSignal.timeout(15000),
+      }
+    );
+
+    const submitJson = await submitResp.json().catch(() => null);
+    if (!submitResp.ok || !submitJson?.event_id) {
+      return res.status(502).json({
+        success: false,
+        error: 'इन-फोटो एडिट इंजन अभी उपलब्ध नहीं है।',
+      });
+    }
+
+    const sseResp = await fetch(
+      `https://prithivmlmods-firered-image-edit-1-0-fast.hf.space/gradio_api/call/edit_image/${submitJson.event_id}`,
+      {
+        headers: process.env.HF_TOKEN ? { Authorization: `Bearer ${process.env.HF_TOKEN}` } : {},
+        signal: AbortSignal.timeout(55000),
+      }
+    );
+    const sseText = await sseResp.text();
+
+    if (/ZeroGPU quota/i.test(sseText)) {
+      return res.status(429).json({
+        success: false,
+        quotaExceeded: true,
+        error: 'असली फोटो के अंदर एडिटिंग का आज का फ़्री GPU कोटा पूरा हो गया है (अधिक कोटे के लिए HF_TOKEN जोड़ें)।',
+      });
+    }
+
+    const matchB64 = sseText.match(/"image"\s*:\s*"(data:image\/[^;]+;base64,[^"]+)"/);
+    if (matchB64 && matchB64[1]) {
+      return res.json({
+        success: true,
+        engine: 'SETU In-Photo Reality (FireRed-1.0-Fast)',
+        editedImageBase64: matchB64[1],
+      });
+    }
+
+    return res.status(502).json({
+      success: false,
+      error: 'इन-फोटो एडिट पूरा नहीं हो सका — कृपया पुनः प्रयास करें।',
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: 'इन-फोटो एडिट सर्वर त्रुटि: ' + err.message,
+    });
   }
 });
 

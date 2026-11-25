@@ -490,13 +490,27 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
                 if (parsed.unreadable) {
                   return { success: false, error: parsed.error || 'फोटो साफ नहीं है, कृपया दोबारा लें।' };
                 }
+                const hasUploadedPhoto = Boolean(imageBase64);
                 const seed = regenerateSeed || Math.floor(Math.random() * 900000) + 100;
                 const pPrompt = parsed.photorealisticPrompt || (parsed.visualPlan ? `Real architectural interior photograph of ${parsed.visualPlan.title}, ${parsed.visualPlan.finishLabel}, DSLR photography, no text` : '');
+                const inPlaceEditPrompt = parsed.inPlaceEditPrompt || (parsed.visualPlan
+                  ? `Keep the exact same room walls, ceiling, floor, doors, windows, existing furniture, perspective and lighting completely unchanged. Seamlessly install ONLY ${parsed.visualPlan.title} (${parsed.visualPlan.finishLabel}) into the space, realistic shadows, raw camera photo.`
+                  : '');
                 const renderedImageUrl =
-                  parsed.visualPreviewReady && pPrompt
+                  !hasUploadedPhoto && parsed.visualPreviewReady && pPrompt
                     ? `https://image.pollinations.ai/prompt/${encodeURIComponent(pPrompt)}?width=800&height=540&model=flux&nologo=true&seed=${seed}`
                     : null;
-                return { success: true, engine: `SETU (${model})`, data: { ...parsed, renderedImageUrl } };
+                return {
+                  success: true,
+                  engine: `SETU (${model})`,
+                  data: {
+                    ...parsed,
+                    renderedImageUrl,
+                    inPlaceEditRequired: Boolean(hasUploadedPhoto && parsed.visualPreviewReady),
+                    inPlaceEditPrompt,
+                    serverHasPaidImageEditor: false,
+                  },
+                };
               }
             }
           } catch {
@@ -512,5 +526,119 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
       success: false,
       error: 'SETU से संपर्क नहीं हो सका। कृपया इंटरनेट या सर्वर जांचें।',
     };
+  },
+
+  // 16. True Pixel-Preserving In-Photo Image Editing (FireRed / Gemini Image Edit)
+  editPhotoInPlace: async (params: {
+    imageBase64: string;
+    editPrompt: string;
+    seed?: number;
+    preferServer?: boolean;
+  }): Promise<{
+    success: boolean;
+    editedImageBase64?: string;
+    engine?: string;
+    quotaExceeded?: boolean;
+    error?: string;
+  }> => {
+    const { imageBase64, editPrompt, seed = 42, preferServer = false } = params;
+    if (!imageBase64 || !editPrompt) {
+      return { success: false, error: 'Photo and edit instructions required.' };
+    }
+
+    const normalizedUri = imageBase64.startsWith('data:')
+      ? imageBase64
+      : `data:image/jpeg;base64,${imageBase64}`;
+
+    const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: number) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, { ...init, signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    const callBackendEditor = async () => {
+      const res = await fetchWithTimeout(
+        `${API_BASE_URL}/ai/edit-photo`,
+        {
+          method: 'POST',
+          headers: ApiService.getHeaders(),
+          body: JSON.stringify({ imageBase64: normalizedUri, editPrompt, seed }),
+        },
+        58000
+      );
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.success && json?.editedImageBase64) {
+        return {
+          success: true,
+          editedImageBase64: json.editedImageBase64,
+          engine: json.engine || 'SETU Server In-Photo Editor',
+        };
+      }
+      return {
+        success: false,
+        quotaExceeded: Boolean(json?.quotaExceeded || res.status === 429),
+        error: json?.error || 'इन-फोटो एडिटिंग सर्वर अभी उपलब्ध नहीं है।',
+      };
+    };
+
+    if (preferServer) {
+      try {
+        return await callBackendEditor();
+      } catch (srvErr: any) {
+        return { success: false, error: srvErr?.message || 'Server edit failed.' };
+      }
+    }
+
+    // Client-first direct call in ₹0 testing mode so each device uses its own IP GPU quota cleanly
+    try {
+      const hfBase = 'https://prithivmlmods-firered-image-edit-1-0-fast.hf.space/gradio_api/call/edit_image';
+      const subResp = await fetchWithTimeout(
+        hfBase,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            data: [JSON.stringify([normalizedUri]), editPrompt, Number(seed) || 42, true, 1.0, 4],
+          }),
+        },
+        15000
+      );
+      const subJson = await subResp.json().catch(() => null);
+      if (subResp.ok && subJson?.event_id) {
+        const sseResp = await fetchWithTimeout(`${hfBase}/${subJson.event_id}`, {}, 55000);
+        const sseText = await sseResp.text();
+        if (/ZeroGPU quota/i.test(sseText)) {
+          return {
+            success: false,
+            quotaExceeded: true,
+            error: 'आज का फ़्री इन-फोटो GPU कोटा पूरा हो गया है।',
+          };
+        }
+        const matchB64 = sseText.match(/"image"\s*:\s*"(data:image\/[^;]+;base64,[^"]+)"/);
+        if (matchB64 && matchB64[1]) {
+          return {
+            success: true,
+            editedImageBase64: matchB64[1],
+            engine: 'SETU In-Photo Reality (FireRed-1.0-Fast)',
+          };
+        }
+      }
+    } catch (directErr: any) {
+      console.log('[API] Direct FireRed call failed, trying backend editor:', directErr?.message);
+    }
+
+    // Fallback to server proxy if direct client call blocked/failed
+    try {
+      return await callBackendEditor();
+    } catch (fallbackErr: any) {
+      return {
+        success: false,
+        error: fallbackErr?.message || 'इन-फोटो एडिटिंग पूरा नहीं हो सका।',
+      };
+    }
   },
 };
