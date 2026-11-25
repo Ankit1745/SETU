@@ -1832,14 +1832,15 @@ app.post('/api/ai/edit-photo', async (req, res) => {
       }
     }
 
-    // Engine 2: Pollinations AI v1/images/edits (Free enter.pollinations.ai GitHub key -> ~400-1000+ edits/day)
+    // Engine 2: Pollinations AI v1/images/edits (Free enter.pollinations.ai GitHub key -> paid_only=false models work on free Quest balance!)
     const pollKey = process.env.POLLINATIONS_API_KEY;
     if (pollKey) {
       for (const pModel of [
-        'qwen/qwen-image-2.1-turbo',
-        'prunaai/p-image-edit',
-        'google/gemini-nano-banana-2.1',
+        'microsoft/mai-image-2.7-flash',
+        'black-forest-labs/flux.2-klein-4b',
         'black-forest-labs/flux.1-kontext-pro',
+        'black-forest-labs/flux.2-flex',
+        'qwen/qwen-image-2.1-turbo',
       ]) {
         try {
           const pRes = await fetch('https://gen.pollinations.ai/v1/images/edits', {
