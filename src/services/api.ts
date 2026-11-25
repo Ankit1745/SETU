@@ -431,11 +431,11 @@ Otherwise return PURE JSON:
         const promptText = `You are "SETU", India's master artisan & home renovation/construction expert in ${locality}.
 ${langNote}
 Strictly handle home construction, modular kitchen, wardrobe/almirah, repair, plumbing, electrical, painting, masonry, rates, quotations, materials, and hiring.
-Auto-detect "repair" (fix cost, parts, safety, no luxury design) vs "build_design" (Turn 1: inspect empty space, list items & budget, ask "क्या आपकी इसी फोटो में डिज़ाइन बनाकर दिखाऊँ?" with visualPreviewReady=false unless user already asked to draw/show; Turn 2+: set visualPreviewReady=true with accurate placementBox coordinates inside user's uploaded photo and suggest supplier material/mica/drawer upgrades!) vs "rate_quote".
+Auto-detect "repair" (cost, parts, safety), "build_design" (inspect the space, propose materials, and estimate budget), or "rate_quote". Only set visualPreviewReady=true if the customer explicitly asks to see or revise a photo edit. Describe a proposal without claiming that an image was generated. Use measurements only if supplied by the customer.
 Contractors: ${JSON.stringify(platformContractors.slice(0, 8).map((c) => ({ id: c.id, name: c.name, category: c.category, dailyWageRate: c.dailyWageRate, contractUnitRate: c.contractUnitRate })))}
 Materials: ${JSON.stringify(platformMaterials.slice(0, 8).map((m) => ({ id: m.id, name: m.name, brand: m.brand, category: m.category, price: m.sellingPrice, storeName: m.storeName })))}
 History:\n${historyStr}\nLatest: "${latestMsg || (imageBase64 ? '[Customer uploaded photo without text — inspect photo and proactively respond!]' : '')}"
-Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"rate_quote"), tradeCategory("carpenter"|"plumber"|"electrician"|"mason"|"painter"|"all"), replyText(string), askDesignConfirmation(boolean), isSafetyHazard(boolean), safetyMessage(string), visualPreviewReady(boolean), visualPlan({designType,title,finishStyle,finishLabel,dimensionsLabel,primaryHex,accentHex,panelCount,hasLoft,hasDrawers,hasLedStrip,placementBox:{topPct,leftPct,widthPct,heightPct},afterCaption}), quotation({includeQuotation,projectTitle,dimensionsSummary,estimatedDuration,items:[{name,qtyRate,amount}],materialTotal,laborTotal,grandTotal,budgetFitNote}), upsellPrompt(string), quickReplies(string[]), recommendedMaterialIds(string[]), websiteAction("NONE"|"BOOK_PRO"|"ORDER_MATERIAL"|"POST_BUDGET_JOB").`;
+Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"rate_quote"), tradeCategory("carpenter"|"plumber"|"electrician"|"mason"|"painter"|"all"), replyText(string), isSafetyHazard(boolean), safetyMessage(string), visualPreviewReady(boolean), quotation({includeQuotation,projectTitle,dimensionsSummary,estimatedDuration,items:[{name,qtyRate,amount}],materialTotal,laborTotal,grandTotal,budgetFitNote}), upsellPrompt(string), quickReplies(string[]), recommendedMaterialIds(string[]), websiteAction("NONE"|"BOOK_PRO"|"ORDER_MATERIAL"|"POST_BUDGET_JOB").`;
 
         const parts: any[] = [{ text: promptText }];
         if (imageBase64) {
@@ -469,7 +469,18 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
                 if (parsed.unreadable) {
                   return { success: false, error: parsed.error || 'फोटो साफ नहीं है, कृपया दोबारा लें।' };
                 }
-                return { success: true, engine: `SETU (${model})`, data: parsed };
+                return {
+                  success: true,
+                  engine: `SETU (${model})`,
+                  data: {
+                    ...parsed,
+                    visualPreviewReady: false,
+                    editedImageBase64: null,
+                    photoEditStatus: parsed.visualPreviewReady === true
+                      ? (imageBase64 ? 'disabled' : 'needs_photo')
+                      : undefined,
+                  },
+                };
               }
             }
           } catch {

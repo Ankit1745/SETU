@@ -20,7 +20,7 @@ import { Contractor, MaterialItem } from '../data/mockData';
 import { ApiService } from '../services/api';
 import { pickImageFromGallery, capturePhotoFromCamera } from '../utils/mediaPicker';
 import { openWhatsAppChat } from '../utils/whatsapp';
-import { SpaceDesignCanvas, SetuVisualPlan } from './SpaceDesignCanvas';
+import { SpaceDesignPreview } from './SpaceDesignPreview';
 
 export interface SetuQuotationItem {
   name: string;
@@ -47,9 +47,9 @@ export interface SetuAssistantPayload {
   askDesignConfirmation?: boolean;
   isSafetyHazard?: boolean;
   safetyMessage?: string;
-  visualPreviewReady?: boolean;
-  visualPlan?: SetuVisualPlan;
+  visualPlan?: { afterCaption?: string };
   editedImageBase64?: string | null;
+  photoEditStatus?: 'needs_photo' | 'disabled' | 'failed';
   quotation?: SetuQuotation;
   upsellPrompt?: string;
   quickReplies?: string[];
@@ -57,12 +57,33 @@ export interface SetuAssistantPayload {
   websiteAction?: 'NONE' | 'BOOK_PRO' | 'ORDER_MATERIAL' | 'POST_BUDGET_JOB';
 }
 
+const photoEditNotices = {
+  needs_photo: {
+    en: 'Attach a photo of your space to see the design.',
+    hi: 'डिज़ाइन देखने के लिए अपनी जगह की फोटो भेजें।',
+  },
+  disabled: {
+    en: 'AI photo editing is currently unavailable.',
+    hi: 'AI फोटो एडिट अभी उपलब्ध नहीं है।',
+  },
+  failed: {
+    en: 'The photo edit failed. Try sending your request again.',
+    hi: 'फोटो एडिट नहीं हो पाया। अपनी रिक्वेस्ट फिर भेजें।',
+  },
+};
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
   photoUri?: string;
+  originalPhotoUri?: string;
   payload?: SetuAssistantPayload;
+}
+
+interface SitePhoto {
+  uri: string;
+  base64: string;
 }
 
 interface SetuAIStudioModalProps {
@@ -95,12 +116,8 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
-  const [pendingPhotoUri, setPendingPhotoUri] = useState<string>('');
-  const [pendingPhotoBase64, setPendingPhotoBase64] = useState<string>('');
-
-  // Keep active site photo across turns so customer can inspect budget first -> confirm design -> upgrade mica seamlessly
-  const [activeSitePhotoUri, setActiveSitePhotoUri] = useState<string>('');
-  const [activeSitePhotoBase64, setActiveSitePhotoBase64] = useState<string>('');
+  const [pendingPhoto, setPendingPhoto] = useState<SitePhoto>();
+  const [activeSitePhoto, setActiveSitePhoto] = useState<SitePhoto>();
 
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -141,10 +158,8 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
     }
     setMessages([]);
     setInputText('');
-    setPendingPhotoUri('');
-    setPendingPhotoBase64('');
-    setActiveSitePhotoUri('');
-    setActiveSitePhotoBase64('');
+    setPendingPhoto(undefined);
+    setActiveSitePhoto(undefined);
     setSpeakingMsgId(null);
   };
 
@@ -152,32 +167,27 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
     const picked =
       source === 'camera' ? await capturePhotoFromCamera() : await pickImageFromGallery();
     if (!picked) return;
-    setPendingPhotoUri(picked.uri);
-    setPendingPhotoBase64(picked.base64 || picked.uri);
-    setActiveSitePhotoUri(picked.uri);
-    setActiveSitePhotoBase64(picked.base64 || picked.uri);
+    setPendingPhoto({ uri: picked.uri, base64: picked.base64 || picked.uri });
   };
 
   const handleSendMessage = useCallback(async (overrideText?: string) => {
     if (isLoading) return;
     const textToSend = (overrideText !== undefined ? overrideText : inputText).trim();
-    const photoToSendUri = pendingPhotoUri;
-    const photoToSendB64 = pendingPhotoBase64 || activeSitePhotoBase64;
-
-    if (!textToSend && !photoToSendUri) return;
+    if (!textToSend && !pendingPhoto) return;
+    const sourcePhoto = pendingPhoto ?? activeSitePhoto;
 
     const userMsg: ChatMessage = {
       id: 'u_' + Date.now(),
       role: 'user',
       text: textToSend || (isEn ? 'Uploaded site photo — please inspect & advise.' : 'यह फोटो देखें और बताएं।'),
-      photoUri: photoToSendUri || undefined,
+      photoUri: pendingPhoto?.uri,
     };
 
     const nextMessages = [...messages, userMsg];
     setMessages(nextMessages);
     if (overrideText === undefined) setInputText('');
-    setPendingPhotoUri('');
-    setPendingPhotoBase64('');
+    if (pendingPhoto) setActiveSitePhoto(pendingPhoto);
+    setPendingPhoto(undefined);
     setIsLoading(true);
     scrollToBottom();
 
@@ -189,7 +199,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
 
     const resp = await ApiService.setuChat({
       messages: apiHistory,
-      imageBase64: photoToSendB64,
+      imageBase64: sourcePhoto?.base64,
       locality: cityLabel,
       language,
       platformContractors: contractors,
@@ -204,6 +214,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
         id: 'a_' + Date.now(),
         role: 'assistant',
         text: payload.replyText,
+        originalPhotoUri: sourcePhoto?.uri,
         payload,
       };
       setMessages((prev) => [...prev, assistantMsg]);
@@ -225,9 +236,8 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
   }, [
     isLoading,
     inputText,
-    pendingPhotoUri,
-    pendingPhotoBase64,
-    activeSitePhotoBase64,
+    pendingPhoto,
+    activeSitePhoto,
     isEn,
     messages,
     scrollToBottom,
@@ -360,7 +370,7 @@ ${itemsText || '• साइट विज़िट पर तय किया �
 
           <View style={styles.headerActions}>
             {messages.length > 0 && (
-              <TouchableOpacity style={styles.iconCircleBtn} onPress={handleResetChat} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.iconCircleBtn} onPress={handleResetChat} disabled={isLoading} activeOpacity={0.8}>
                 <Ionicons name="refresh" size={18} color="#CBD5E1" />
               </TouchableOpacity>
             )}
@@ -483,14 +493,18 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                     {/* Conversational Reply */}
                     <Text style={styles.assistantText}>{msg.text}</Text>
 
-                    {/* Live Design / Repair Overlay Rendered Inside User's Photo */}
-                    {p?.visualPreviewReady && p?.visualPlan ? (
-                      <SpaceDesignCanvas
-                        userPhotoUri={activeSitePhotoUri}
-                        editedImageBase64={p.editedImageBase64}
-                        visualPlan={p.visualPlan}
-                        language={language}
+                    {p?.editedImageBase64 && msg.originalPhotoUri ? (
+                      <SpaceDesignPreview
+                        originalUri={msg.originalPhotoUri}
+                        editedUri={p.editedImageBase64}
+                        caption={p.visualPlan?.afterCaption}
+                        isEn={isEn}
                       />
+                    ) : null}
+                    {p?.photoEditStatus ? (
+                      <Text style={styles.photoEditNotice} accessibilityLiveRegion="polite">
+                        {photoEditNotices[p.photoEditStatus][isEn ? 'en' : 'hi']}
+                      </Text>
                     ) : null}
 
                     {/* Clean Itemized Quotation Receipt */}
@@ -606,7 +620,7 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                     )}
 
                     {/* Direct Matched Verified Karigar Card */}
-                    {matchedPro && (p?.intentMode === 'repair' || p?.visualPreviewReady || p?.websiteAction === 'BOOK_PRO') ? (
+                    {matchedPro && (p?.intentMode === 'repair' || p?.editedImageBase64 || p?.websiteAction === 'BOOK_PRO') ? (
                       <View style={styles.proMatchCard}>
                         <View style={styles.proInfoRow}>
                           <Image source={{ uri: matchedPro.avatar }} style={styles.proAvatar} />
@@ -708,20 +722,15 @@ ${itemsText || '• साइट विज़िट पर तय किया �
 
         {/* Bottom Clean ChatGPT-Style Composer */}
         <View style={styles.composerWrap}>
-          {pendingPhotoUri ? (
+          {pendingPhoto ? (
             <View style={styles.pendingPhotoStrip}>
-              <Image source={{ uri: pendingPhotoUri }} style={styles.pendingThumb} />
+              <Image source={{ uri: pendingPhoto.uri }} style={styles.pendingThumb} />
               <Text style={styles.pendingPhotoLabel} numberOfLines={1}>
                 {isEn
                   ? 'Photo ready — tell SETU what to fix/build or tap Send ➤'
                   : 'फोटो तैयार है — लिखें क्या बनवाना/ठीक कराना है या सीधा भेजें ➤'}
               </Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setPendingPhotoUri('');
-                  setPendingPhotoBase64('');
-                }}
-              >
+              <TouchableOpacity onPress={() => setPendingPhoto(undefined)}>
                 <Ionicons name="close-circle" size={20} color="#EF4444" />
               </TouchableOpacity>
             </View>
@@ -781,10 +790,10 @@ ${itemsText || '• साइट विज़िट पर तय किया �
             <TouchableOpacity
               style={[
                 styles.sendBtn,
-                (!inputText.trim() && !pendingPhotoUri) || isLoading ? styles.sendBtnDisabled : null,
+                (!inputText.trim() && !pendingPhoto) || isLoading ? styles.sendBtnDisabled : null,
               ]}
               onPress={() => handleSendMessage()}
-              disabled={(!inputText.trim() && !pendingPhotoUri) || isLoading}
+              disabled={(!inputText.trim() && !pendingPhoto) || isLoading}
               activeOpacity={0.85}
             >
               <Ionicons name="send" size={17} color="#0F172A" />
@@ -1007,6 +1016,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderTopLeftRadius: 4,
     padding: 12,
+  },
+  photoEditNotice: {
+    marginTop: 10,
+    color: '#FCD34D',
+    fontSize: 13,
   },
   hazardBanner: {
     flexDirection: 'row',
