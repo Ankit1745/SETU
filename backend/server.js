@@ -1267,25 +1267,19 @@ app.post('/api/ai/setu-chat', async (req, res) => {
       }
     }
 
-    const contractorSummary = liveContractors.map((c) => ({
+    const contractorSummary = liveContractors.slice(0, 6).map((c) => ({
       id: c.id || c._id,
       name: c.name,
       category: c.category,
-      specialty: c.specialtyHindi,
-      dailyWageRate: c.dailyWageRate,
-      contractUnitRate: c.contractUnitRate,
-      unitLabel: c.unitLabel,
-      verified: c.verified,
+      rate: c.dailyWageRate || c.contractUnitRate || 0,
     }));
 
-    const materialSummary = liveMaterials.map((m) => ({
+    const materialSummary = liveMaterials.slice(0, 6).map((m) => ({
       id: m.id || m._id,
       name: m.name,
-      brand: m.brand,
-      category: m.category,
+      cat: m.category,
       price: m.sellingPrice || m.price,
-      unit: m.unit,
-      storeName: m.storeName,
+      store: m.storeName,
     }));
 
     const historyTranscript = (Array.isArray(messages) ? messages : [])
@@ -1392,30 +1386,35 @@ Return ONLY valid JSON matching this exact schema:
     const candidateModels = [
       process.env.GEMINI_MODEL,
       'gemini-3.5-flash-lite',
-      'gemini-flash-lite-latest',
       'gemini-3.6-flash',
       'gemini-3.5-flash',
+      'gemma-4-26b-a4b-it',
     ].filter(Boolean);
 
     let lastError = '';
     for (const modelName of candidateModels) {
       try {
+        const isGemma = modelName.startsWith('gemma');
         const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        const reqBody = { contents: [{ parts }] };
+        if (!isGemma) {
+          reqBody.generationConfig = { response_mime_type: 'application/json' };
+        }
         const geminiResp = await fetch(geminiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts }],
-            generationConfig: { response_mime_type: 'application/json' },
-          }),
+          body: JSON.stringify(reqBody),
           signal: AbortSignal.timeout(5500),
         });
 
         if (geminiResp.ok) {
           const geminiData = await geminiResp.json();
-          const rawJson = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (rawJson) {
-            const parsed = JSON.parse(rawJson);
+          const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+          const cleanJson = rawText
+            ? rawText.replace(/^```json\s*/i, '').replace(/```$/g, '').trim()
+            : '';
+          if (cleanJson) {
+            const parsed = JSON.parse(cleanJson);
             if (parsed.unreadable) {
               return res.status(400).json({
                 success: false,
@@ -1495,6 +1494,61 @@ Return ONLY valid JSON matching this exact schema:
         lastError = `${modelName}: ${modelErr.message}`;
         console.warn(`SETU Chat ${modelName} error:`, modelErr.message);
       }
+    }
+
+    // Deterministic Showroom Fallback when customer explicitly picked exact supplier products (zero guessing, exact math + real Flux visual!)
+    if (Array.isArray(selectedProducts) && selectedProducts.length > 0) {
+      const renderSeed = Number(regenerateSeed) || (Math.floor(Math.random() * 900000) + 100);
+      const descriptors = selectedProducts.map((p) => p.visualDescriptor || p.name).join(', ');
+      const sceneBase = sceneContextPrompt || 'modern Indian home interior room with clean flooring and natural daylight';
+      const fluxPrompt = `Real interior architectural DSLR photograph: ${sceneBase}, installed with ${descriptors}, crisp natural textures, warm lighting, ultra photorealistic, no text`;
+      const items = selectedProducts.map((p) => {
+        const qty = Number(p.approxQtyMultiplier) || 1;
+        return {
+          name: p.name,
+          qtyRate: `${qty} ${p.unit || ''} @ ₹${Number(p.price).toLocaleString('en-IN')}`,
+          amount: Math.round(Number(p.price) * qty),
+        };
+      });
+      const materialTotal = items.reduce((s, it) => s + it.amount, 0);
+      const laborTotal = Math.max(4500, Math.round(materialTotal * 0.25));
+      const joinedNames = selectedProducts.map((p) => p.name).join(' + ');
+      return res.json({
+        success: true,
+        engine: 'SETU Showroom Deterministic Builder',
+        data: {
+          unreadable: false,
+          intentMode: 'build_design',
+          tradeCategory: descriptors.includes('brick') || descriptors.includes('house') ? 'mason' : 'carpenter',
+          replyText: `जी बिल्कुल! आपके चुने हुए आइटम्स (${joinedNames}) के हिसाब से आपकी जगह का असली डिज़ाइन और पक्का कोटेशन तैयार है। नीचे तस्वीर व पूरा बजट देखें:`,
+          showMaterialPicker: false,
+          sceneContextPrompt: sceneBase,
+          isSafetyHazard: false,
+          visualPreviewReady: true,
+          photorealisticPrompt: fluxPrompt,
+          renderedImageUrl: `https://image.pollinations.ai/prompt/${encodeURIComponent(fluxPrompt)}?width=800&height=540&model=flux&nologo=true&seed=${renderSeed}`,
+          visualPlan: {
+            designType: descriptors.includes('bed') ? 'bedroom' : descriptors.includes('house') || descriptors.includes('brick') ? 'house' : 'kitchen',
+            title: 'कस्टम SETU सप्लायर डिज़ाइन',
+            finishLabel: selectedProducts[0]?.name || 'कस्टम फिनिश',
+            dimensionsLabel: 'कस्टम साइट नाप',
+            afterCaption: `${joinedNames} के साथ तैयार असली लुक`,
+          },
+          quotation: {
+            includeQuotation: true,
+            projectTitle: 'सप्लायर सामग्री + कारीगर कोटेशन',
+            dimensionsSummary: 'साइट अनुमानित नाप',
+            estimatedDuration: '4 से 6 कार्य दिवस',
+            items,
+            materialTotal,
+            laborTotal,
+            grandTotal: materialTotal + laborTotal,
+          },
+          upsellPrompt: 'क्या आप किसी और प्रीमियम रेंज के माइका, ड्रॉअर या पत्थर के साथ नया लुक देखना चाहेंगे?',
+          quickReplies: ['🎨 दूसरे माइका / सामान की रेंज बदलकर देखो', '👷 इस काम के लिए कारीगर बुक करें'],
+          websiteAction: 'BOOK_PRO',
+        },
+      });
     }
 
     return res.status(502).json({

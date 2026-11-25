@@ -464,24 +464,29 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
           });
         }
 
-        for (const model of ['gemini-3.5-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.6-flash', 'gemini-3.5-flash']) {
+        for (const model of ['gemini-3.5-flash-lite', 'gemma-4-26b-a4b-it', 'gemini-3.6-flash', 'gemini-3.5-flash']) {
           try {
+            const isGemma = model.startsWith('gemma');
+            const reqPayload: any = { contents: [{ parts }] };
+            if (!isGemma) {
+              reqPayload.generationConfig = { response_mime_type: 'application/json' };
+            }
             const gResp = await fetch(
               `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${clientKey}`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{ parts }],
-                  generationConfig: { response_mime_type: 'application/json' },
-                }),
+                body: JSON.stringify(reqPayload),
               }
             );
             if (gResp.ok) {
               const gJson = await gResp.json();
               const rawText = gJson.candidates?.[0]?.content?.parts?.[0]?.text;
-              if (rawText) {
-                const parsed = JSON.parse(rawText);
+              const cleanJson = rawText
+                ? rawText.replace(/^```json\s*/i, '').replace(/```$/g, '').trim()
+                : '';
+              if (cleanJson) {
+                const parsed = JSON.parse(cleanJson);
                 if (parsed.unreadable) {
                   return { success: false, error: parsed.error || 'फोटो साफ नहीं है, कृपया दोबारा लें।' };
                 }
