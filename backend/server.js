@@ -1387,8 +1387,6 @@ Return ONLY valid JSON matching this exact schema:
       process.env.GEMINI_MODEL,
       'gemini-3.5-flash-lite',
       'gemini-3.6-flash',
-      'gemini-3.5-flash',
-      'gemma-4-26b-a4b-it',
     ].filter(Boolean);
 
     let lastError = '';
@@ -1404,7 +1402,7 @@ Return ONLY valid JSON matching this exact schema:
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(reqBody),
-          signal: AbortSignal.timeout(5500),
+          signal: AbortSignal.timeout(3800),
         });
 
         if (geminiResp.ok) {
@@ -1551,9 +1549,161 @@ Return ONLY valid JSON matching this exact schema:
       });
     }
 
+    // Smart Domain Fallback when customer described their problem/project textually & Free Tier AI is busy
+    const msgLower = latestUserMsg.toLowerCase().trim();
+    if (msgLower) {
+      const renderSeed = Number(regenerateSeed) || (Math.floor(Math.random() * 900000) + 100);
+      const isRepairQuery =
+        /leak|tapak|टपक|seelan|सीलन|spark|चिंगारी|switch|शॉर्ट|choke|खराब|toot|टूट|repair|मरम्मत|प्लंब|nal|नल|drain/.test(msgLower);
+
+      if (isRepairQuery) {
+        const isElectric = /spark|चिंगारी|switch|board|बोर्ड|शॉर्ट|करंट|wire|तार|बिजली/.test(msgLower);
+        const isCarpentry = /hinge|अलमारी|darwaza|दरवाजा|lock|ताला|कब्जा|palla|पल्ला/.test(msgLower);
+        const tradeCat = isElectric ? 'electrician' : isCarpentry ? 'carpenter' : 'plumber';
+        const items = isElectric
+          ? [
+              { name: 'हैवेल्स मॉड्यूलर स्विच व MCB जांच', qtyRate: '1 सेट @ ₹250', amount: 250 },
+              { name: 'इलेक्ट्रीशियन विजिट व रिपेयरिंग चार्ज', qtyRate: '1 जॉब', amount: 300 },
+            ]
+          : isCarpentry
+          ? [
+              { name: 'हाइड्रॉलिक सॉफ्ट-क्लोज़ हिंज (2 पीस)', qtyRate: '2 पीस @ ₹180', amount: 360 },
+              { name: 'कारपेंटर फिटिंग चार्ज', qtyRate: '1 जॉब', amount: 350 },
+            ]
+          : [
+              { name: 'ब्रास स्पिंडल / सीलिंग वॉशर किट', qtyRate: '1 सेट @ ₹180', amount: 180 },
+              { name: 'प्लंबर विजिट व लीकेज रिपेयरिंग', qtyRate: '1 जॉब', amount: 300 },
+            ];
+        const matTotal = items[0].amount;
+        const labTotal = items[1].amount;
+
+        return res.json({
+          success: true,
+          engine: 'SETU Domain Master Fallback',
+          data: {
+            unreadable: false,
+            intentMode: 'repair',
+            tradeCategory: tradeCat,
+            replyText: isElectric
+              ? '⚠️ बिजली बोर्ड में चिंगारी या खराबी को हल्के में न लें — तुरंत मेन स्विच (MCB) बंद करें! नीचे खराबी के सामान, अनुमानित खर्च और नज़दीकी इलेक्ट्रीशियन का विवरण देखें।'
+              : isCarpentry
+              ? 'आपकी कारपेंटर रिपेयरिंग के लिए ज़रूरी हार्डवेयर और कारीगरी का सटीक खर्च नीचे दिया है। आप अभी सत्यापित बढ़ई बुक कर सकते हैं।'
+              : 'नल टपकने या पाइप लीकेज का मुख्य कारण घिसा हुआ वॉशर या लूज स्पिंडल/जॉइंट होता है। नीचे सामान व प्लंबर चार्ज देखें और 1 क्लिक में कारीगर बुक करें।',
+            showMaterialPicker: false,
+            isSafetyHazard: isElectric,
+            safetyMessage: isElectric ? 'आपातकालीन सुरक्षा चेतावनी: मुख्य DP / MCB स्विच तुरंत बंद करें!' : '',
+            visualPreviewReady: false,
+            quotation: {
+              includeQuotation: true,
+              projectTitle: `${locality} रिपेयरिंग एस्टीमेट`,
+              dimensionsSummary: '1 यूनिट / पॉइंट',
+              estimatedDuration: '30 से 60 मिनट',
+              items,
+              materialTotal: matTotal,
+              laborTotal: labTotal,
+              grandTotal: matTotal + labTotal,
+            },
+            quickReplies: ['👷 अभी कारीगर बुक करें', '📸 समस्या की फोटो भेजें'],
+            websiteAction: 'BOOK_PRO',
+          },
+        });
+      }
+
+      // Build / Design Intent Routing (Kitchen, Bedroom/Bed, Wardrobe, House Construction, Bathroom, Painting)
+      let pType = 'kitchen';
+      let tCat = 'carpenter';
+      if (/bed|बेड|पलंग|bedroom|बेडरूम|सुला/.test(msgLower)) {
+        pType = 'bedroom';
+      } else if (/wardrobe|अलमारी|almirah|कबर्ड/.test(msgLower)) {
+        pType = 'wardrobe';
+      } else if (/ghar|house|makan|मकान|घर|plot|प्लॉट|duple|मंजिला|मंज़िल|मंजिल|ईंट|मिस्त्री/.test(msgLower)) {
+        pType = 'house';
+        tCat = 'mason';
+      } else if (/bath|बाथरूम|toilet|टाइल/.test(msgLower)) {
+        pType = 'bathroom';
+        tCat = 'plumber';
+      } else if (/paint|पेंट|पुट्टी|रंग/.test(msgLower)) {
+        pType = 'painting';
+        tCat = 'painter';
+      } else if (/light|बिजली|wiring|वायरिंग|झूमर/.test(msgLower)) {
+        pType = 'electrical';
+        tCat = 'electrician';
+      }
+
+      const wantsDirectPhoto = /दिखाओ|बनाओ|dikhao|banao|show|render|real photo|असली फोटो/.test(msgLower);
+      if (wantsDirectPhoto) {
+        const scenePrompts = {
+          kitchen: 'Indian home kitchen wall with modern wooden and matte acrylic modular cabinets, black granite slab, stainless chimney, warm under-cabinet LED glow',
+          bedroom: 'Indian master bedroom with solid teakwood king-size hydraulic bed, crisp white bedding, walnut wood floor-to-ceiling wardrobe, natural window sunlight',
+          wardrobe: 'modern bedroom with dark walnut teakwood 3-door sliding wardrobe with loft storage and warm soft lighting',
+          house: 'modern 2-story Indian duplex home built on a residential plot with brick accent facade, glass balcony railing, ground porch, daytime sky',
+          bathroom: 'modern clean Indian tiled bathroom with chrome rain shower, LED oval mirror and floating vanity counter',
+          painting: 'freshly painted modern Indian living room with smooth cream and warm sage satin feature wall',
+          electrical: 'modern Indian bedroom ceiling with recessed COB LED spotlights, false ceiling cove lighting and sleek modular switches',
+        };
+        const fluxPrompt = `Real architectural interior DSLR photograph: ${sceneContextPrompt || scenePrompts[pType]}, ultra photorealistic textures, 35mm lens, no text`;
+        return res.json({
+          success: true,
+          engine: 'SETU Domain Visual Builder',
+          data: {
+            unreadable: false,
+            intentMode: 'build_design',
+            tradeCategory: tCat,
+            replyText: `जी बिल्कुल! आपकी जरूरत के हिसाब से ${locality} के मानक रेट्स पर हमने यह असली फोटोरियलिस्टिक डिज़ाइन और शुरुआती कोटेशन तैयार किया है। आप नीचे बटन दबाकर अपने पसंद का माइका, ड्रॉअर या रेंज भी बदल सकते हैं!`,
+            showMaterialPicker: false,
+            productPickerProjectType: pType,
+            sceneContextPrompt: sceneContextPrompt || scenePrompts[pType],
+            visualPreviewReady: true,
+            photorealisticPrompt: fluxPrompt,
+            renderedImageUrl: `https://image.pollinations.ai/prompt/${encodeURIComponent(fluxPrompt)}?width=800&height=540&model=flux&nologo=true&seed=${renderSeed}`,
+            visualPlan: {
+              designType: pType,
+              title: pType === 'house' ? 'आधुनिक 2-मंजिला मकान डिज़ाइन' : pType === 'bedroom' ? 'सॉलिड टीकवुड बेड & वॉर्डरोब' : 'मॉड्यूलर कस्टम डिज़ाइन',
+              finishLabel: 'पॉपुलर स्टैंडर्ड फिनिश',
+              dimensionsLabel: pType === 'house' ? '~1,000 sq.ft प्लॉट' : '~10x8 फीट स्पेस',
+              afterCaption: 'असली डिज़ाइन लुक — नीचे से माइका या रेंज अपने बजट अनुसार बदलें',
+            },
+            quotation: {
+              includeQuotation: true,
+              projectTitle: `${locality} मानक निर्माण कोटेशन`,
+              dimensionsSummary: pType === 'house' ? '1,000 sq.ft निर्माण' : '10x8 फीट',
+              estimatedDuration: pType === 'house' ? '4 से 6 माह' : '4 से 5 दिन',
+              items: [
+                { name: 'प्रमुख सामग्री (सप्लायर स्टोर ग्रेड)', qtyRate: 'स्टैंडर्ड पैक', amount: pType === 'house' ? 1150000 : 24000 },
+                { name: 'कुशल कारीगर मजदूरी व फिटिंग', qtyRate: 'संपूर्ण कार्य', amount: pType === 'house' ? 400000 : 11500 },
+              ],
+              materialTotal: pType === 'house' ? 1150000 : 24000,
+              laborTotal: pType === 'house' ? 400000 : 11500,
+              grandTotal: pType === 'house' ? 1550000 : 35500,
+            },
+            upsellPrompt: 'हमारे सप्लायर के पास किफ़ायती से लेकर लक्ज़री प्रीमियम रेंज तक उपलब्ध है — नीचे से अपना मनपसंद माइका/पत्थर/बेड चुनकर देखें!',
+            quickReplies: ['🎨 दूसरे माइका / सामान की रेंज बदलकर देखो', '👷 इस काम के लिए कारीगर बुक करें'],
+            websiteAction: 'BOOK_PRO',
+          },
+        });
+      }
+
+      return res.json({
+        success: true,
+        engine: 'SETU Domain Showroom Guide',
+        data: {
+          unreadable: false,
+          intentMode: 'build_design',
+          tradeCategory: tCat,
+          replyText: `बिल्कुल बढ़िया काम! हमारे सत्यापित सप्लायर के पास इसके लिए किफ़ायती, पॉपुलर और लक्ज़री तीनों रेंज के सामान (फोटो व रेट सहित) मौजूद हैं। नीचे से अपनी पसंद के आइटम चुनकर बटन दबाएं — मैं उन्हीं से आपका बिल्कुल असली डिज़ाइन और पक्का कोटेशन तैयार कर दूँगा!`,
+          showMaterialPicker: true,
+          productPickerProjectType: pType,
+          sceneContextPrompt: sceneContextPrompt || '',
+          visualPreviewReady: false,
+          quickReplies: ['✨ पॉपुलर आइटम्स से अभी डिज़ाइन बनाओ', '💰 मेरा बजट बताऊँगा'],
+          websiteAction: 'NONE',
+        },
+      });
+    }
+
     return res.status(502).json({
       success: false,
-      error: 'SETU अभी व्यस्त है, कृपया कुछ सेकंड बाद दोबारा प्रयास करें।',
+      error: 'फोटो का AI स्कैन अभी व्यस्त है — कृपया साथ में 2 शब्द लिखें (जैसे "यहाँ किचन बनाना है") या 5 सेकंड बाद पुनः भेजें।',
       debug: lastError,
     });
   } catch (err) {
