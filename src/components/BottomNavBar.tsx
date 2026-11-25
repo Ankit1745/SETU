@@ -61,7 +61,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
         </Text>
       </TouchableOpacity>
 
-      {/* 3. AI Estimator */}
+      {/* 3. SETU AI Master Artisan */}
       <TouchableOpacity
         style={styles.tabItem}
         activeOpacity={0.8}
@@ -69,9 +69,9 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
       >
         <View style={[styles.iconWrap, activeTab === 'estimator' && styles.iconWrapActive]}>
           <Ionicons
-            name={activeTab === 'estimator' ? 'calculator' : 'calculator-outline'}
+            name={activeTab === 'estimator' ? 'sparkles' : 'sparkles-outline'}
             size={20}
-            color={activeTab === 'estimator' ? '#FFFFFF' : '#94A3B8'}
+            color={activeTab === 'estimator' ? '#FFFFFF' : '#F59E0B'}
           />
         </View>
         <Text

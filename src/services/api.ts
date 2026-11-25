@@ -370,4 +370,120 @@ Otherwise return PURE JSON:
       error: 'AI सर्वर से संपर्क नहीं हो सका। कृपया पुनः प्रयास करें।',
     };
   },
+
+  // 15. Unified SETU Master Artisan Chat Engine (/api/ai/setu-chat)
+  setuChat: async (params: {
+    messages: { role: 'user' | 'assistant'; text: string; hasImage?: boolean }[];
+    imageBase64?: string;
+    locality?: string;
+    language?: string;
+    platformContractors?: any[];
+    platformMaterials?: any[];
+  }) => {
+    const {
+      messages,
+      imageBase64 = '',
+      locality = 'भोपाल',
+      language = 'hi',
+      platformContractors = [],
+      platformMaterials = [],
+    } = params;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/ai/setu-chat`, {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+        body: JSON.stringify({
+          messages,
+          imageBase64,
+          locality,
+          language,
+          platformContractors,
+          platformMaterials,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success && json.data) {
+        return json;
+      }
+      if (json?.error && !json.error.includes('AI सर्वर')) {
+        return { success: false, error: json.error };
+      }
+    } catch (err: any) {
+      console.log('[API] Backend setu-chat unreachable, trying client Gemini:', err?.message);
+    }
+
+    // Direct Client Fallback when running offline / Expo dev without backend server
+    const clientKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+    if (clientKey) {
+      try {
+        const latestMsg = messages[messages.length - 1]?.text || '';
+        const historyStr = messages
+          .slice(-8)
+          .map((m) => `${m.role === 'assistant' ? 'SETU' : 'Customer'}: ${m.text}${m.hasImage ? ' [Photo Attached]' : ''}`)
+          .join('\n');
+
+        const langNote =
+          language === 'en'
+            ? 'Write replyText in clear polite Indian English.'
+            : 'Write replyText in simple, warm conversational Hindi/Hinglish.';
+
+        const promptText = `You are "SETU", India's master artisan & home renovation/construction expert in ${locality}.
+${langNote}
+Strictly handle home construction, modular kitchen, wardrobe/almirah, repair, plumbing, electrical, painting, masonry, rates, quotations, materials, and hiring.
+Auto-detect "repair" (fix cost, parts, safety, no luxury design) vs "build_design" (Turn 1: inspect empty space, list items & budget, ask "क्या आपकी इसी फोटो में डिज़ाइन बनाकर दिखाऊँ?" with visualPreviewReady=false unless user already asked to draw/show; Turn 2+: set visualPreviewReady=true with accurate placementBox coordinates inside user's uploaded photo and suggest supplier material/mica/drawer upgrades!) vs "rate_quote".
+Contractors: ${JSON.stringify(platformContractors.slice(0, 8).map((c) => ({ id: c.id, name: c.name, category: c.category, dailyWageRate: c.dailyWageRate, contractUnitRate: c.contractUnitRate })))}
+Materials: ${JSON.stringify(platformMaterials.slice(0, 8).map((m) => ({ id: m.id, name: m.name, brand: m.brand, category: m.category, price: m.sellingPrice, storeName: m.storeName })))}
+History:\n${historyStr}\nLatest: "${latestMsg || (imageBase64 ? '[Customer uploaded photo without text — inspect photo and proactively respond!]' : '')}"
+Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"rate_quote"), tradeCategory("carpenter"|"plumber"|"electrician"|"mason"|"painter"|"all"), replyText(string), askDesignConfirmation(boolean), isSafetyHazard(boolean), safetyMessage(string), visualPreviewReady(boolean), visualPlan({designType,title,finishStyle,finishLabel,dimensionsLabel,primaryHex,accentHex,panelCount,hasLoft,hasDrawers,hasLedStrip,placementBox:{topPct,leftPct,widthPct,heightPct},afterCaption}), quotation({includeQuotation,projectTitle,dimensionsSummary,estimatedDuration,items:[{name,qtyRate,amount}],materialTotal,laborTotal,grandTotal,budgetFitNote}), upsellPrompt(string), quickReplies(string[]), recommendedMaterialIds(string[]), websiteAction("NONE"|"BOOK_PRO"|"ORDER_MATERIAL"|"POST_BUDGET_JOB").`;
+
+        const parts: any[] = [{ text: promptText }];
+        if (imageBase64) {
+          const matches = imageBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+          parts.push({
+            inline_data: {
+              mime_type: (matches && matches[1]) || 'image/jpeg',
+              data: (matches && matches[2]) || imageBase64,
+            },
+          });
+        }
+
+        for (const model of ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']) {
+          try {
+            const gResp = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${clientKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts }],
+                  generationConfig: { response_mime_type: 'application/json' },
+                }),
+              }
+            );
+            if (gResp.ok) {
+              const gJson = await gResp.json();
+              const rawText = gJson.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (rawText) {
+                const parsed = JSON.parse(rawText);
+                if (parsed.unreadable) {
+                  return { success: false, error: parsed.error || 'फोटो साफ नहीं है, कृपया दोबारा लें।' };
+                }
+                return { success: true, engine: `SETU (${model})`, data: parsed };
+              }
+            }
+          } catch {
+            // fallback to next candidate model
+          }
+        }
+      } catch (clientErr) {
+        console.log('[API] Client setuChat error:', clientErr);
+      }
+    }
+
+    return {
+      success: false,
+      error: 'SETU से संपर्क नहीं हो सका। कृपया इंटरनेट या सर्वर जांचें।',
+    };
+  },
 };

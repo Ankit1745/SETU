@@ -18,25 +18,26 @@ import {
   MEGA_PROJECTS,
   RATE_TYPE_FILTERS,
   BHOPAL_MARKET_INDEX,
+  INITIAL_MATERIALS,
   Contractor,
+  MaterialItem,
   MegaContract,
   QuickServiceItem,
 } from '../data/mockData';
 import { ContractorCard } from '../components/ContractorCard';
-import { SmartEstimatorModal } from '../components/SmartEstimatorModal';
 import { BookingModal } from '../components/BookingModal';
 import { ContractorDetailModal } from '../components/ContractorDetailModal';
 import { QuickServiceModal } from '../components/QuickServiceModal';
 import { MegaContractModal } from '../components/MegaContractModal';
 import { RateSurveyModal } from '../components/RateSurveyModal';
-import { SetuAIAssistantModal } from '../components/SetuAIAssistantModal';
-import { AIVideoDoctorModal } from '../components/AIVideoDoctorModal';
+import { SetuAIStudioModal } from '../components/SetuAIStudioModal';
 import { COLORS } from '../theme/colors';
 import { Language, TRANSLATIONS } from '../i18n/translations';
 import { getSetuLogo } from '../constants/logos';
 
 interface CustomerHomeProps {
   contractors: Contractor[];
+  materials?: MaterialItem[];
   currentLocation: string;
   onOpenLocationPicker: () => void;
   onNewBookingCreated: (booking: any) => void;
@@ -49,6 +50,7 @@ interface CustomerHomeProps {
 
 export const CustomerHome: React.FC<CustomerHomeProps> = ({
   contractors,
+  materials = INITIAL_MATERIALS,
   currentLocation,
   onOpenLocationPicker,
   onNewBookingCreated,
@@ -69,11 +71,9 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   const [isListening, setIsListening] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
 
-  // Modals state
-  const [showAIVideoDoctor, setShowAIVideoDoctor] = useState(false);
-  const [showAIAssistant, setShowAIAssistant] = useState(false);
-  const [aiQuery, setAiQuery] = useState('');
-  const [showEstimator, setShowEstimator] = useState(false);
+  // Unified SETU AI Studio & Modals state
+  const [showSetuAI, setShowSetuAI] = useState(false);
+  const [setuInitialPrompt, setSetuInitialPrompt] = useState('');
   const [showQuickModal, setShowQuickModal] = useState(false);
   const [showRateSurveyModal, setShowRateSurveyModal] = useState(false);
   const [selectedMegaContract, setSelectedMegaContract] = useState<MegaContract | null>(null);
@@ -125,11 +125,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
     }
   }, [showQuickModalDirectly]);
 
-  React.useEffect(() => {
-    if (showEstimatorDirectly) {
-      setShowEstimator(true);
-    }
-  }, [showEstimatorDirectly]);
+  const isSetuModalOpen = showSetuAI || showEstimatorDirectly;
 
   // Restore active contractor profile / booking modal on browser refresh
   React.useEffect(() => {
@@ -486,13 +482,13 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
           </ScrollView>
         </View>
 
-        {/* 3. SINGLE CLEAN "समस्या बताकर कारीगर खोजें" (AI USTAD) */}
+        {/* 3. SINGLE UNIFIED SETU MASTER ARTISAN AI ENTRY */}
         <View style={styles.aiAssistStrip}>
           <TouchableOpacity
             style={styles.aiAssistBtn}
             onPress={() => {
-              setAiQuery('');
-              setShowAIAssistant(true);
+              setSetuInitialPrompt('');
+              setShowSetuAI(true);
             }}
             activeOpacity={0.88}
           >
@@ -502,10 +498,10 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.aiAssistBtnTitle}>
-                  {language === 'hi' ? '✨ समस्या बताकर कारीगर खोजें' : '✨ Find Pro by Describing Problem'}
+                  {language === 'hi' ? '✨ SETU AI से पूछें (डिज़ाइन, रेट & रिपेयर)' : '✨ Ask SETU AI (Design, Rates & Repairs)'}
                 </Text>
                 <Text style={styles.aiAssistBtnSub} numberOfLines={1}>
-                  {language === 'hi' ? 'AI उस्ताद आपकी समस्या समझकर सही कारीगर दिखाएगा' : 'AI understands problem and matches right contractor'}
+                  {language === 'hi' ? 'फोटो भेजें — SETU आपका पूरा काम, बजट और डिज़ाइन संभालेगा' : 'Send photo — SETU handles estimate, design & booking'}
                 </Text>
               </View>
             </View>
@@ -640,40 +636,43 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
         </View>
       </ScrollView>
 
-      {/* 📹 PERSISTENT SLEEK FLOATING ACTION BUTTON (AI Ustad Live Video Call & 3D Studio - Compact Circular FAB) */}
+      {/* ✨ UNIFIED SETU AI FLOATING BUTTON */}
       <TouchableOpacity
         style={styles.floatingAIFab}
-        onPress={() => setShowAIVideoDoctor(true)}
+        onPress={() => {
+          setSetuInitialPrompt('');
+          setShowSetuAI(true);
+        }}
         activeOpacity={0.88}
-        accessibilityLabel={language === 'hi' ? 'AI उस्ताद लाइव वीडियो' : 'AI Doctor Live Video'}
+        accessibilityLabel="SETU AI"
       >
-        <Ionicons name="videocam" size={22} color="#FFFFFF" />
+        <Ionicons name="sparkles" size={16} color="#FBBF24" />
+        <Text style={styles.floatingFabLabel}>SETU</Text>
         <View style={styles.floatingFabBadgePulse} />
       </TouchableOpacity>
 
       {/* MODALS */}
-      {/* -1. SETU AI Video Doctor & 3D Studio Modal */}
-      <AIVideoDoctorModal
-        visible={showAIVideoDoctor}
-        onClose={() => setShowAIVideoDoctor(false)}
+      {/* 0. Unified SETU Master Artisan Chat & In-Photo Designer */}
+      <SetuAIStudioModal
+        visible={isSetuModalOpen}
+        onClose={() => {
+          setShowSetuAI(false);
+          setSetuInitialPrompt('');
+          if (showEstimatorDirectly && onCloseEstimatorDirectly) {
+            onCloseEstimatorDirectly();
+          }
+        }}
         language={language}
         currentLocation={currentLocation}
-        onOpenContractorCategory={(category) => {
+        contractors={contractors}
+        materials={materials}
+        initialPrompt={setuInitialPrompt}
+        onBookContractor={(c) => handleOpenBooking(c)}
+        onFilterCategory={(category) => {
           setSelectedCategory(category);
           setSelectedNeed('ALL');
         }}
-      />
-
-      {/* 0. SETU AI Trending Technique & Rate Assistant Modal */}
-      <SetuAIAssistantModal
-        visible={showAIAssistant}
-        onClose={() => setShowAIAssistant(false)}
-        language={language}
-        initialQuery={aiQuery}
-        onSelectContractorCategory={(category) => {
-          setSelectedCategory(category);
-          setSelectedNeed('ALL');
-        }}
+        onOpenBudgetJobPost={() => setShowPostTaskModal(true)}
       />
 
       {/* 1. Contractor Detail Profile Modal */}
@@ -706,22 +705,6 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
       <RateSurveyModal
         visible={showRateSurveyModal}
         onClose={() => setShowRateSurveyModal(false)}
-      />
-
-      {/* 3. AI Cost & Labor Estimator Modal */}
-      <SmartEstimatorModal
-        visible={showEstimator}
-        contractors={contractors}
-        onClose={() => {
-          setShowEstimator(false);
-          if (onCloseEstimatorDirectly) onCloseEstimatorDirectly();
-        }}
-        onSelectContractorCategory={(category) => {
-          setShowEstimator(false);
-          if (onCloseEstimatorDirectly) onCloseEstimatorDirectly();
-          setSelectedCategory(category);
-          setSelectedNeed('CONSTRUCTION');
-        }}
       />
 
       {/* 4. Uber/Rapido Quick SOS Service Modal */}
@@ -1722,28 +1705,36 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 74,
     right: 14,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    paddingHorizontal: 14,
+    height: 46,
+    borderRadius: 23,
+    flexDirection: 'row',
+    gap: 5,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#4338CA',
-    shadowColor: '#4338CA',
+    backgroundColor: '#0F172A',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 8,
     zIndex: 99,
     borderWidth: 2,
-    borderColor: '#818CF8',
+    borderColor: '#F59E0B',
+  },
+  floatingFabLabel: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
   floatingFabBadgePulse: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    top: -2,
+    right: -2,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
     backgroundColor: '#22C55E',
     borderWidth: 2,
     borderColor: '#FFFFFF',

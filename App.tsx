@@ -565,6 +565,7 @@ export default function App() {
         {currentRole === 'CUSTOMER' && (
           <CustomerHome
             contractors={contractors}
+            materials={materials}
             currentLocation={currentLocation}
             onOpenLocationPicker={() => setShowLocationPicker(true)}
             onNewBookingCreated={handleNewBookingCreated}

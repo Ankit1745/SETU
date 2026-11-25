@@ -68,7 +68,7 @@ export const TRANSLATIONS = {
     // Bottom Navigation
     navExplore: 'होम',
     navQuick: 'क्विक 15m',
-    navEstimator: 'बजट कैलकुलेटर',
+    navEstimator: 'SETU AI',
     navBookings: 'मेरी बुकिंग्स',
     navPartner: 'पार्टनर हब',
     navProfile: 'खाता',
@@ -171,7 +171,7 @@ export const TRANSLATIONS = {
     // Bottom Navigation
     navExplore: 'Home',
     navQuick: 'Quick 15m',
-    navEstimator: 'Estimator',
+    navEstimator: 'SETU AI',
     navBookings: 'My Bookings',
     navPartner: 'Partner Hub',
     navProfile: 'Account',
@@ -274,7 +274,7 @@ export const TRANSLATIONS = {
     // Bottom Navigation
     navExplore: 'Home',
     navQuick: 'Quick 15m',
-    navEstimator: 'Budget Calculator',
+    navEstimator: 'SETU AI',
     navBookings: 'Meri Bookings',
     navPartner: 'Partner Hub',
     navProfile: 'Account',

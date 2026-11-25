@@ -1197,6 +1197,285 @@ Otherwise return PURE JSON matching this unified schema:
   }
 });
 
+// 16B. Unified Conversational SETU Master Artisan & Designer AI (/api/ai/setu-chat)
+// Multi-turn ChatGPT-style specialist: understands Repair vs Build, calculates live rates/quotations,
+// places interactive design previews inside user's uploaded photo, and connects directly to platform pros & materials.
+app.post('/api/ai/setu-chat', async (req, res) => {
+  try {
+    const {
+      messages = [],
+      imageBase64 = '',
+      locality = 'भोपाल',
+      language = 'hi',
+      platformContractors = [],
+      platformMaterials = [],
+    } = req.body || {};
+
+    const latestUserMsg = Array.isArray(messages) && messages.length > 0
+      ? String(messages[messages.length - 1]?.text || '')
+      : '';
+
+    if (!imageBase64 && !latestUserMsg.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'कृपया अपनी समस्या लिखें, बोलें या जगह की फोटो भेजें।',
+      });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({
+        success: false,
+        error: 'AI सर्वर कॉन्फ़िगरेशन त्रुटि: Gemini API कुंजी सेट नहीं है।',
+      });
+    }
+
+    // Gather live platform pros & materials from DB (merged with any client snapshot)
+    let liveContractors = Array.isArray(platformContractors) ? platformContractors.slice(0, 12) : [];
+    let liveMaterials = Array.isArray(platformMaterials) ? platformMaterials.slice(0, 12) : [];
+
+    try {
+      if (getDbStatus().isMongoConnected) {
+        const dbPros = await models.Contractor.find().limit(10).lean();
+        const dbMats = await models.Material.find().limit(12).lean();
+        if (dbPros && dbPros.length > 0) liveContractors = dbPros;
+        if (dbMats && dbMats.length > 0) liveMaterials = dbMats;
+      } else if (fs.existsSync(DB_FILE)) {
+        const localData = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+        if ((localData.contractors || []).length > 0 && liveContractors.length === 0) {
+          liveContractors = localData.contractors.slice(0, 10);
+        }
+        if ((localData.materials || []).length > 0 && liveMaterials.length === 0) {
+          liveMaterials = localData.materials.slice(0, 12);
+        }
+      }
+    } catch (dbFetchErr) {
+      console.warn('SETU chat DB context warning:', dbFetchErr.message);
+    }
+
+    const contractorSummary = liveContractors.map((c) => ({
+      id: c.id || c._id,
+      name: c.name,
+      category: c.category,
+      specialty: c.specialtyHindi,
+      dailyWageRate: c.dailyWageRate,
+      contractUnitRate: c.contractUnitRate,
+      unitLabel: c.unitLabel,
+      verified: c.verified,
+    }));
+
+    const materialSummary = liveMaterials.map((m) => ({
+      id: m.id || m._id,
+      name: m.name,
+      brand: m.brand,
+      category: m.category,
+      price: m.sellingPrice || m.price,
+      unit: m.unit,
+      storeName: m.storeName,
+    }));
+
+    const historyTranscript = (Array.isArray(messages) ? messages : [])
+      .slice(-8)
+      .map((m) => `${m.role === 'assistant' ? 'SETU' : 'Customer'}: ${m.text}${m.hasImage ? ' [Photo Attached]' : ''}`)
+      .join('\n');
+
+    const responseLangInstruction =
+      language === 'en'
+        ? 'Write conversational replyText in clear, polite Indian English (while keeping JSON structure intact).'
+        : 'Write conversational replyText in natural, warm, simple conversational Hindi/Hinglish (easy for any common Indian homeowner or worker to understand).';
+
+    const systemPrompt = `You are "SETU" — NOT a general chatbot, NOT ChatGPT. You are an experienced, honest, practical Indian Master Artisan ("मझा हुआ कारीगर") & Interior/Construction Rate Expert serving ${locality}.
+${responseLangInstruction}
+
+YOUR STRICT BEHAVIOR RULES:
+1. DOMAIN ONLY: Only discuss home construction, carpentry (almirah, modular kitchen, furniture), plumbing, electrical, masonry, painting, tiling, waterproofing, renovation budgets, materials, rates, and hiring/buying via SETU. Politely redirect off-topic queries.
+2. READ THE SITUATION FAST — DO NOT WASTE TIME:
+   - Detect AUTOMATICALLY whether customer needs:
+     a) "repair": leaking tap/pipe, broken hinge/lock, spark/switchboard fault, wall seepage, tile crack, AC drip, clogged drain.
+        - DO NOT propose luxury kitchen/wardrobe designs when they came for repair!
+        - Immediately tell them: (i) Exact problem & cause seen in photo/text, (ii) Safety warning if dangerous (e.g. spark -> shut off MCB!), (iii) Needed parts & real rates, (iv) Total fix cost (parts + karigar charge), (v) Offer/set "visualPreviewReady: true" with repair fix preview if photo exists, + match right contractor category.
+     b) "build_design": empty wall, empty room, bare plot, house design/elevation, modular kitchen, wardrobe/almirah, bathroom renovation, ceiling, painting.
+        - If this is Turn 1 and the customer has NOT yet said "दिखाओ / बनाओ / हाँ / show design / make design":
+          * Inspect their space carefully (detect approximate wall/floor space dimensions in feet, e.g., 8x7 ft or 10x12 ft, what's currently in the photo).
+          * List exact items & materials needed (plywood, laminate/mica, soft-close channels, granite slab, bricks/cement/steel, etc.) and real estimated budget (considering any budget the user mentioned!).
+          * Set "visualPreviewReady": false (unless user ALREADY explicitly asked to show/make the design on the photo right away) and ask at the end of replyText:
+            "क्या आपकी इसी फोटो में [किचन / अलमारी / मकान / डिज़ाइन] बनाकर दिखाऊँ?" (or if English: "Should I design and preview how this [kitchen/wardrobe/house] will look right inside your uploaded photo?")
+          * Put a clear quick reply chip like "✅ हाँ, मेरी फोटो में डिज़ाइन बनाओ".
+        - If customer says "हाँ / yes / बनाओ / दिखाओ / show / design / upgrade / महंगा / सस्ता / कम बजट / ठीक" OR asks to try mica/drawer/color/material changes:
+          * Set "visualPreviewReady": true!
+          * Choose accurate "placementBox" coordinates (topPct 0-80, leftPct 0-80, widthPct 20-92, heightPct 20-85) pinpointing the exact wall, corner, counter, or empty ground visible in the uploaded photo where SETU should composite the design!
+          * Configure realistic finishes ("standard_laminate", "teak_walnut", "high_gloss_acrylic", "italian_pu", "modern_brick", "chrome_sanitary", "clean_paint") with matching colors ('primaryHex', 'accentHex'), 'hasLoft', 'hasDrawers', 'hasLedStrip'.
+          * ALSO proactively upsell in a helpful, non-pushy way: suggest 1-2 higher-grade or budget-friendly supplier materials from AVAILABLE_MATERIALS (like High-Gloss Mica, Century BWP Ply, Soft-Close Hydraulic Drawers, Granite Slab, Weatherproof Paint) and ask: "क्या इसमें और महंगा हाई-ग्लॉस माइका / सॉफ्ट-क्लोज़ ड्रॉअर लगाकर नया लुक और बजट दिखाऊँ?"
+     c) "rate_quote": Customer asks general rates, quotation, budget check, contractor finder, or supplier prices without needing a space edit yet. Build a transparent itemized Quotation!
+3. LIVE PLATFORM DATA (Use real names, prices & categories when relevant):
+Contractors available: ${JSON.stringify(contractorSummary)}
+Vendor Materials available: ${JSON.stringify(materialSummary)}
+
+CONVERSATION SO FAR:
+${historyTranscript}
+
+LATEST USER MESSAGE: "${latestUserMsg || (imageBase64 ? '[Customer uploaded a photo without text — inspect the photo carefully and proactively tell them what you see and suggest next step!]' : '')}"
+
+Return ONLY valid JSON matching this schema:
+{
+  "unreadable": false,
+  "intentMode": "repair" | "build_design" | "rate_quote",
+  "tradeCategory": "carpenter" | "plumber" | "electrician" | "mason" | "painter" | "all",
+  "replyText": "Concise, warm, practical master-artisan reply in plain user-friendly language (no jargon, short paragraphs, directly answers & guides next step).",
+  "askDesignConfirmation": boolean,
+  "isSafetyHazard": boolean,
+  "safetyMessage": "string (only if electrical spark/structural hazard)",
+  "visualPreviewReady": boolean,
+  "visualPlan": {
+    "designType": "kitchen" | "wardrobe" | "house" | "bathroom" | "electrical" | "painting" | "repair_fix",
+    "title": "Short title e.g. 10x8 फीट मॉड्यूलर किचन (हाई-ग्लॉस माइका)",
+    "finishStyle": "standard_laminate" | "teak_walnut" | "high_gloss_acrylic" | "italian_pu" | "modern_brick" | "chrome_sanitary" | "clean_paint",
+    "finishLabel": "e.g. टीकवुड 1mm माइका / हाई-ग्लॉस ऐक्रेलिक",
+    "dimensionsLabel": "e.g. ~8x7 फीट (56 sq.ft)",
+    "primaryHex": "#8B5A2B",
+    "accentHex": "#1E293B",
+    "panelCount": 3,
+    "hasLoft": true,
+    "hasDrawers": true,
+    "hasLedStrip": true,
+    "placementBox": { "topPct": 16, "leftPct": 14, "widthPct": 72, "heightPct": 68 },
+    "afterCaption": "Short note on how this transforms/fixes their exact space"
+  },
+  "quotation": {
+    "includeQuotation": boolean,
+    "projectTitle": "string",
+    "dimensionsSummary": "string (e.g. 8x7 फीट)",
+    "estimatedDuration": "string (e.g. 3 से 4 दिन)",
+    "items": [
+      { "name": "string", "qtyRate": "string (e.g. 4 शीट @ ₹2,400)", "amount": 9600 }
+    ],
+    "materialTotal": 18000,
+    "laborTotal": 7500,
+    "grandTotal": 25500,
+    "budgetFitNote": "Optional note if adjusted to user budget"
+  },
+  "upsellPrompt": "Optional short question suggesting supplier material/mica/drawer upgrade to increase durability/look",
+  "quickReplies": [
+    "2 to 4 short clickable next-step buttons for the customer in the active language"
+  ],
+  "recommendedMaterialIds": ["id from Vendor Materials if matching"],
+  "websiteAction": "NONE" | "BOOK_PRO" | "ORDER_MATERIAL" | "POST_BUDGET_JOB"
+}`;
+
+    const parts = [{ text: systemPrompt }];
+    if (imageBase64) {
+      const matches = imageBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      const mimeType = matches && matches[1] ? matches[1] : 'image/jpeg';
+      const cleanBase64 = matches && matches[2] ? matches[2] : imageBase64;
+      parts.push({ inline_data: { mime_type: mimeType, data: cleanBase64 } });
+    }
+
+    const candidateModels = [
+      process.env.GEMINI_MODEL,
+      'gemini-3.6-flash',
+      'gemini-3.5-flash',
+      'gemini-3.5-flash-lite',
+    ].filter(Boolean);
+
+    let lastError = '';
+    for (const modelName of candidateModels) {
+      try {
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        const geminiResp = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts }],
+            generationConfig: { response_mime_type: 'application/json' },
+          }),
+        });
+
+        if (geminiResp.ok) {
+          const geminiData = await geminiResp.json();
+          const rawJson = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (rawJson) {
+            const parsed = JSON.parse(rawJson);
+            if (parsed.unreadable) {
+              return res.status(400).json({
+                success: false,
+                error: parsed.error || 'फोटो साफ नहीं है, कृपया अच्छी रोशनी में दोबारा फोटो लें।',
+              });
+            }
+
+            // Optional hook: if Paid Tier Nano Banana image editing is ever explicitly enabled in env
+            let editedImageBase64 = null;
+            if (
+              process.env.ENABLE_PAID_NANO_BANANA === 'true' &&
+              imageBase64 &&
+              parsed.visualPreviewReady &&
+              parsed.visualPlan
+            ) {
+              try {
+                const m = imageBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+                const editResp = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+                  method: 'POST',
+                  headers: {
+                    'x-goog-api-key': apiKey,
+                    'Content-Type': 'application/json',
+                    'Api-Revision': '2026-05-20',
+                  },
+                  body: JSON.stringify({
+                    model: 'gemini-nano-banana-2.1',
+                    input: [
+                      {
+                        type: 'text',
+                        text: `Edit this exact uploaded photo to photorealistically install/fix: ${parsed.visualPlan.title} with ${parsed.visualPlan.finishLabel}. Preserve surrounding walls, floor, camera perspective, and lighting accurately.`,
+                      },
+                      {
+                        type: 'image',
+                        mime_type: (m && m[1]) || 'image/jpeg',
+                        data: (m && m[2]) || imageBase64,
+                      },
+                    ],
+                  }),
+                });
+                if (editResp.ok) {
+                  const editJson = await editResp.json();
+                  if (editJson?.output_image?.data) {
+                    const outMime = editJson.output_image.mime_type || 'image/png';
+                    editedImageBase64 = `data:${outMime};base64,${editJson.output_image.data}`;
+                  }
+                }
+              } catch (nanoErr) {
+                console.warn('Optional Nano Banana edit skipped:', nanoErr.message);
+              }
+            }
+
+            return res.json({
+              success: true,
+              engine: `SETU Master Artisan (${modelName})`,
+              data: {
+                ...parsed,
+                editedImageBase64,
+              },
+            });
+          }
+        } else {
+          const errBody = await geminiResp.text();
+          lastError = `${modelName}: ${geminiResp.status} ${errBody.substring(0, 180)}`;
+          console.warn(`SETU Chat ${modelName} failed:`, lastError);
+        }
+      } catch (modelErr) {
+        lastError = `${modelName}: ${modelErr.message}`;
+        console.warn(`SETU Chat ${modelName} error:`, modelErr.message);
+      }
+    }
+
+    return res.status(502).json({
+      success: false,
+      error: 'SETU अभी व्यस्त है, कृपया कुछ सेकंड बाद दोबारा प्रयास करें।',
+      debug: lastError,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'SETU चैट त्रुटि: ' + err.message });
+  }
+});
+
 // 17. Materials catalog
 app.get('/api/materials', async (req, res) => {
   try {
