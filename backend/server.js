@@ -1202,6 +1202,15 @@ Otherwise return PURE JSON matching this unified schema:
   }
 });
 
+function hasConfiguredServerPhotoEditor() {
+  return Boolean(
+    process.env.CUSTOM_INPHOTO_EDIT_URL ||
+    process.env.POLLINATIONS_API_KEY ||
+    process.env.HF_TOKEN ||
+    process.env.ENABLE_PAID_NANO_BANANA === 'true'
+  );
+}
+
 // 16B. Unified Conversational SETU Master Artisan & Designer AI (/api/ai/setu-chat)
 // Multi-turn ChatGPT-style specialist: understands Repair vs Build, calculates live rates/quotations,
 // places interactive design previews inside user's uploaded photo, and connects directly to platform pros & materials.
@@ -1466,9 +1475,7 @@ Return ONLY valid JSON matching this exact schema:
             }
 
             const hasUploadedPhoto = Boolean(imageBase64);
-            const serverHasPaidImageEditor = Boolean(
-              process.env.HF_TOKEN || process.env.ENABLE_PAID_NANO_BANANA === 'true'
-            );
+            const serverHasPaidImageEditor = hasConfiguredServerPhotoEditor();
             const renderSeed = Number(regenerateSeed) || (Math.floor(Math.random() * 900000) + 100);
             const rawRenderPrompt = parsed.photorealisticPrompt || (parsed.visualPlan
               ? `Real architectural interior photograph of ${parsed.visualPlan.title}, ${parsed.visualPlan.finishLabel}, shot on 35mm DSLR lens, realistic natural lighting, no text`
@@ -1512,9 +1519,7 @@ Return ONLY valid JSON matching this exact schema:
       const descriptors = selectedProducts.map((p) => p.visualDescriptor || p.name).join(', ');
       const sceneBase = sceneContextPrompt || 'modern Indian home interior room with clean flooring and natural daylight';
       const hasUploadedPhoto = Boolean(imageBase64);
-      const serverHasPaidImageEditor = Boolean(
-        process.env.HF_TOKEN || process.env.ENABLE_PAID_NANO_BANANA === 'true'
-      );
+      const serverHasPaidImageEditor = hasConfiguredServerPhotoEditor();
       const fluxPrompt = `Real interior architectural DSLR photograph: ${sceneBase}, installed with ${descriptors}, crisp natural textures, warm lighting, ultra photorealistic, no text`;
       const inPlaceEditPrompt = `Keep the exact same room walls, ceiling, floor, doors, windows, existing surrounding objects, camera perspective and natural lighting completely unchanged. Seamlessly install and build ONLY these selected items into the empty/target area: ${descriptors}. Match perspective, shadows and room lighting photorealistically, no text.`;
       const items = selectedProducts.map((p) => {
@@ -1665,9 +1670,7 @@ Return ONLY valid JSON matching this exact schema:
         };
         const fluxPrompt = `Real architectural interior DSLR photograph: ${sceneContextPrompt || scenePrompts[pType]}, ultra photorealistic textures, 35mm lens, no text`;
         const hasUploadedPhoto = Boolean(imageBase64);
-        const serverHasPaidImageEditor = Boolean(
-          process.env.HF_TOKEN || process.env.ENABLE_PAID_NANO_BANANA === 'true'
-        );
+        const serverHasPaidImageEditor = hasConfiguredServerPhotoEditor();
         const inPlaceEditPrompt = `Keep the exact same room walls, ceiling, floor, doors, windows, existing objects, background, camera perspective and natural lighting completely unchanged. Seamlessly install and build ONLY ${scenePrompts[pType]} naturally into the empty/target area of this uploaded photo, realistic scale and shadows, no text.`;
         return res.json({
           success: true,
@@ -1760,6 +1763,30 @@ app.post('/api/ai/edit-photo', async (req, res) => {
       ? imageBase64
       : `data:image/jpeg;base64,${imageBase64}`;
 
+    // Engine 0: Self-Hosted Unlimited Free GPU Worker (Modal $30/mo Free / Kaggle / Colab / Local)
+    const customWorkerUrl = process.env.CUSTOM_INPHOTO_EDIT_URL;
+    if (customWorkerUrl) {
+      try {
+        const cwRes = await fetch(customWorkerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageBase64: normalizedUri, editPrompt, seed: Number(seed) || 42 }),
+          signal: AbortSignal.timeout(55000),
+        });
+        const cwJson = await cwRes.json().catch(() => null);
+        const outImg = cwJson?.editedImageBase64 || cwJson?.result_b64;
+        if (cwRes.ok && outImg) {
+          return res.json({
+            success: true,
+            engine: 'SETU Dedicated Free GPU Worker',
+            editedImageBase64: outImg.startsWith('data:') ? outImg : `data:image/png;base64,${outImg}`,
+          });
+        }
+      } catch (cwErr) {
+        console.warn('Custom in-photo worker skipped:', cwErr.message);
+      }
+    }
+
     // Engine 1: Optional Paid Google Gemini / Nano Banana Image Editing when explicitly enabled
     const apiKey = process.env.GEMINI_API_KEY;
     if (process.env.ENABLE_PAID_NANO_BANANA === 'true' && apiKey) {
@@ -1801,6 +1828,57 @@ app.post('/api/ai/edit-photo', async (req, res) => {
           }
         } catch (gErr) {
           console.warn(`Gemini in-photo (${gModel}) skipped:`, gErr.message);
+        }
+      }
+    }
+
+    // Engine 2: Pollinations AI v1/images/edits (Free enter.pollinations.ai GitHub key -> ~400-1000+ edits/day)
+    const pollKey = process.env.POLLINATIONS_API_KEY;
+    if (pollKey) {
+      for (const pModel of [
+        'qwen/qwen-image-2.1-turbo',
+        'prunaai/p-image-edit',
+        'google/gemini-nano-banana-2.1',
+        'black-forest-labs/flux.1-kontext-pro',
+      ]) {
+        try {
+          const pRes = await fetch('https://gen.pollinations.ai/v1/images/edits', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${pollKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: pModel,
+              prompt: editPrompt,
+              image: [{ image_url: normalizedUri }],
+              seed: Number(seed) || 42,
+              response_format: 'b64_json',
+            }),
+            signal: AbortSignal.timeout(45000),
+          });
+          if (pRes.ok) {
+            const pJson = await pRes.json();
+            const b64Out = pJson?.data?.[0]?.b64_json;
+            const urlOut = pJson?.data?.[0]?.url;
+            if (b64Out) {
+              return res.json({
+                success: true,
+                engine: `SETU In-Photo (${pModel})`,
+                editedImageBase64: b64Out.startsWith('data:') ? b64Out : `data:image/png;base64,${b64Out}`,
+              });
+            }
+            if (urlOut) {
+              const imgBuf = Buffer.from(await (await fetch(urlOut)).arrayBuffer());
+              return res.json({
+                success: true,
+                engine: `SETU In-Photo (${pModel})`,
+                editedImageBase64: `data:image/png;base64,${imgBuf.toString('base64')}`,
+              });
+            }
+          }
+        } catch (pErr) {
+          console.warn(`Pollinations in-photo (${pModel}) skipped:`, pErr.message);
         }
       }
     }
