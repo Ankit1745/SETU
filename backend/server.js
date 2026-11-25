@@ -1202,11 +1202,15 @@ Otherwise return PURE JSON matching this unified schema:
   }
 });
 
+function cleanSecret(val) {
+  return String(val || '').replace(/[^\x21-\x7E]/g, '').trim();
+}
+
 function hasConfiguredServerPhotoEditor() {
   return Boolean(
-    process.env.CUSTOM_INPHOTO_EDIT_URL ||
-    process.env.POLLINATIONS_API_KEY ||
-    process.env.HF_TOKEN ||
+    cleanSecret(process.env.CUSTOM_INPHOTO_EDIT_URL) ||
+    cleanSecret(process.env.POLLINATIONS_API_KEY) ||
+    cleanSecret(process.env.HF_TOKEN) ||
     process.env.ENABLE_PAID_NANO_BANANA === 'true'
   );
 }
@@ -1764,7 +1768,7 @@ app.post('/api/ai/edit-photo', async (req, res) => {
       : `data:image/jpeg;base64,${imageBase64}`;
 
     // Engine 0: Self-Hosted Unlimited Free GPU Worker (Modal $30/mo Free / Kaggle / Colab / Local)
-    const customWorkerUrl = process.env.CUSTOM_INPHOTO_EDIT_URL;
+    const customWorkerUrl = cleanSecret(process.env.CUSTOM_INPHOTO_EDIT_URL);
     if (customWorkerUrl) {
       try {
         const cwRes = await fetch(customWorkerUrl, {
@@ -1788,7 +1792,7 @@ app.post('/api/ai/edit-photo', async (req, res) => {
     }
 
     // Engine 1: Optional Paid Google Gemini / Nano Banana Image Editing when explicitly enabled
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = cleanSecret(process.env.GEMINI_API_KEY);
     if (process.env.ENABLE_PAID_NANO_BANANA === 'true' && apiKey) {
       const m = normalizedUri.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
       const mimeType = (m && m[1]) || 'image/jpeg';
@@ -1833,7 +1837,7 @@ app.post('/api/ai/edit-photo', async (req, res) => {
     }
 
     // Engine 2: Pollinations AI v1/images/edits (Free enter.pollinations.ai GitHub key -> paid_only=false models work on free Quest balance!)
-    const pollKey = process.env.POLLINATIONS_API_KEY;
+    const pollKey = cleanSecret(process.env.POLLINATIONS_API_KEY);
     if (pollKey) {
       for (const pModel of [
         'microsoft/mai-image-2.7-flash',
@@ -1884,10 +1888,11 @@ app.post('/api/ai/edit-photo', async (req, res) => {
       }
     }
 
-    // Engine 2: Open FireRed-Image-Edit-1.0-Fast (preserves surrounding room/walls/door/floor pixels)
+    // Engine 3: Open FireRed-Image-Edit-1.0-Fast (preserves surrounding room/walls/door/floor pixels)
+    const hfToken = cleanSecret(process.env.HF_TOKEN);
     const hfHeaders = { 'Content-Type': 'application/json' };
-    if (process.env.HF_TOKEN) {
-      hfHeaders.Authorization = `Bearer ${process.env.HF_TOKEN}`;
+    if (hfToken) {
+      hfHeaders.Authorization = `Bearer ${hfToken}`;
     }
 
     const submitResp = await fetch(
@@ -1913,7 +1918,7 @@ app.post('/api/ai/edit-photo', async (req, res) => {
     const sseResp = await fetch(
       `https://prithivmlmods-firered-image-edit-1-0-fast.hf.space/gradio_api/call/edit_image/${submitJson.event_id}`,
       {
-        headers: process.env.HF_TOKEN ? { Authorization: `Bearer ${process.env.HF_TOKEN}` } : {},
+        headers: hfToken ? { Authorization: `Bearer ${hfToken}` } : {},
         signal: AbortSignal.timeout(55000),
       }
     );
