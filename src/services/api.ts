@@ -611,7 +611,7 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
       if (subResp.ok && subJson?.event_id) {
         const sseResp = await fetchWithTimeout(`${hfBase}/${subJson.event_id}`, {}, 55000);
         const sseText = await sseResp.text();
-        if (/ZeroGPU quota/i.test(sseText)) {
+        if (/ZeroGPU|quota|exceeded|too many requests|rate limit|no gpu/i.test(sseText)) {
           console.log('[API] Direct FireRed client IP quota exceeded, trying backend editor...');
         } else {
           const matchB64 = sseText.match(/"image"\s*:\s*"(data:image\/[^;]+;base64,[^"]+)"/);

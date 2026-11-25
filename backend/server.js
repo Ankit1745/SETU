@@ -1840,7 +1840,7 @@ app.post('/api/ai/edit-photo', async (req, res) => {
     );
     const sseText = await sseResp.text();
 
-    if (/ZeroGPU quota/i.test(sseText)) {
+    if (/ZeroGPU|quota|exceeded|too many requests|rate limit|no gpu/i.test(sseText)) {
       return res.status(429).json({
         success: false,
         quotaExceeded: true,
@@ -1860,6 +1860,7 @@ app.post('/api/ai/edit-photo', async (req, res) => {
     return res.status(502).json({
       success: false,
       error: 'इन-फोटो एडिट पूरा नहीं हो सका — कृपया पुनः प्रयास करें।',
+      debugReason: sseText.slice(0, 180),
     });
   } catch (err) {
     return res.status(500).json({

@@ -27,7 +27,9 @@ async function normalizePickedImageBase64(uri: string, rawBase64?: string | null
       const ImgCtor = (window as any).Image;
       if (!ImgCtor) return resolve(fallbackDataUri);
       const img = new ImgCtor();
-      img.crossOrigin = 'anonymous';
+      if (!fallbackDataUri.startsWith('data:') && !fallbackDataUri.startsWith('blob:')) {
+        img.crossOrigin = 'anonymous';
+      }
       img.onload = () => {
         try {
           const maxDim = 768;
@@ -43,7 +45,11 @@ async function normalizePickedImageBase64(uri: string, rawBase64?: string | null
           if (!ctx) return resolve(fallbackDataUri);
           ctx.drawImage(img, 0, 0, targetW, targetH);
           const compressed = canvas.toDataURL('image/jpeg', 0.78);
-          resolve(compressed || fallbackDataUri);
+          resolve(
+            compressed && compressed.startsWith('data:image/') && compressed.length > 200
+              ? compressed
+              : fallbackDataUri
+          );
         } catch {
           resolve(fallbackDataUri);
         }
