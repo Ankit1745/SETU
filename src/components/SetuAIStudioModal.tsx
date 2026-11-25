@@ -21,6 +21,8 @@ import { ApiService } from '../services/api';
 import { pickImageFromGallery, capturePhotoFromCamera } from '../utils/mediaPicker';
 import { openWhatsAppChat } from '../utils/whatsapp';
 import { SpaceDesignCanvas, SetuVisualPlan } from './SpaceDesignCanvas';
+import { VisualMaterialPicker } from './VisualMaterialPicker';
+import { ShowroomProduct, ShowroomProjectType } from '../data/supplierShowroom';
 
 export interface SetuQuotationItem {
   name: string;
@@ -44,11 +46,14 @@ export interface SetuAssistantPayload {
   intentMode: 'repair' | 'build_design' | 'rate_quote';
   tradeCategory: string;
   replyText: string;
-  askDesignConfirmation?: boolean;
+  showMaterialPicker?: boolean;
+  productPickerProjectType?: ShowroomProjectType;
+  sceneContextPrompt?: string;
   isSafetyHazard?: boolean;
   safetyMessage?: string;
   visualPreviewReady?: boolean;
   visualPlan?: SetuVisualPlan;
+  renderedImageUrl?: string | null;
   editedImageBase64?: string | null;
   quotation?: SetuQuotation;
   upsellPrompt?: string;
@@ -98,9 +103,12 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
   const [pendingPhotoUri, setPendingPhotoUri] = useState<string>('');
   const [pendingPhotoBase64, setPendingPhotoBase64] = useState<string>('');
 
-  // Keep active site photo across turns so customer can inspect budget first -> confirm design -> upgrade mica seamlessly
+  // Keep active site photo & visual scene context across turns so item swaps keep exact room anchors
   const [activeSitePhotoUri, setActiveSitePhotoUri] = useState<string>('');
   const [activeSitePhotoBase64, setActiveSitePhotoBase64] = useState<string>('');
+  const [sceneContextPrompt, setSceneContextPrompt] = useState<string>('');
+  const [lastSelectedProducts, setLastSelectedProducts] = useState<ShowroomProduct[]>([]);
+  const [manualPickerMsgId, setManualPickerMsgId] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -145,6 +153,9 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
     setPendingPhotoBase64('');
     setActiveSitePhotoUri('');
     setActiveSitePhotoBase64('');
+    setSceneContextPrompt('');
+    setLastSelectedProducts([]);
+    setManualPickerMsgId(null);
     setSpeakingMsgId(null);
   };
 
@@ -156,9 +167,14 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
     setPendingPhotoBase64(picked.base64 || picked.uri);
     setActiveSitePhotoUri(picked.uri);
     setActiveSitePhotoBase64(picked.base64 || picked.uri);
+    setSceneContextPrompt('');
   };
 
-  const handleSendMessage = useCallback(async (overrideText?: string) => {
+  const handleSendMessage = useCallback(async (
+    overrideText?: string,
+    chosenProducts?: ShowroomProduct[],
+    regenerateSeed = 0
+  ) => {
     if (isLoading) return;
     const textToSend = (overrideText !== undefined ? overrideText : inputText).trim();
     const photoToSendUri = pendingPhotoUri;
@@ -178,6 +194,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
     if (overrideText === undefined) setInputText('');
     setPendingPhotoUri('');
     setPendingPhotoBase64('');
+    setManualPickerMsgId(null);
     setIsLoading(true);
     scrollToBottom();
 
@@ -194,12 +211,18 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
       language,
       platformContractors: contractors,
       platformMaterials: materials,
+      selectedProducts: chosenProducts || [],
+      sceneContextPrompt,
+      regenerateSeed,
     });
 
     setIsLoading(false);
 
     if (resp?.success && resp?.data) {
       const payload: SetuAssistantPayload = resp.data;
+      if (payload.sceneContextPrompt) {
+        setSceneContextPrompt(payload.sceneContextPrompt);
+      }
       const assistantMsg: ChatMessage = {
         id: 'a_' + Date.now(),
         role: 'assistant',
@@ -235,6 +258,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
     language,
     contractors,
     materials,
+    sceneContextPrompt,
   ]);
 
   useEffect(() => {
@@ -483,13 +507,62 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                     {/* Conversational Reply */}
                     <Text style={styles.assistantText}>{msg.text}</Text>
 
-                    {/* Live Design / Repair Overlay Rendered Inside User's Photo */}
+                    {/* Real Photorealistic Render & Before/After Toggle */}
                     {p?.visualPreviewReady && p?.visualPlan ? (
-                      <SpaceDesignCanvas
-                        userPhotoUri={activeSitePhotoUri}
-                        editedImageBase64={p.editedImageBase64}
-                        visualPlan={p.visualPlan}
+                      <>
+                        <SpaceDesignCanvas
+                          userPhotoUri={activeSitePhotoUri}
+                          renderedImageUri={p.editedImageBase64 || p.renderedImageUrl}
+                          visualPlan={p.visualPlan}
+                          language={language}
+                          onRegenerateAngle={() =>
+                            handleSendMessage(
+                              isEn
+                                ? 'Generate a fresh photorealistic camera view of this design'
+                                : 'इस डिज़ाइन का नया असली फोटो लुक दिखाओ',
+                              lastSelectedProducts,
+                              Math.floor(Math.random() * 900000) + 100
+                            )
+                          }
+                        />
+                        {manualPickerMsgId !== msg.id && (
+                          <TouchableOpacity
+                            style={styles.changeMicaBtn}
+                            onPress={() => setManualPickerMsgId(msg.id)}
+                            activeOpacity={0.85}
+                          >
+                            <Ionicons name="color-palette-outline" size={14} color="#FBBF24" />
+                            <Text style={styles.changeMicaText}>
+                              {isEn
+                                ? 'Try Different Mica, Hardware or Budget Range'
+                                : 'दूसरा माइका, ड्रॉअर या रेंज बदलकर देखें'}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </>
+                    ) : null}
+
+                    {/* Visual Supplier Product & Mica Showroom Picker */}
+                    {(p?.showMaterialPicker || manualPickerMsgId === msg.id) ? (
+                      <VisualMaterialPicker
+                        projectType={
+                          (p?.productPickerProjectType ||
+                            (p?.visualPlan?.designType === 'repair_fix'
+                              ? 'kitchen'
+                              : p?.visualPlan?.designType) ||
+                            'kitchen') as ShowroomProjectType
+                        }
                         language={language}
+                        onGenerateWithSelection={(items) => {
+                          setLastSelectedProducts(items);
+                          const names = items.map((i) => `${i.name} (₹${i.price})`).join(', ');
+                          handleSendMessage(
+                            isEn
+                              ? `Create a realistic design preview and quotation using these selected supplier items: ${names}`
+                              : `मेरे चुने हुए इन आइटम्स से मेरी जगह की असली फोटो जैसा डिज़ाइन और पक्का कोटेशन बनाओ: ${names}`,
+                            items
+                          );
+                        }}
                       />
                     ) : null}
 
@@ -682,7 +755,13 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                           <TouchableOpacity
                             key={idx}
                             style={styles.quickReplyPill}
-                            onPress={() => handleSendMessage(qr)}
+                            onPress={() => {
+                              if (qr.includes('रेंज बदलकर') || qr.toLowerCase().includes('change range')) {
+                                setManualPickerMsgId(msg.id);
+                              } else {
+                                handleSendMessage(qr);
+                              }
+                            }}
                             activeOpacity={0.8}
                           >
                             <Text style={styles.quickReplyText}>{qr}</Text>
@@ -1339,6 +1418,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#F59E0B',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  changeMicaBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(245, 158, 11, 0.14)',
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+    borderRadius: 10,
+    paddingVertical: 8,
+    marginTop: 6,
+  },
+  changeMicaText: {
+    color: '#FBBF24',
+    fontSize: 11.5,
+    fontWeight: '900',
   },
   sendBtnDisabled: {
     backgroundColor: '#475569',
