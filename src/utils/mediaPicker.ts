@@ -9,6 +9,12 @@ export interface PickedMedia {
   sizeBytes?: number;
 }
 
+function photoDataUrl(asset: ImagePicker.ImagePickerAsset) {
+  // The web picker encodes the original file, while the native picker returns JPEG data.
+  const mimeType = (Platform.OS === 'web' && asset.mimeType) || 'image/jpeg';
+  return asset.base64 ? `data:${mimeType};base64,${asset.base64}` : asset.uri;
+}
+
 /**
  * Universal cross-platform Media Picker for React Native (Android, iOS & Web)
  * Eliminates crashes caused by `document.createElement('input')` on mobile.
@@ -37,11 +43,10 @@ export async function pickImageFromGallery(): Promise<PickedMedia | null> {
 
     const asset = result.assets[0];
     const fileName = asset.fileName || `photo_${Date.now()}.jpg`;
-    const base64Data = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
 
     return {
       uri: asset.uri,
-      base64: base64Data,
+      base64: photoDataUrl(asset),
       name: fileName,
       type: 'image',
       sizeBytes: asset.fileSize,
@@ -80,11 +85,10 @@ export async function capturePhotoFromCamera(): Promise<PickedMedia | null> {
 
     const asset = result.assets[0];
     const fileName = asset.fileName || `camera_${Date.now()}.jpg`;
-    const base64Data = asset.base64 ? `data:image/jpeg;base64,${asset.base64}` : asset.uri;
 
     return {
       uri: asset.uri,
-      base64: base64Data,
+      base64: photoDataUrl(asset),
       name: fileName,
       type: 'image',
       sizeBytes: asset.fileSize,

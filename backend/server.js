@@ -6,6 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { connectDB, getDbStatus, models } = require('./db');
 const { createToken, verifyToken, requireAuth, requireRole } = require('./auth');
+const { editSetuPhoto } = require('./setuPhotoEdit');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -1198,8 +1199,7 @@ Otherwise return PURE JSON matching this unified schema:
 });
 
 // 16B. Unified Conversational SETU Master Artisan & Designer AI (/api/ai/setu-chat)
-// Multi-turn ChatGPT-style specialist: understands Repair vs Build, calculates live rates/quotations,
-// places interactive design previews inside user's uploaded photo, and connects directly to platform pros & materials.
+// Multi-turn assistant for repairs, photo edits, quotations, and platform pros and materials.
 app.post('/api/ai/setu-chat', async (req, res) => {
   try {
     const {
@@ -1293,18 +1293,17 @@ YOUR STRICT BEHAVIOR RULES:
    - Detect AUTOMATICALLY whether customer needs:
      a) "repair": leaking tap/pipe, broken hinge/lock, spark/switchboard fault, wall seepage, tile crack, AC drip, clogged drain.
         - DO NOT propose luxury kitchen/wardrobe designs when they came for repair!
-        - Immediately tell them: (i) Exact problem & cause seen in photo/text, (ii) Safety warning if dangerous (e.g. spark -> shut off MCB!), (iii) Needed parts & real rates, (iv) Total fix cost (parts + karigar charge), (v) Offer/set "visualPreviewReady: true" with repair fix preview if photo exists, + match right contractor category.
+        - Immediately explain the likely causes, safety precautions, parts, estimated cost and matching contractor. Prepare an illustrative after-photo only if explicitly requested and safe to depict.
      b) "build_design": empty wall, empty room, bare plot, house design/elevation, modular kitchen, wardrobe/almirah, bathroom renovation, ceiling, painting.
         - If this is Turn 1 and the customer has NOT yet said "दिखाओ / बनाओ / हाँ / show design / make design":
-          * Inspect their space carefully (detect approximate wall/floor space dimensions in feet, e.g., 8x7 ft or 10x12 ft, what's currently in the photo).
+           * Inspect their space carefully. Use real dimensions only if supplied by the customer. Otherwise ask for measurements where needed.
           * List exact items & materials needed (plywood, laminate/mica, soft-close channels, granite slab, bricks/cement/steel, etc.) and real estimated budget (considering any budget the user mentioned!).
           * Set "visualPreviewReady": false (unless user ALREADY explicitly asked to show/make the design on the photo right away) and ask at the end of replyText:
             "क्या आपकी इसी फोटो में [किचन / अलमारी / मकान / डिज़ाइन] बनाकर दिखाऊँ?" (or if English: "Should I design and preview how this [kitchen/wardrobe/house] will look right inside your uploaded photo?")
           * Put a clear quick reply chip like "✅ हाँ, मेरी फोटो में डिज़ाइन बनाओ".
-        - If customer says "हाँ / yes / बनाओ / दिखाओ / show / design / upgrade / महंगा / सस्ता / कम बजट / ठीक" OR asks to try mica/drawer/color/material changes:
-          * Set "visualPreviewReady": true!
-          * Choose accurate "placementBox" coordinates (topPct 0-80, leftPct 0-80, widthPct 20-92, heightPct 20-85) pinpointing the exact wall, corner, counter, or empty ground visible in the uploaded photo where SETU should composite the design!
-          * Configure realistic finishes ("standard_laminate", "teak_walnut", "high_gloss_acrylic", "italian_pu", "modern_brick", "chrome_sanitary", "clean_paint") with matching colors ('primaryHex', 'accentHex'), 'hasLoft', 'hasDrawers', 'hasLedStrip'.
+        - Set "visualPreviewReady": true only when the customer explicitly requests to see a visual edit, confirms a prior offer to edit the photo, or asks to revise a previous visual design. Budget-only or contractor questions do not request image editing.
+           * For a requested edit, write "photoEditInstruction" in English. Identify the exact visible surfaces to change, the requested style/material/color, and which real features to preserve. Resolve confirmations and follow-up edits from the conversation, honoring the most recent request.
+           * For a newly attached photo, use its current geometry and visible objects. For color-only requests, keep handles, seams, dimensions, and adjoining materials. Never add suggested upgrades into the edit unless the user approved them.
           * ALSO proactively upsell in a helpful, non-pushy way: suggest 1-2 higher-grade or budget-friendly supplier materials from AVAILABLE_MATERIALS (like High-Gloss Mica, Century BWP Ply, Soft-Close Hydraulic Drawers, Granite Slab, Weatherproof Paint) and ask: "क्या इसमें और महंगा हाई-ग्लॉस माइका / सॉफ्ट-क्लोज़ ड्रॉअर लगाकर नया लुक और बजट दिखाऊँ?"
      c) "rate_quote": Customer asks general rates, quotation, budget check, contractor finder, or supplier prices without needing a space edit yet. Build a transparent itemized Quotation!
 3. LIVE PLATFORM DATA (Use real names, prices & categories when relevant):
@@ -1315,6 +1314,9 @@ CONVERSATION SO FAR:
 ${historyTranscript}
 
 LATEST USER MESSAGE: "${latestUserMsg || (imageBase64 ? '[Customer uploaded a photo without text — inspect the photo carefully and proactively tell them what you see and suggest next step!]' : '')}"
+PHOTO ATTACHED FOR THIS REQUEST: ${imageBase64 ? 'Yes' : 'No'}
+
+Describe the result as a proposal in replyText. The application renders the image after this response. Never claim an image is ready or that the site has been repaired. If an edit is requested without a photo, ask for one and keep visualPreviewReady true so the app can show the correct status.
 
 Return ONLY valid JSON matching this schema:
 {
@@ -1326,25 +1328,18 @@ Return ONLY valid JSON matching this schema:
   "isSafetyHazard": boolean,
   "safetyMessage": "string (only if electrical spark/structural hazard)",
   "visualPreviewReady": boolean,
+  "photoEditInstruction": "Exact edit instructions for the image model, or empty if no edit was requested",
   "visualPlan": {
     "designType": "kitchen" | "wardrobe" | "house" | "bathroom" | "electrical" | "painting" | "repair_fix",
-    "title": "Short title e.g. 10x8 फीट मॉड्यूलर किचन (हाई-ग्लॉस माइका)",
-    "finishStyle": "standard_laminate" | "teak_walnut" | "high_gloss_acrylic" | "italian_pu" | "modern_brick" | "chrome_sanitary" | "clean_paint",
-    "finishLabel": "e.g. टीकवुड 1mm माइका / हाई-ग्लॉस ऐक्रेलिक",
-    "dimensionsLabel": "e.g. ~8x7 फीट (56 sq.ft)",
-    "primaryHex": "#8B5A2B",
-    "accentHex": "#1E293B",
-    "panelCount": 3,
-    "hasLoft": true,
-    "hasDrawers": true,
-    "hasLedStrip": true,
-    "placementBox": { "topPct": 16, "leftPct": 14, "widthPct": 72, "heightPct": 68 },
-    "afterCaption": "Short note on how this transforms/fixes their exact space"
+    "title": "Short localized title for the requested design",
+    "finishLabel": "The requested material or finish, if applicable",
+    "dimensionsLabel": "Customer-provided dimensions only, otherwise empty",
+    "afterCaption": "Short localized description of the requested visual change"
   },
   "quotation": {
     "includeQuotation": boolean,
     "projectTitle": "string",
-    "dimensionsSummary": "string (e.g. 8x7 फीट)",
+    "dimensionsSummary": "Customer-provided dimensions or a note that site measurements are needed",
     "estimatedDuration": "string (e.g. 3 से 4 दिन)",
     "items": [
       { "name": "string", "qtyRate": "string (e.g. 4 शीट @ ₹2,400)", "amount": 9600 }
@@ -1363,11 +1358,11 @@ Return ONLY valid JSON matching this schema:
 }`;
 
     const parts = [{ text: systemPrompt }];
-    if (imageBase64) {
-      const matches = imageBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-      const mimeType = matches && matches[1] ? matches[1] : 'image/jpeg';
-      const cleanBase64 = matches && matches[2] ? matches[2] : imageBase64;
-      parts.push({ inline_data: { mime_type: mimeType, data: cleanBase64 } });
+    let photo;
+    if (typeof imageBase64 === 'string' && imageBase64) {
+      const match = imageBase64.match(/^data:(image\/[\w.+-]+);base64,(.+)$/);
+      photo = { mime_type: match?.[1] || 'image/jpeg', data: match?.[2] || imageBase64 };
+      parts.push({ inline_data: photo });
     }
 
     const candidateModels = [
@@ -1402,47 +1397,25 @@ Return ONLY valid JSON matching this schema:
               });
             }
 
-            // Optional hook: if Paid Tier Nano Banana image editing is ever explicitly enabled in env
+            const { visualPreviewReady, photoEditInstruction, ...assistantResponse } = parsed;
             let editedImageBase64 = null;
-            if (
-              process.env.ENABLE_PAID_NANO_BANANA === 'true' &&
-              imageBase64 &&
-              parsed.visualPreviewReady &&
-              parsed.visualPlan
-            ) {
-              try {
-                const m = imageBase64.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-                const editResp = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
-                  method: 'POST',
-                  headers: {
-                    'x-goog-api-key': apiKey,
-                    'Content-Type': 'application/json',
-                    'Api-Revision': '2026-05-20',
-                  },
-                  body: JSON.stringify({
-                    model: 'gemini-nano-banana-2.1',
-                    input: [
-                      {
-                        type: 'text',
-                        text: `Edit this exact uploaded photo to photorealistically install/fix: ${parsed.visualPlan.title} with ${parsed.visualPlan.finishLabel}. Preserve surrounding walls, floor, camera perspective, and lighting accurately.`,
-                      },
-                      {
-                        type: 'image',
-                        mime_type: (m && m[1]) || 'image/jpeg',
-                        data: (m && m[2]) || imageBase64,
-                      },
-                    ],
-                  }),
-                });
-                if (editResp.ok) {
-                  const editJson = await editResp.json();
-                  if (editJson?.output_image?.data) {
-                    const outMime = editJson.output_image.mime_type || 'image/png';
-                    editedImageBase64 = `data:${outMime};base64,${editJson.output_image.data}`;
-                  }
+            let photoEditStatus;
+            if (visualPreviewReady === true && !parsed.isSafetyHazard) {
+              if (!photo) {
+                photoEditStatus = 'needs_photo';
+              } else if (process.env.ENABLE_PAID_NANO_BANANA !== 'true') {
+                photoEditStatus = 'disabled';
+              } else {
+                const plan = assistantResponse.visualPlan;
+                const instruction = typeof photoEditInstruction === 'string' && photoEditInstruction.trim()
+                  ? photoEditInstruction.trim()
+                  : [plan?.title, plan?.finishLabel, plan?.afterCaption].filter(Boolean).join('. ');
+                try {
+                  editedImageBase64 = await editSetuPhoto({ apiKey, photo, request: latestUserMsg, instruction });
+                } catch (editError) {
+                  photoEditStatus = 'failed';
+                  console.warn('SETU photo edit unavailable:', editError.message);
                 }
-              } catch (nanoErr) {
-                console.warn('Optional Nano Banana edit skipped:', nanoErr.message);
               }
             }
 
@@ -1450,8 +1423,10 @@ Return ONLY valid JSON matching this schema:
               success: true,
               engine: `SETU Master Artisan (${modelName})`,
               data: {
-                ...parsed,
+                ...assistantResponse,
+                visualPreviewReady: Boolean(editedImageBase64),
                 editedImageBase64,
+                photoEditStatus,
               },
             });
           }
