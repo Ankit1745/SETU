@@ -43,6 +43,9 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Serverless DB Connection Middleware (Guarantees MongoDB Atlas is connected on each incoming serverless invoke)
 app.use(async (req, res, next) => {
+  if (req.path.startsWith('/api/ai/') && req.body?.platformContractors?.length > 0) {
+    return next();
+  }
   if (!getDbStatus().isMongoConnected) {
     try {
       await connectDB();
@@ -1235,27 +1238,33 @@ app.post('/api/ai/setu-chat', async (req, res) => {
       });
     }
 
-    // Gather live platform pros & materials from DB (merged with any client snapshot)
+    // Use client contractor & material snapshot immediately when available to save cold-start latency
     let liveContractors = Array.isArray(platformContractors) ? platformContractors.slice(0, 12) : [];
     let liveMaterials = Array.isArray(platformMaterials) ? platformMaterials.slice(0, 12) : [];
 
-    try {
-      if (getDbStatus().isMongoConnected) {
-        const dbPros = await models.Contractor.find().limit(10).lean();
-        const dbMats = await models.Material.find().limit(12).lean();
-        if (dbPros && dbPros.length > 0) liveContractors = dbPros;
-        if (dbMats && dbMats.length > 0) liveMaterials = dbMats;
-      } else if (fs.existsSync(DB_FILE)) {
-        const localData = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
-        if ((localData.contractors || []).length > 0 && liveContractors.length === 0) {
-          liveContractors = localData.contractors.slice(0, 10);
+    if (liveContractors.length === 0 || liveMaterials.length === 0) {
+      try {
+        if (getDbStatus().isMongoConnected) {
+          if (liveContractors.length === 0) {
+            const dbPros = await models.Contractor.find().limit(10).lean();
+            if (dbPros && dbPros.length > 0) liveContractors = dbPros;
+          }
+          if (liveMaterials.length === 0) {
+            const dbMats = await models.Material.find().limit(12).lean();
+            if (dbMats && dbMats.length > 0) liveMaterials = dbMats;
+          }
+        } else if (fs.existsSync(DB_FILE)) {
+          const localData = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+          if ((localData.contractors || []).length > 0 && liveContractors.length === 0) {
+            liveContractors = localData.contractors.slice(0, 10);
+          }
+          if ((localData.materials || []).length > 0 && liveMaterials.length === 0) {
+            liveMaterials = localData.materials.slice(0, 12);
+          }
         }
-        if ((localData.materials || []).length > 0 && liveMaterials.length === 0) {
-          liveMaterials = localData.materials.slice(0, 12);
-        }
+      } catch (dbFetchErr) {
+        console.warn('SETU chat DB context warning:', dbFetchErr.message);
       }
-    } catch (dbFetchErr) {
-      console.warn('SETU chat DB context warning:', dbFetchErr.message);
     }
 
     const contractorSummary = liveContractors.map((c) => ({
@@ -1287,7 +1296,7 @@ app.post('/api/ai/setu-chat', async (req, res) => {
     const responseLangInstruction =
       language === 'en'
         ? 'Write conversational replyText in clear, polite Indian English (while keeping JSON structure intact).'
-        : 'Write conversational replyText in natural, warm, simple conversational Hindi/Hinglish (easy for any common Indian homeowner or worker to understand).';
+        : 'Write conversational replyText in clean, natural conversational Hindi using consistent Devanagari spelling (never mix half-Latin letters inside a Hindi word like "शीशam" — always write pure words like "शीशम").';
 
     const selectedProductsSummary = Array.isArray(selectedProducts) && selectedProducts.length > 0
       ? `\nCUSTOMER SELECTED SUPPLIER ITEMS (MUST USE THESE EXACT ITEMS, PRICES & VISUAL TEXTURES IN QUOTATION & RENDER PROMPT):\n${JSON.stringify(selectedProducts.map((p) => ({ name: p.name, brand: p.brand, tier: p.tier, price: p.price, unit: p.unit, qty: p.approxQtyMultiplier || 1, visualDescriptor: p.visualDescriptor })))}\n`
@@ -1382,11 +1391,10 @@ Return ONLY valid JSON matching this exact schema:
 
     const candidateModels = [
       process.env.GEMINI_MODEL,
-      'gemini-3.8-flash',
-      'gemini-3.7-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-flash-lite-latest',
       'gemini-3.6-flash',
       'gemini-3.5-flash',
-      'gemini-3.5-flash-lite',
     ].filter(Boolean);
 
     let lastError = '';
@@ -1400,6 +1408,7 @@ Return ONLY valid JSON matching this exact schema:
             contents: [{ parts }],
             generationConfig: { response_mime_type: 'application/json' },
           }),
+          signal: AbortSignal.timeout(5500),
         });
 
         if (geminiResp.ok) {

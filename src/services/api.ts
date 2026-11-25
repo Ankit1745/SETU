@@ -411,11 +411,11 @@ Otherwise return PURE JSON:
           regenerateSeed,
         }),
       });
-      const json = await res.json();
-      if (res.ok && json.success && json.data) {
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.success && json?.data) {
         return json;
       }
-      if (json?.error && !json.error.includes('AI सर्वर')) {
+      if (res.status === 400 && json?.error) {
         return { success: false, error: json.error };
       }
     } catch (err: any) {
@@ -464,7 +464,7 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
           });
         }
 
-        for (const model of ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']) {
+        for (const model of ['gemini-3.5-flash-lite', 'gemini-flash-lite-latest', 'gemini-3.6-flash', 'gemini-3.5-flash']) {
           try {
             const gResp = await fetch(
               `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${clientKey}`,
