@@ -612,19 +612,16 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
         const sseResp = await fetchWithTimeout(`${hfBase}/${subJson.event_id}`, {}, 55000);
         const sseText = await sseResp.text();
         if (/ZeroGPU quota/i.test(sseText)) {
-          return {
-            success: false,
-            quotaExceeded: true,
-            error: 'आज का फ़्री इन-फोटो GPU कोटा पूरा हो गया है।',
-          };
-        }
-        const matchB64 = sseText.match(/"image"\s*:\s*"(data:image\/[^;]+;base64,[^"]+)"/);
-        if (matchB64 && matchB64[1]) {
-          return {
-            success: true,
-            editedImageBase64: matchB64[1],
-            engine: 'SETU In-Photo Reality (FireRed-1.0-Fast)',
-          };
+          console.log('[API] Direct FireRed client IP quota exceeded, trying backend editor...');
+        } else {
+          const matchB64 = sseText.match(/"image"\s*:\s*"(data:image\/[^;]+;base64,[^"]+)"/);
+          if (matchB64 && matchB64[1]) {
+            return {
+              success: true,
+              editedImageBase64: matchB64[1],
+              engine: 'SETU In-Photo Reality (FireRed-1.0-Fast)',
+            };
+          }
         }
       }
     } catch (directErr: any) {
