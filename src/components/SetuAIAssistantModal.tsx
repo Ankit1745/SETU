@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Modal,
   View,
@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
 import { Language } from '../i18n/translations';
 import {
@@ -19,11 +19,13 @@ import {
   CustomerProblemContext,
   SetuAIResponse,
 } from '../services/constructionAI';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface SetuAIAssistantModalProps {
   visible: boolean;
   onClose: () => void;
   language: Language;
+  currentLocation?: string;
   initialQuery?: string;
   onSelectContractorCategory?: (category: string) => void;
 }
@@ -44,16 +46,60 @@ export const SetuAIAssistantModal: React.FC<SetuAIAssistantModalProps> = ({
   visible,
   onClose,
   language,
+  currentLocation = 'भोपाल',
   initialQuery = '',
   onSelectContractorCategory,
 }) => {
+  const isEn = language === 'en';
+  const cleanCity = (currentLocation || 'भोपाल').split(',')[0].split('•')[0].trim();
   const [inputText, setInputText] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [isListening, setIsListening] = useState<boolean>(false);
   const [activeContext, setActiveContext] = useState<CustomerProblemContext | null>(null);
-  const [conversation, setConversation] = useState<ChatTurn[]>([]);
+  const [conversation, setConversation] = useState<ChatTurn[]>(() => [
+    {
+      id: 'welcome',
+      sender: 'assistant',
+      text: isEn
+        ? `Hello! I am SETU AI Ustad (${cleanCity}). Describe your repair issue or construction need (e.g., "Kitchen tap is leaking" or "Wardrobe hinge broken").`
+        : 'नमस्ते! मैं SETU AI उस्ताद हूँ। अपने घर की समस्या या निर्माण कार्य बोलकर या लिखकर बताएं (उदा. "किचन का नल टपक रहा है" या "अलमारी का हिंज टूट गया")।',
+    },
+  ]);
 
   const scrollViewRef = useRef<any>(null);
+  const isSendingRef = useRef<boolean>(false);
+  const recognitionRef = useRef<any>(null);
+  const activeContextRef = useRef<CustomerProblemContext | null>(null);
+
+  useEffect(() => {
+    activeContextRef.current = activeContext;
+  }, [activeContext]);
+
+  useEffect(() => {
+    let resetTimer: ReturnType<typeof setTimeout> | null = null;
+    if (!visible && recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch {
+        // ignore
+      }
+      recognitionRef.current = null;
+      resetTimer = setTimeout(() => {
+        setIsListening(false);
+      }, 0);
+    }
+    return () => {
+      if (resetTimer) clearTimeout(resetTimer);
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {
+          // ignore
+        }
+        recognitionRef.current = null;
+      }
+    };
+  }, [visible]);
 
   // Trending Questions Preset
   const TRENDING_TOPICS = [
@@ -89,65 +135,12 @@ export const SetuAIAssistantModal: React.FC<SetuAIAssistantModalProps> = ({
     },
   ];
 
-  // Auto-run when modal opens
-  useEffect(() => {
-    if (visible) {
-      if (initialQuery) {
-        handleSendMessage(initialQuery);
-      } else if (conversation.length === 0) {
-        // Welcome turn
-        setConversation([
-          {
-            id: 'welcome',
-            sender: 'assistant',
-            text: 'नमस्ते! मैं SETU AI उस्ताद हूँ। अपने घर की समस्या या निर्माण कार्य बोलकर या लिखकर बताएं (उदा. "किचन का नल टपक रहा है" या "अलमारी का हिंज टूट गया")।',
-          },
-        ]);
-      }
-    }
-  }, [visible, initialQuery]);
-
-  // Voice Input Handler
-  const handleStartVoice = () => {
-    if (typeof window !== 'undefined' && ((window as any).webkitSpeechRecognition || (window as any).SpeechRecognition)) {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-      recognition.lang = language === 'en' ? 'en-IN' : 'hi-IN';
-      recognition.continuous = false;
-      recognition.interimResults = false;
-
-      setIsListening(true);
-
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setInputText(transcript);
-        setIsListening(false);
-        handleSendMessage(transcript);
-      };
-
-      recognition.onerror = (e: any) => {
-        console.warn('Speech recognition error:', e);
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognition.start();
-    } else {
-      Alert.alert(
-        'वॉइस इनपुट',
-        'आपके ब्राउज़र में वॉइस इनपुट सक्रिय नहीं है। कृपया लिखकर पूछें या नीचे दिए आम सवालों पर टैप करें।'
-      );
-    }
-  };
-
-  const handleSendMessage = (messageText?: string) => {
-    const textToSend = (messageText || inputText).trim();
+  const dispatchQuery = useCallback((rawText: string) => {
+    if (isSendingRef.current) return;
+    const textToSend = rawText.trim();
     if (!textToSend) return;
 
-    setInputText('');
+    isSendingRef.current = true;
 
     // 1. Add User Turn
     const userTurn: ChatTurn = {
@@ -161,52 +154,125 @@ export const SetuAIAssistantModal: React.FC<SetuAIAssistantModalProps> = ({
 
     // 2. Parse Context & Intent
     setTimeout(() => {
-      const parsed = parseCustomerProblem(textToSend, activeContext);
-      setActiveContext(parsed);
+      try {
+        const parsed = parseCustomerProblem(textToSend, activeContextRef.current);
+        activeContextRef.current = parsed;
+        setActiveContext(parsed);
 
-      let assistantText = '';
-      let clarificationOptions: string[] | undefined = undefined;
-      let actionButtonText: string | undefined = undefined;
-      let actionCategory: string | undefined = undefined;
-      let aiResponse: SetuAIResponse | undefined = undefined;
+        let assistantText = '';
+        let clarificationOptions: string[] | undefined = undefined;
+        let actionButtonText: string | undefined = undefined;
+        let actionCategory: string | undefined = undefined;
+        let aiResponse: SetuAIResponse | undefined = undefined;
 
-      if (parsed.isSafetyHazard) {
-        // High-risk hazard: NO DIY steps, urgent safety alert
-        assistantText = `${parsed.understoodSummary}\n\n${parsed.safetyMessage}\n\n👉 ${parsed.nextActionPrompt}`;
-        actionButtonText = parsed.actionCategoryButton || 'आपातकालीन इलेक्ट्रीशियन देखें';
-        actionCategory = parsed.category || 'electrician';
-        aiResponse = analyzeConstructionQuery(textToSend);
-      } else if (parsed.needsClarification) {
-        // Incomplete info: ask single targeted question with chips
-        assistantText = `${parsed.understoodSummary}\n\n👉 सवाल: ${parsed.clarificationQuestion}`;
-        clarificationOptions = parsed.clarificationOptions;
-      } else {
-        // Clear intent identified: 1-line understood summary + next step prompt + category button
-        assistantText = `${parsed.understoodSummary}\n\n👉 ${parsed.nextActionPrompt}`;
-        actionButtonText = parsed.actionCategoryButton || 'उपलब्ध कारीगर देखें';
-        actionCategory = parsed.category;
-        aiResponse = analyzeConstructionQuery(textToSend);
+        if (parsed.isSafetyHazard) {
+          // High-risk hazard: NO DIY steps, urgent safety alert
+          assistantText = `${parsed.understoodSummary}\n\n${parsed.safetyMessage}\n\n👉 ${parsed.nextActionPrompt}`;
+          actionButtonText = parsed.actionCategoryButton || 'आपातकालीन इलेक्ट्रीशियन देखें';
+          actionCategory = parsed.category || 'electrician';
+          aiResponse = analyzeConstructionQuery(textToSend);
+        } else if (parsed.needsClarification) {
+          // Incomplete info: ask single targeted question with chips
+          assistantText = `${parsed.understoodSummary}\n\n👉 सवाल: ${parsed.clarificationQuestion}`;
+          clarificationOptions = parsed.clarificationOptions;
+        } else {
+          // Clear intent identified: 1-line understood summary + next step prompt + category button
+          assistantText = `${parsed.understoodSummary}\n\n👉 ${parsed.nextActionPrompt}`;
+          actionButtonText = parsed.actionCategoryButton || 'उपलब्ध कारीगर देखें';
+          actionCategory = parsed.category;
+          aiResponse = analyzeConstructionQuery(textToSend);
+        }
+
+        const assistantTurn: ChatTurn = {
+          id: 'assistant_' + Date.now(),
+          sender: 'assistant',
+          text: assistantText,
+          parsedContext: parsed,
+          clarificationOptions,
+          actionButtonText,
+          actionCategory,
+          isSafetyHazard: parsed.isSafetyHazard,
+          aiResponse,
+        };
+
+        setConversation((prev) => [...prev, assistantTurn]);
+      } finally {
+        isSendingRef.current = false;
+        setIsAnalyzing(false);
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 100);
       }
+    }, 400);
+  }, []);
 
-      const assistantTurn: ChatTurn = {
-        id: 'assistant_' + Date.now(),
-        sender: 'assistant',
-        text: assistantText,
-        parsedContext: parsed,
-        clarificationOptions,
-        actionButtonText,
-        actionCategory,
-        isSafetyHazard: parsed.isSafetyHazard,
-        aiResponse,
+  const handleSendMessage = useCallback(
+    (messageText?: string) => {
+      const textToSend = (messageText || inputText).trim();
+      if (!textToSend || isSendingRef.current) return;
+      setInputText('');
+      dispatchQuery(textToSend);
+    },
+    [dispatchQuery, inputText]
+  );
+
+  // Auto-run when modal opens
+  useEffect(() => {
+    if (!visible || !initialQuery) return;
+    const timer = setTimeout(() => {
+      dispatchQuery(initialQuery);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [visible, initialQuery, dispatchQuery]);
+
+  // Voice Input Handler (with Stop toggle guard against duplicate listeners)
+  const handleStartVoice = () => {
+    if (isListening && recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // ignore
+      }
+      recognitionRef.current = null;
+      setIsListening(false);
+      return;
+    }
+    if (typeof window !== 'undefined' && ((window as any).webkitSpeechRecognition || (window as any).SpeechRecognition)) {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.lang = isEn ? 'en-IN' : 'hi-IN';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      setIsListening(true);
+      recognitionRef.current = recognition;
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setInputText(transcript);
+        setIsListening(false);
+        recognitionRef.current = null;
+        handleSendMessage(transcript);
       };
 
-      setConversation((prev) => [...prev, assistantTurn]);
-      setIsAnalyzing(false);
+      recognition.onerror = (e: any) => {
+        console.warn('Speech recognition error:', e);
+        recognitionRef.current = null;
+        setIsListening(false);
+      };
 
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
-      }, 100);
-    }, 400);
+      recognition.onend = () => {
+        recognitionRef.current = null;
+        setIsListening(false);
+      };
+
+      recognition.start();
+    } else {
+      Alert.alert(
+        'वॉइस इनपुट',
+        'आपके ब्राउज़र में वॉइस इनपुट सक्रिय नहीं है। कृपया लिखकर पूछें या नीचे दिए आम सवालों पर टैप करें।'
+      );
+    }
   };
 
   const handleSelectOption = (option: string) => {
@@ -224,10 +290,18 @@ export const SetuAIAssistantModal: React.FC<SetuAIAssistantModalProps> = ({
     onClose();
   };
 
+  const { getModalStyles } = useResponsive();
+  const { isDialog, overlayStyle, containerStyle } = getModalStyles({
+    maxWidth: 740,
+    fixedHeight: true,
+    mobileHeight: '90%',
+    desktopHeight: '88%',
+  });
+
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
+    <Modal visible={visible} animationType={isDialog ? 'fade' : 'slide'} transparent onRequestClose={onClose}>
+      <View style={overlayStyle}>
+        <View style={[styles.modalContent, containerStyle]}>
           {/* Header */}
           <View style={styles.headerRow}>
             <View style={styles.headerTitleBox}>
@@ -235,8 +309,14 @@ export const SetuAIAssistantModal: React.FC<SetuAIAssistantModalProps> = ({
                 <Ionicons name="sparkles" size={16} color="#FFFFFF" />
               </View>
               <View>
-                <Text style={styles.headerTitle}>SETU AI उस्ताद (होम रिपेयर विशेषज्ञ)</Text>
-                <Text style={styles.headerSubtitle}>सही समस्या की पहचान • सटीक कारीगर • नो-चीटिंग गारंटी</Text>
+                <Text style={styles.headerTitle}>
+                  {isEn ? 'SETU AI Ustad (Home Repair Expert)' : 'SETU AI उस्ताद (होम रिपेयर विशेषज्ञ)'}
+                </Text>
+                <Text style={styles.headerSubtitle}>
+                  {isEn
+                    ? `Accurate Diagnosis • Matched Karigar (${cleanCity}) • Zero Overcharge`
+                    : `सही समस्या की पहचान • सटीक कारीगर (${cleanCity}) • नो-चीटिंग गारंटी`}
+                </Text>
               </View>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -246,7 +326,9 @@ export const SetuAIAssistantModal: React.FC<SetuAIAssistantModalProps> = ({
 
           {/* Quick Trending / Common Problem Chips */}
           <View style={styles.trendingSection}>
-            <Text style={styles.trendingLabel}>🔥 अक्सर पूछे जाने वाले सवाल (1-टैप):</Text>
+            <Text style={styles.trendingLabel}>
+              {isEn ? '🔥 Quick Common Queries (1-Tap):' : '🔥 अक्सर पूछे जाने वाले सवाल (1-टैप):'}
+            </Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -352,7 +434,11 @@ export const SetuAIAssistantModal: React.FC<SetuAIAssistantModalProps> = ({
                   <View style={styles.specsMiniBox}>
                     <View style={styles.specsHeader}>
                       <Ionicons name="shield-checkmark" size={14} color="#15803D" />
-                      <Text style={styles.specsTitle}>मानक तकनीक & दर (CPWD/भोपाल):</Text>
+                      <Text style={styles.specsTitle}>
+                        {isEn
+                          ? `Standard Specs & Rates (CPWD / ${cleanCity}):`
+                          : `मानक तकनीक & दर (CPWD / ${cleanCity}):`}
+                      </Text>
                     </View>
                     <Text style={styles.specsFormula}>{turn.aiResponse.standardFormula}</Text>
                     <Text style={styles.specsEstimate}>{turn.aiResponse.sampleEstimate}</Text>
@@ -364,7 +450,9 @@ export const SetuAIAssistantModal: React.FC<SetuAIAssistantModalProps> = ({
             {isAnalyzing && (
               <View style={styles.loadingBubble}>
                 <ActivityIndicator size="small" color={COLORS.primary} />
-                <Text style={styles.loadingText}>AI उस्ताद विश्लेषण कर रहा है...</Text>
+                <Text style={styles.loadingText}>
+                  {isEn ? 'AI Ustad is analyzing...' : 'AI उस्ताद विश्लेषण कर रहा है...'}
+                </Text>
               </View>
             )}
           </ScrollView>
@@ -373,7 +461,11 @@ export const SetuAIAssistantModal: React.FC<SetuAIAssistantModalProps> = ({
           <View style={styles.inputContainer}>
             <TextInput
               style={styles.textInput}
-              placeholder="समस्या लिखें... (उदा. 'Kitchen ka nal tapak raha hai')"
+              placeholder={
+                isEn
+                  ? "Describe your issue... (e.g. 'Kitchen tap is leaking')"
+                  : "समस्या लिखें... (उदा. 'Kitchen ka nal tapak raha hai')"
+              }
               placeholderTextColor="#94A3B8"
               value={inputText}
               onChangeText={setInputText}

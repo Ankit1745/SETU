@@ -7,19 +7,22 @@ import {
   TextInput,
   TouchableOpacity,
   Switch,
-  Alert,
   Image,
 } from 'react-native';
-import { MaterialIcons, Ionicons, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { Contractor, JobRequest, PortfolioPhoto } from '../data/mockData';
 import { COLORS } from '../theme/colors';
 import { ApiService } from '../services/api';
+import { Language } from '../i18n/translations';
+import { showAppAlert } from '../utils/appAlert';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface ContractorDashboardProps {
   contractor: Contractor;
   onUpdateContractorProfile: (updated: Partial<Contractor>) => void;
   jobRequests: JobRequest[];
   onUpdateJobRequestStatus: (jobId: string, newStatus: 'ACCEPTED' | 'REJECTED') => void;
+  language?: Language;
 }
 
 export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
@@ -27,6 +30,7 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
   onUpdateContractorProfile,
   jobRequests,
   onUpdateJobRequestStatus,
+  language: _language = 'hi',
 }) => {
   const [dailyRate, setDailyRate] = useState(
     contractor.dailyWageRate !== null && contractor.dailyWageRate !== undefined
@@ -53,26 +57,42 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
   const [newPhotoDesc, setNewPhotoDesc] = useState('');
   const [newPhotoUrl, setNewPhotoUrl] = useState('');
 
+  const parseRateField = (raw: string): number | null | 'INVALID' => {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
+    if (!Number.isFinite(n) || n <= 0) return 'INVALID';
+    return Math.round(n);
+  };
+
   const handleSaveRates = async () => {
-    const parsedDaily = dailyRate.trim() === '' ? null : (parseFloat(dailyRate) || null);
-    const parsedHelper = helperRate.trim() === '' ? null : (parseFloat(helperRate) || null);
-    const parsedTheka = thekaRate.trim() === '' ? null : (parseFloat(thekaRate) || null);
+    const parsedDaily = parseRateField(dailyRate);
+    const parsedHelper = parseRateField(helperRate);
+    const parsedTheka = parseRateField(thekaRate);
+
+    if (parsedDaily === 'INVALID' || parsedHelper === 'INVALID' || parsedTheka === 'INVALID') {
+      showAppAlert('अमान्य दर', 'दर केवल धनात्मक संख्या (> 0) होनी चाहिए या "भाव पूछें" हेतु खाली छोड़ें।');
+      return;
+    }
 
     const updates = {
       dailyWageRate: parsedDaily,
       helperRate: parsedHelper,
       contractUnitRate: parsedTheka,
-      primaryRateType: primaryRateType,
+      primaryRateType,
       available: isAvailable,
     };
+
+    const res = await ApiService.updateContractorProfile(contractor.id, updates);
+    if (res && res.success === false) {
+      showAppAlert('अपडेट विफल', res.error || 'रेट कार्ड सर्वर पर सेव नहीं हो सका।');
+      return;
+    }
 
     onUpdateContractorProfile(updates);
     setIsEditingRate(false);
 
-    // Sync to backend REST API
-    await ApiService.updateContractorProfile(contractor.id, updates);
-
-    Alert.alert(
+    showAppAlert(
       '✅ रेट-कार्ड अपडेट हुआ',
       parsedDaily === null && parsedTheka === null
         ? 'आपके द्वारा रेट खाली छोड़े गए हैं। ग्राहकों को "भाव पूछें" दिखाई देगा।'
@@ -80,64 +100,98 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
     );
   };
 
-  const handleToggleAvailability = (val: boolean) => {
+  const handleToggleAvailability = async (val: boolean) => {
+    const prev = isAvailable;
     setIsAvailable(val);
     const updates = { available: val };
+    const res = await ApiService.updateContractorProfile(contractor.id, updates);
+    if (res && res.success === false) {
+      setIsAvailable(prev);
+      showAppAlert('त्रुटि', res.error || 'उपलब्धता स्थिति अपडेट नहीं हो सकी।');
+      return;
+    }
     onUpdateContractorProfile(updates);
-    ApiService.updateContractorProfile(contractor.id, updates);
   };
 
-  const handleAddWorkPhoto = () => {
+  const handleAddWorkPhoto = async () => {
     if (!newPhotoTitle.trim()) {
-      Alert.alert('अधूरी जानकारी', 'कृपया फोटो का शीर्षक (Title) अवश्य लिखें।');
+      showAppAlert('अधूरी जानकारी', 'कृपया फोटो का शीर्षक (Title) अवश्य लिखें।');
+      return;
+    }
+
+    const candidateUrl = newPhotoUrl.trim();
+    if (
+      candidateUrl &&
+      !candidateUrl.startsWith('/uploads/') &&
+      !/^https:\/\//i.test(candidateUrl)
+    ) {
+      showAppAlert('अमान्य फोटो लिंक', 'कृपया वैध HTTPS इमेज URL या सर्वर द्वारा अपलोड किया लिंक डालें।');
       return;
     }
 
     const newPhoto: PortfolioPhoto = {
       id: 'photo_' + Date.now(),
-      title: newPhotoTitle,
+      title: newPhotoTitle.trim(),
       imageUrl:
-        newPhotoUrl.trim() ||
+        candidateUrl ||
         'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=600',
-      date: 'आज ही अपलोड किया',
-      description: newPhotoDesc || 'साइट पर किया गया कार्य।',
+      date: new Date().toLocaleDateString('hi-IN'),
+      description: newPhotoDesc.trim() || 'साइट पर किया गया कार्य।',
     };
 
     const updatedList = [newPhoto, ...(contractor.portfolioPhotos || [])];
-    onUpdateContractorProfile({ portfolioPhotos: updatedList });
+    const res = await ApiService.updateContractorProfile(contractor.id, { portfolioPhotos: updatedList });
+    if (res && res.success === false) {
+      showAppAlert('अपडेट विफल', res.error || 'कार्य फोटो सर्वर पर सेव नहीं हो सकी।');
+      return;
+    }
 
+    onUpdateContractorProfile({ portfolioPhotos: updatedList });
     setShowAddPhotoModal(false);
     setNewPhotoTitle('');
     setNewPhotoDesc('');
     setNewPhotoUrl('');
 
-    Alert.alert(
+    showAppAlert(
       '🎉 फोटो लाइव हो गई!',
       'यह फोटो अब ग्राहकों को आपकी प्रोफाइल और सर्च में तुरंत दिखेगी।'
     );
   };
 
+  const escrowTotal = jobRequests
+    .filter((j) => (!j.contractorId || j.contractorId === contractor.id) && j.status === 'ACCEPTED')
+    .reduce((sum, j) => sum + (Number(j.budgetOffer) || 0), 0);
+  const walletBalance = (contractor as any).walletBalance ?? 0;
+  const { dashboardTwoCol, horizontalPadding, shellStyle } = useResponsive();
+
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ padding: horizontalPadding, paddingBottom: 48 }}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={shellStyle}>
       {/* Contractor Profile Summary Card */}
       <View style={styles.profileCard}>
         <View style={styles.profileHeader}>
           <View style={styles.avatarBox}>
-            <Text style={styles.avatarInitials}>{contractor.name.charAt(0)}</Text>
+            <Text style={styles.avatarInitials}>{(contractor.name || 'S').trim().charAt(0)}</Text>
           </View>
           <View style={styles.profileInfo}>
             <View style={styles.titleRow}>
               <Text style={styles.nameText}>{contractor.name}</Text>
-              <MaterialIcons name="verified" size={16} color="#0284C7" />
+              {contractor.verified && <MaterialIcons name="verified" size={16} color="#0284C7" />}
             </View>
             <Text style={styles.specialtyText}>{contractor.specialtyHindi}</Text>
             <View style={styles.badgeRow}>
-              <View style={styles.proBadge}>
-                <Ionicons name="shield-checkmark" size={11} color="#FFFFFF" />
-                <Text style={styles.proBadgeText}>SETU प्रो कारीगर</Text>
+              <View style={[styles.proBadge, !contractor.verified && { backgroundColor: '#D97706' }]}>
+                <Ionicons name={contractor.verified ? 'shield-checkmark' : 'time'} size={11} color="#FFFFFF" />
+                <Text style={styles.proBadgeText}>
+                  {contractor.verified ? 'SETU प्रो कारीगर' : 'KYC समीक्षाधीन'}
+                </Text>
               </View>
               <Text style={styles.ratingText}>
-                ⭐ {contractor.rating} ({contractor.jobsCompleted} काम पूरे)
+                ⭐ {Number(contractor.rating || 0).toFixed(1)} ({contractor.jobsCompleted || 0} काम पूरे)
               </Text>
             </View>
           </View>
@@ -165,19 +219,22 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
       {/* Wallet / Earnings Summary */}
       <View style={styles.walletGrid}>
         <View style={styles.walletCard}>
-          <Text style={styles.walletLabel}>सुरक्षित एस्क्रो बैलेंस</Text>
-          <Text style={styles.walletValue}>₹14,500</Text>
-          <Text style={styles.walletHint}>काम पूरा होने पर ट्रांसफर होगा</Text>
+          <Text style={styles.walletLabel}>एक्टिव एस्क्रो कार्य मूल्य</Text>
+          <Text style={styles.walletValue}>₹{escrowTotal.toLocaleString('en-IN')}</Text>
+          <Text style={styles.walletHint}>कार्य पूर्ण OTP सत्यापन पर रिलीज</Text>
         </View>
         <View style={styles.walletCard}>
-          <Text style={styles.walletLabel}>इस महीने की कुल कमाई</Text>
-          <Text style={[styles.walletValue, { color: COLORS.accent }]}>₹42,800</Text>
-          <Text style={styles.walletHint}>6 प्रोजेक्ट्स पूरे किए</Text>
+          <Text style={styles.walletLabel}>वॉलेट बैलेंस / कुल प्रोजेक्ट्स</Text>
+          <Text style={[styles.walletValue, { color: COLORS.accent }]}>₹{walletBalance.toLocaleString('en-IN')}</Text>
+          <Text style={styles.walletHint}>{contractor.jobsCompleted || 0} प्रोजेक्ट्स पूरे किए</Text>
         </View>
       </View>
 
-      {/* NEW FEATURE: WORK PORTFOLIO PHOTO UPLOADER */}
-      <View style={styles.sectionContainer}>
+      {/* Responsive Workbench: Left Column (Portfolio + Rate Card) | Right Column (Job Requests) */}
+      <View style={dashboardTwoCol ? styles.workbenchRow : undefined}>
+        <View style={dashboardTwoCol ? styles.workbenchLeftCol : undefined}>
+          {/* NEW FEATURE: WORK PORTFOLIO PHOTO UPLOADER */}
+          <View style={styles.sectionContainer}>
         <View style={styles.sectionHeaderRow}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Ionicons name="images" size={18} color="#4338CA" />
@@ -362,9 +419,10 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
           </View>
         </View>
       </View>
+        </View>
 
-      {/* Customer Job Requests */}
-      <View style={styles.sectionContainer}>
+        {/* Customer Job Requests */}
+        <View style={[styles.sectionContainer, dashboardTwoCol && styles.workbenchRightCol]}>
         {(() => {
           // Strict Dispatch Isolation:
           // 1. Direct Bookings sent specifically to this contractor
@@ -463,8 +521,10 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
           );
         })()}
       </View>
+      </View>
 
-      <View style={{ height: 60 }} />
+      <View style={{ height: 40 }} />
+      </View>
     </ScrollView>
   );
 };
@@ -473,7 +533,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
-    padding: 16,
+  },
+  workbenchRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 16,
+  },
+  workbenchLeftCol: {
+    flex: 1.05,
+  },
+  workbenchRightCol: {
+    flex: 0.95,
   },
   profileCard: {
     backgroundColor: COLORS.cardBg,

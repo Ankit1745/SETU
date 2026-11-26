@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,11 +6,12 @@ import {
   Modal,
   TouchableOpacity,
   ScrollView,
-  Alert,
 } from 'react-native';
 import { MaterialCommunityIcons, MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { QUICK_SERVICES, QuickServiceItem } from '../data/mockData';
 import { COLORS } from '../theme/colors';
+import { showAppAlert } from '../utils/appAlert';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface QuickServiceModalProps {
   visible: boolean;
@@ -26,25 +27,36 @@ export const QuickServiceModal: React.FC<QuickServiceModalProps> = ({
   const [selectedService, setSelectedService] = useState<QuickServiceItem>(QUICK_SERVICES[0]);
   const [selectedProblem, setSelectedProblem] = useState<string>(QUICK_SERVICES[0].commonProblems[0]);
   const [isMatching, setIsMatching] = useState(false);
+  const dispatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (dispatchTimerRef.current) clearTimeout(dispatchTimerRef.current);
+    };
+  }, []);
 
   const handleStartDispatch = () => {
+    if (isMatching) return;
     setIsMatching(true);
-    setTimeout(() => {
+    dispatchTimerRef.current = setTimeout(() => {
+      dispatchTimerRef.current = null;
       setIsMatching(false);
       onClose();
       onDispatchConfirmed(selectedService, selectedProblem);
-      Alert.alert(
+      showAppAlert(
         '⚡ अनुरोध भेजा गया',
-        `${selectedService.title} के लिए निकटतम उपलब्ध सत्यापित कारीगरों को सूचना भेज दी गई है। कारीगर द्वारा स्वीकार करते ही आपको लाइव स्टेटस दिखाई देगा।`,
-        [{ text: 'ठीक है' }]
+        `${selectedService.title} के लिए निकटतम उपलब्ध सत्यापित कारीगरों को सूचना भेज दी गई है। कारीगर द्वारा स्वीकार करते ही आपको लाइव स्टेटस दिखाई देगा।`
       );
-    }, 1800);
+    }, 1200);
   };
 
+  const { getModalStyles } = useResponsive();
+  const { isDialog, overlayStyle, containerStyle } = getModalStyles({ maxWidth: 660 });
+
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.container}>
+    <Modal visible={visible} animationType={isDialog ? 'fade' : 'slide'} transparent={true} onRequestClose={onClose}>
+      <View style={overlayStyle}>
+        <View style={[styles.container, containerStyle]}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.titleRow}>

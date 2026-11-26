@@ -7,9 +7,10 @@ import {
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
-import { MaterialIcons, FontAwesome5, Ionicons } from '@expo/vector-icons';
-import { INDIAN_RATES_SURVEY, TradeRateStandard } from '../data/indianRatesSurvey';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
+import { INDIAN_RATES_SURVEY } from '../data/indianRatesSurvey';
 import { COLORS } from '../theme/colors';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface RateSurveyModalProps {
   visible: boolean;
@@ -22,23 +23,31 @@ export const RateSurveyModal: React.FC<RateSurveyModalProps> = ({
   onClose,
   selectedTradeId = 'mason',
 }) => {
-  const [activeTrade, setActiveTrade] = useState<string>(selectedTradeId);
+  const [userPickedTrade, setUserPickedTrade] = useState<string | null>(null);
+  const activeTrade = userPickedTrade || selectedTradeId || 'mason';
 
   const tradeData = INDIAN_RATES_SURVEY.find((t) => t.tradeId === activeTrade) || INDIAN_RATES_SURVEY[0];
+  const { getModalStyles } = useResponsive();
+  const { isDialog, overlayStyle, containerStyle } = getModalStyles({
+    maxWidth: 780,
+    fixedHeight: true,
+    mobileHeight: '90%',
+    desktopHeight: '88%',
+  });
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.container}>
+    <Modal visible={visible} animationType={isDialog ? 'fade' : 'slide'} transparent={true} onRequestClose={onClose}>
+      <View style={overlayStyle}>
+        <View style={[styles.container, containerStyle]}>
           {/* Header */}
           <View style={styles.header}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 8 }}>
               <View style={styles.iconCircle}>
                 <Ionicons name="stats-chart" size={18} color="#FFFFFF" />
               </View>
-              <View>
-                <Text style={styles.headerTitle}>ऑल-इंडिया फेयर रेट सर्वे (Rate Index)</Text>
-                <Text style={styles.headerSub}>भारतीय राज्यों के अनुसार आधिकारिक ठेका व दिहाड़ी दरें</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.headerTitle} numberOfLines={1}>ऑल-इंडिया फेयर रेट सर्वे (Rate Index)</Text>
+                <Text style={styles.headerSub} numberOfLines={1}>भारतीय राज्यों के अनुसार आधिकारिक ठेका व दिहाड़ी दरें</Text>
               </View>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -56,7 +65,7 @@ export const RateSurveyModal: React.FC<RateSurveyModalProps> = ({
                     styles.tradeTab,
                     activeTrade === item.tradeId && styles.tradeTabActive,
                   ]}
-                  onPress={() => setActiveTrade(item.tradeId)}
+                  onPress={() => setUserPickedTrade(item.tradeId)}
                   activeOpacity={0.8}
                 >
                   <Text

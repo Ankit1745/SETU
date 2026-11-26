@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 
 const QuotationSchema = new mongoose.Schema({
   dailyWageRate: { type: Number, default: null },
@@ -35,7 +36,7 @@ const BookingSchema = new mongoose.Schema({
   contractorId: { type: String, required: true },
   contractorName: { type: String, required: true },
   contractorPhone: { type: String, default: '' },
-  bookingMode: { type: String, enum: ['दिहाड़ी', 'ठेका', 'क्विक रिपेयर'], default: 'दिहाड़ी' },
+  bookingMode: { type: String, enum: ['दिहाड़ी', 'ठेका', 'क्विक रिपेयर', 'भाव_पूछें'], default: 'दिहाड़ी' },
   paymentMethod: { type: String, enum: ['CASH', 'ONLINE_ESCROW'], default: 'CASH' },
   paymentStatus: { type: String, enum: ['PENDING', 'ADVANCE_PAID', 'FULLY_PAID', 'REFUNDED'], default: 'PENDING' },
   contractorPlatformFee: { type: Number, default: 35 }, // Cash: flat ₹35, Online: 5%
@@ -75,7 +76,7 @@ const BookingSchema = new mongoose.Schema({
   // Security & Completion
   completionOtp: {
     type: String,
-    default: () => Math.floor(1000 + Math.random() * 9000).toString(),
+    default: () => crypto.randomInt(1000, 10000).toString(),
   },
   isFeeDeducted: { type: Boolean, default: false }, // Ensures idempotent wallet deduction
   

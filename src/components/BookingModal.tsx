@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
-  Alert,
   Image,
   Platform,
   Linking,
@@ -18,6 +17,8 @@ import { COLORS } from '../theme/colors';
 import { Language } from '../i18n/translations';
 import { ApiService } from '../services/api';
 import { pickImageFromGallery } from '../utils/mediaPicker';
+import { showAppAlert } from '../utils/appAlert';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface BookingModalProps {
   visible: boolean;
@@ -26,6 +27,11 @@ interface BookingModalProps {
   onConfirmBooking: (bookingDetails: any) => void;
   language?: Language;
   currentLocation?: string;
+  initialMode?: 'दिहाड़ी' | 'ठेका' | 'भाव_पूछें';
+  initialIncludeMaterials?: boolean;
+  initialDescription?: string;
+  initialLaborEstimate?: number;
+  initialMaterialEstimate?: number;
 }
 
 interface MediaAttachment {
@@ -42,51 +48,62 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   onConfirmBooking,
   language = 'hi',
   currentLocation,
+  initialMode = 'दिहाड़ी',
+  initialIncludeMaterials = false,
+  initialDescription = '',
+  initialLaborEstimate = 0,
+  initialMaterialEstimate = 0,
 }) => {
-  if (!contractor) return null;
+  const hasDailyRate = Boolean(contractor?.dailyWageRate && contractor.dailyWageRate > 0);
+  const hasThekaRate = Boolean(contractor?.contractUnitRate && contractor.contractUnitRate > 0);
+  const resolvedInitialMode: 'दिहाड़ी' | 'ठेका' | 'भाव_पूछें' =
+    initialMode === 'ठेका' && !hasThekaRate && !(initialLaborEstimate > 0)
+      ? hasDailyRate
+        ? 'दिहाड़ी'
+        : 'भाव_पूछें'
+      : initialMode;
 
-  const isHindi = language === 'hi';
+  const isHindi = language !== 'en';
 
-  const [bookingMode, setBookingMode] = useState<'दिहाड़ी' | 'ठेका' | 'भाव_पूछें'>('दिहाड़ी');
+  const [bookingMode, setBookingMode] = useState<'दिहाड़ी' | 'ठेका' | 'भाव_पूछें'>(resolvedInitialMode);
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'ONLINE_ESCROW'>('CASH');
   const [daysCount, setDaysCount] = useState<string>('1'); // Default: 1 day
   const [thekaUnits, setThekaUnits] = useState<string>('150');
   const [includeHelper, setIncludeHelper] = useState<boolean>(false); // Default: false (0 helpers)
-  const [includeMaterialsCombo, setIncludeMaterialsCombo] = useState<boolean>(false); // Default: false (0 materials)
+  const [includeMaterialsCombo, setIncludeMaterialsCombo] = useState<boolean>(initialIncludeMaterials); // Default: false (0 materials)
   const [hasPriorityVisitPass, setHasPriorityVisitPass] = useState<boolean>(false); // Urban Company style ₹99 Visit Pass
-  const [workAddress, setWorkAddress] = useState<string>(
-    currentLocation || 'एमपी नगर (ज़ोन-1), भोपाल • 462011'
-  );
-  const [description, setDescription] = useState<string>('');
-  
+  const [customWorkAddress, setCustomWorkAddress] = useState<string | null>(null);
+  const workAddress = customWorkAddress ?? (currentLocation || 'एमपी नगर (ज़ोन-1), भोपाल • 462011');
+  const [description, setDescription] = useState<string>(initialDescription);
+
   // Real Media attachments (Photo / Video of the problem or site)
   const [attachedMedia, setAttachedMedia] = useState<MediaAttachment[]>([]);
+  const { getModalStyles } = useResponsive();
+  const { isDialog, overlayStyle, containerStyle } = getModalStyles({ maxWidth: 680 });
 
-  React.useEffect(() => {
-    if (currentLocation) {
-      setWorkAddress(currentLocation);
-    }
-  }, [currentLocation]);
+  if (!contractor) return null;
 
-  const days = parseInt(daysCount) || 1;
-  const units = parseFloat(thekaUnits) || 1;
+  const days = Math.max(1, parseInt(daysCount, 10) || 1);
+  const units = Math.max(1, parseFloat(thekaUnits) || 1);
 
-  // Labor calculation based on contractor's custom rates
+  // Labor calculation based on contractor's rates or AI 3-Way quotation estimate fallback
   let totalLaborAmount = 0;
-  const hasDailyRate = contractor.dailyWageRate !== null && contractor.dailyWageRate !== undefined && contractor.dailyWageRate > 0;
-  const hasThekaRate = contractor.contractUnitRate !== null && contractor.contractUnitRate !== undefined && contractor.contractUnitRate > 0;
 
   if (bookingMode === 'दिहाड़ी') {
     if (hasDailyRate) {
       const helperCost = includeHelper && contractor.helperRate ? contractor.helperRate : 0;
       const dailyRate = (contractor.dailyWageRate || 0) + helperCost;
       totalLaborAmount = days * dailyRate;
+    } else if (initialLaborEstimate > 0) {
+      totalLaborAmount = Math.round(initialLaborEstimate);
     } else {
       totalLaborAmount = 0; // भाव पूछें (Quote on site)
     }
   } else if (bookingMode === 'ठेका') {
     if (hasThekaRate) {
       totalLaborAmount = Math.round(units * (contractor.contractUnitRate || 0));
+    } else if (initialLaborEstimate > 0) {
+      totalLaborAmount = Math.round(initialLaborEstimate);
     } else {
       totalLaborAmount = 0; // भाव पूछें (Quote on site)
     }
@@ -95,9 +112,13 @@ export const BookingModal: React.FC<BookingModalProps> = ({
     totalLaborAmount = hasPriorityVisitPass ? 99 : 0;
   }
 
-  // Materials combo calculation
+  // Materials combo calculation (prefers AI 3-Way BOM raw material total when present)
   const comboPrice = contractor.recommendedMaterials?.reduce((acc, m) => acc + m.sellingPrice, 0) || 0;
-  const finalMaterialAmount = includeMaterialsCombo ? comboPrice : 0;
+  const finalMaterialAmount = includeMaterialsCombo
+    ? initialMaterialEstimate > 0
+      ? Math.round(initialMaterialEstimate)
+      : comboPrice
+    : 0;
 
   // Grand total & Advance Token math
   const grandTotal = totalLaborAmount + finalMaterialAmount;
@@ -110,7 +131,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   const thekaMilestone3 = Math.max(0, grandTotal - thekaMilestone1 - thekaMilestone2);
   // Unified Platform Fee: flat ₹35 for Cash, 5% for Online (Contractor pays)
   const platformFee = paymentMethod === 'CASH' ? 35 : Math.round(grandTotal * 0.05);
-  const contractorPayout = Math.max(0, totalLaborAmount - platformFee);
+  const setuEscrowUpiId = process.env.EXPO_PUBLIC_SETU_UPI_ID || 'setu.escrow@okaxis';
 
   const handleAddMedia = async (type: 'photo' | 'video') => {
     try {
@@ -119,7 +140,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
       const uploadRes = await ApiService.uploadFile(
         picked.base64,
-        picked.name || (type === 'photo' ? 'site_photo.jpg' : 'site_video.mp4'),
+        picked.name || (type === 'photo' ? 'site_photo.jpg' : 'site_snapshot.jpg'),
         'portfolio'
       );
 
@@ -127,20 +148,20 @@ export const BookingModal: React.FC<BookingModalProps> = ({
         const finalUrl = uploadRes.fullUrl || uploadRes.url;
         const newMedia: MediaAttachment = {
           id: 'm_' + Date.now(),
-          type,
-          title: picked.name || (type === 'photo' ? 'साइट फोटो' : 'साइट वीडियो'),
+          type: 'photo',
+          title: picked.name || 'साइट फोटो',
           url: finalUrl,
         };
         setAttachedMedia((prev) => [...prev, newMedia]);
-        Alert.alert(
+        showAppAlert(
           isHindi ? '📸 असली फोटो सर्वर पर सेव हुई' : '📸 Photo Uploaded',
           isHindi ? 'साइट की असली फोटो सर्वर पर सुरक्षित जुड़ चुकी है।' : 'Site media uploaded and saved to server.'
         );
       } else {
-        Alert.alert('अपलोड विफल', uploadRes?.error || 'फोटो अपलोड नहीं हो सकी। कृपया पुनः प्रयास करें।');
+        showAppAlert('अपलोड विफल', uploadRes?.error || 'फोटो अपलोड नहीं हो सकी। कृपया पुनः प्रयास करें।');
       }
     } catch (err: any) {
-      Alert.alert('त्रुटि', 'अपलोड में समस्या: ' + err.message);
+      showAppAlert('त्रुटि', 'अपलोड में समस्या: ' + err.message);
     }
   };
 
@@ -149,6 +170,14 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   };
 
   const handleBookingSubmit = () => {
+    if (!workAddress.trim()) {
+      showAppAlert(
+        isHindi ? 'पता आवश्यक है' : 'Site Address Required',
+        isHindi ? 'कृपया कार्य स्थल का पूरा पता दर्ज करें।' : 'Please enter complete work site address.'
+      );
+      return;
+    }
+
     onConfirmBooking({
       contractorId: contractor.id,
       contractorName: contractor.name,
@@ -161,8 +190,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       balanceOnOtpRelease: paymentMethod === 'CASH' ? grandTotal : balanceOnOtpRelease,
       escrowInsuranceFee: 0,
       contractorPlatformFee: platformFee,
-      workAddress,
-      description,
+      workAddress: workAddress.trim(),
+      description: description.trim(),
       attachedMedia,
       includeMaterialsCombo,
       date: new Date().toLocaleDateString('hi-IN'),
@@ -170,16 +199,16 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.container}>
+    <Modal visible={visible} animationType={isDialog ? 'fade' : 'slide'} transparent={true} onRequestClose={onClose}>
+      <View style={overlayStyle}>
+        <View style={[styles.container, containerStyle]}>
           {/* Header */}
           <View style={styles.header}>
-            <View>
+            <View style={{ flex: 1, paddingRight: 10 }}>
               <Text style={styles.title}>
                 {isHindi ? 'पारदर्शी बुकिंग & एस्क्रो गारंटी' : 'Transparent Booking & Escrow'}
               </Text>
-              <Text style={styles.subtitle}>{contractor.name} • {contractor.specialtyHindi}</Text>
+              <Text style={styles.subtitle} numberOfLines={1}>{contractor.name} • {contractor.specialtyHindi}</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <MaterialIcons name="close" size={24} color={COLORS.textPrimary} />
@@ -334,9 +363,9 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                   />
                   <View style={{ flex: 1, marginLeft: 8 }}>
                     <Text style={styles.toggleTitle}>
-                      {isHindi 
-                        ? `सहायक हेल्पर कारीगर जोड़ें (+₹${contractor.helperRate}/दिन)`
-                        : `Add Assistant Helper (+₹${contractor.helperRate}/day)`}
+                      {isHindi
+                        ? `सहायक हेल्पर कारीगर जोड़ें (${contractor.helperRate ? `+₹${contractor.helperRate}/दिन` : 'भाव पूछें'})`
+                        : `Add Assistant Helper (${contractor.helperRate ? `+₹${contractor.helperRate}/day` : 'Ask Quote'})`}
                     </Text>
                     <Text style={styles.toggleSub}>
                       {isHindi 
@@ -364,7 +393,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                   <Text style={styles.unitText}>{contractor.unitLabel}</Text>
                 </View>
                 <Text style={styles.helpText}>
-                  * {isHindi ? 'कारीगर की तय दर:' : 'Pro unit rate:'} ₹{contractor.contractUnitRate} {contractor.unitLabel}
+                  * {isHindi ? 'कारीगर की तय दर:' : 'Pro unit rate:'} {contractor.contractUnitRate ? `₹${contractor.contractUnitRate} ${contractor.unitLabel}` : (isHindi ? 'भाव पूछें (साइट मुआयने पर तय)' : 'Ask Quote')}
                 </Text>
 
                 {/* Brick&Bolt Model: 3-Stage Milestone Escrow Protection */}
@@ -408,7 +437,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
               <TextInput
                 style={styles.addressInput}
                 value={workAddress}
-                onChangeText={setWorkAddress}
+                onChangeText={setCustomWorkAddress}
                 placeholder={isHindi ? 'घर/दुकान का पूरा पता दर्ज करें' : 'Enter complete site address'}
                 multiline
               />
@@ -626,12 +655,12 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                 <Text style={styles.summaryValue}>₹{totalLaborAmount.toLocaleString('en-IN')}</Text>
               </View>
 
-              {includeMaterialsCombo && comboPrice > 0 && (
+              {includeMaterialsCombo && finalMaterialAmount > 0 && (
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>
                     {isHindi ? 'मटेरियल कॉम्बो (हार्डवेयर दुकान):' : 'Material Kit (Local Shop):'}
                   </Text>
-                  <Text style={styles.summaryValue}>₹{comboPrice.toLocaleString('en-IN')}</Text>
+                  <Text style={styles.summaryValue}>₹{finalMaterialAmount.toLocaleString('en-IN')}</Text>
                 </View>
               )}
 
@@ -653,8 +682,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                   </View>
                   <Text style={styles.cashNoticeSub}>
                     {isHindi
-                      ? `• पूरा ₹${grandTotal.toLocaleString('en-IN')} काम पूरा होने पर सीधे मिस्त्री को नकद या UPI द्वारा दें।\n• ठेकेदार के SETU वॉलेट से मात्र ₹${bookingMode === 'दिहाड़ी' ? 35 : 99} प्लेटफ़ॉर्म लीड फीस कटेगी।`
-                      : `• Pay full ₹${grandTotal.toLocaleString('en-IN')} directly to pro via Cash/UPI on completion.\n• Minimal ₹${bookingMode === 'दिहाड़ी' ? 35 : 99} platform lead fee deducted from pro wallet.`}
+                      ? `• पूरा ₹${grandTotal.toLocaleString('en-IN')} काम पूरा होने पर सीधे मिस्त्री को नकद या UPI द्वारा दें।\n• ठेकेदार के SETU वॉलेट से मात्र ₹${platformFee} फ्लैट प्लेटफ़ॉर्म लीड फीस कटेगी।`
+                      : `• Pay full ₹${grandTotal.toLocaleString('en-IN')} directly to pro via Cash/UPI on completion.\n• Minimal ₹${platformFee} flat platform lead fee deducted from pro wallet.`}
                   </Text>
                 </View>
               ) : (
@@ -674,7 +703,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                   <View style={[styles.splitRow, { marginTop: 8 }]}>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.splitLabel}>
-                        {isHindi ? '📱 शेष भुगतान (85% via Customer OTP):' : '📱 Balance on Completion (85%):'}
+                        {isHindi ? '📱 शेष भुगतान (Customer OTP पर):' : '📱 Balance on Completion (OTP Release):'}
                       </Text>
                       <Text style={styles.splitSub}>
                         {isHindi ? 'काम पूरा होने पर ही आपके OTP से कारीगर को मिलेगा' : 'Released only when you verify & share OTP'}
@@ -683,43 +712,44 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                     <Text style={styles.balanceValue}>₹{balanceOnOtpRelease.toLocaleString('en-IN')}</Text>
                   </View>
 
-                  {/* REAL LIVE DYNAMIC UPI QR CODE & PHONEPE/GPAY PAY */}
-                  <View style={styles.upiQrBox}>
-                    <View style={styles.upiQrHeader}>
-                      <Ionicons name="qr-code" size={15} color="#4F46E5" />
-                      <Text style={styles.upiQrTitle}>
-                        {isHindi ? `लाइव UPI QR कोड (टोकन: ₹${escrowAdvanceToken}):` : `Scan Live UPI QR Code (₹${escrowAdvanceToken}):`}
-                      </Text>
-                    </View>
-                    <View style={styles.qrImageContainer}>
-                      <Image
-                        source={{
-                          uri: `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=upi%3A%2F%2Fpay%3Fpa%3Dankitvis787966%40okaxis%26pn%3DSETU%2520Escrow%26am%3D${escrowAdvanceToken}%26cu%3DINR`,
+                  {escrowAdvanceToken > 0 && (
+                    <View style={styles.upiQrBox}>
+                      <View style={styles.upiQrHeader}>
+                        <Ionicons name="qr-code" size={15} color="#4F46E5" />
+                        <Text style={styles.upiQrTitle}>
+                          {isHindi ? `लाइव UPI QR प्रीव्यू (टोकन: ₹${escrowAdvanceToken}):` : `UPI QR Preview (₹${escrowAdvanceToken}):`}
+                        </Text>
+                      </View>
+                      <View style={styles.qrImageContainer}>
+                        <Image
+                          source={{
+                            uri: `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`upi://pay?pa=${setuEscrowUpiId}&pn=SETU Escrow&am=${escrowAdvanceToken}&cu=INR`)}`,
+                          }}
+                          style={styles.qrImage}
+                        />
+                        <Text style={styles.upiIdText}>UPI ID: {setuEscrowUpiId}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.upiDirectPayBtn}
+                        onPress={() => {
+                          const upiUrl = `upi://pay?pa=${encodeURIComponent(setuEscrowUpiId)}&pn=SETU%20Escrow&am=${escrowAdvanceToken}&cu=INR`;
+                          if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                            window.open(upiUrl, '_blank');
+                          } else {
+                            Linking.openURL(upiUrl).catch(() => {
+                              showAppAlert('UPI ऍप', 'कृपया ऊपर दिए गए QR कोड को किसी भी UPI ऍप से स्कैन करें।');
+                            });
+                          }
                         }}
-                        style={styles.qrImage}
-                      />
-                      <Text style={styles.upiIdText}>UPI ID: ankitvis787966@okaxis</Text>
+                        activeOpacity={0.85}
+                      >
+                        <FontAwesome5 name="mobile-alt" size={14} color="#FFFFFF" />
+                        <Text style={styles.upiDirectPayText}>
+                          {isHindi ? `PhonePe / GPay से ₹${escrowAdvanceToken} दें ➔` : `Pay ₹${escrowAdvanceToken} via UPI App ➔`}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
-                    <TouchableOpacity
-                      style={styles.upiDirectPayBtn}
-                      onPress={() => {
-                        const upiUrl = `upi://pay?pa=ankitvis787966@okaxis&pn=SETU%20Escrow&am=${escrowAdvanceToken}&cu=INR`;
-                        if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                          window.open(upiUrl, '_blank');
-                        } else {
-                          Linking.openURL(upiUrl).catch(() => {
-                            Alert.alert('UPI ऍप', 'कृपया ऊपर दिए गए QR कोड को किसी भी UPI ऍप से स्कैन करें।');
-                          });
-                        }
-                      }}
-                      activeOpacity={0.85}
-                    >
-                      <FontAwesome5 name="mobile-alt" size={14} color="#FFFFFF" />
-                      <Text style={styles.upiDirectPayText}>
-                        {isHindi ? `PhonePe / GPay से ₹${escrowAdvanceToken} दें ➔` : `Pay ₹${escrowAdvanceToken} via UPI App ➔`}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
+                  )}
                 </View>
               )}
 
@@ -733,8 +763,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                 </View>
                 <Text style={styles.transparencyDesc}>
                   {isHindi
-                    ? `• ठेकेदार से भारी 20-30% कमीशन की जगह मात्र ₹${bookingMode === 'दिहाड़ी' ? 35 : 99} फ्लैट लीड फीस ली जाती है।\n• कारीगर की 100% मेहनत की कमाई उसी के पास रहती है!`
-                    : `• Only a flat ₹${bookingMode === 'दिहाड़ी' ? 35 : 99} lead fee instead of brutal 20-30% commissions.\n• 100% of the hard-earned labor stays with the artisan!`}
+                    ? `• ठेकेदार से भारी 20-30% कमीशन की जगह मात्र ₹${platformFee} फ्लैट/एस्क्रो लीड फीस ली जाती है।\n• कारीगर की 100% मेहनत की कमाई उसी के पास रहती है!`
+                    : `• Only a transparent ₹${platformFee} lead fee instead of brutal 20-30% commissions.\n• 100% of the hard-earned labor stays with the artisan!`}
                 </Text>
               </View>
 

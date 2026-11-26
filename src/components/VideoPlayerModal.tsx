@@ -6,10 +6,14 @@ import {
   Modal,
   TouchableOpacity,
   Image,
+  Linking,
+  Platform,
 } from 'react-native';
-import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { WorkVideo } from '../data/mockData';
 import { COLORS } from '../theme/colors';
+import { showAppAlert } from '../utils/appAlert';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface VideoPlayerModalProps {
   visible: boolean;
@@ -22,15 +26,35 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
   video,
   onClose,
 }) => {
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const { isTabletOrDesktop } = useResponsive();
 
   if (!video) return null;
+
+  const hasVideoStream = Boolean(video.videoUrl && /^https?:\/\//i.test(video.videoUrl));
+
+  const handleTogglePlay = () => {
+    if (hasVideoStream && video.videoUrl) {
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.open === 'function') {
+        window.open(video.videoUrl, '_blank');
+      } else {
+        Linking.openURL(video.videoUrl).catch(() => {
+          showAppAlert('वीडियो प्लेयर', 'वीडियो लिंक खोलने में समस्या आई।');
+        });
+      }
+      setIsPlaying(true);
+      return;
+    }
+    showAppAlert(
+      '🎥 प्रोजेक्ट प्रीव्यू',
+      `"${video.title}" के लिए केवल उच्च-गुणवत्ता थंबनेल और प्रोजेक्ट सारांश उपलब्ध है।`
+    );
+  };
 
   return (
     <Modal visible={visible} animationType="fade" transparent={true} onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={styles.container}>
+        <View style={[styles.container, isTabletOrDesktop && { maxWidth: 740, borderRadius: 20 }]}>
           {/* Top Bar */}
           <View style={styles.topBar}>
             <View style={styles.badgeWrapper}>
@@ -52,46 +76,36 @@ export const VideoPlayerModal: React.FC<VideoPlayerModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* Video Player Display Screen */}
+          {/* Video Preview Display Screen */}
           <View style={styles.videoScreen}>
             <Image source={{ uri: video.thumbnail }} style={styles.videoImage} resizeMode="cover" />
 
-            {/* Play/Pause Overlay */}
+            {/* Play/Preview Overlay */}
             <TouchableOpacity
               style={styles.playPauseOverlay}
               activeOpacity={0.8}
-              onPress={() => setIsPlaying(!isPlaying)}
+              onPress={handleTogglePlay}
             >
               <View style={styles.playCircle}>
                 <Ionicons
-                  name={isPlaying ? 'pause' : 'play'}
-                  size={32}
+                  name={hasVideoStream ? 'open-outline' : isPlaying ? 'pause' : 'play'}
+                  size={30}
                   color="#FFFFFF"
-                  style={{ marginLeft: isPlaying ? 0 : 4 }}
+                  style={{ marginLeft: hasVideoStream || isPlaying ? 0 : 4 }}
                 />
               </View>
             </TouchableOpacity>
 
-            {/* Player Controls Bar */}
+            {/* Info Footer Bar (Honest duration + availability, no fake progress) */}
             <View style={styles.controlsBar}>
-              <TouchableOpacity onPress={() => setIsPlaying(!isPlaying)}>
-                <Ionicons name={isPlaying ? 'pause' : 'play'} size={20} color="#FFFFFF" />
+              <TouchableOpacity onPress={handleTogglePlay} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name={hasVideoStream ? 'play-circle' : 'image'} size={18} color="#FFFFFF" />
+                <Text style={styles.timeText}>
+                  {hasVideoStream ? 'वीडियो चलाएं ➔' : 'प्रोजेक्ट थंबनेल प्रीव्यू'}
+                </Text>
               </TouchableOpacity>
-
-              {/* Progress Bar */}
-              <View style={styles.progressBarWrapper}>
-                <View style={styles.progressBarFill} />
-              </View>
 
               <Text style={styles.timeText}>{video.duration}</Text>
-
-              <TouchableOpacity onPress={() => setIsMuted(!isMuted)}>
-                <Ionicons
-                  name={isMuted ? 'volume-mute' : 'volume-high'}
-                  size={20}
-                  color="#FFFFFF"
-                />
-              </TouchableOpacity>
             </View>
           </View>
 

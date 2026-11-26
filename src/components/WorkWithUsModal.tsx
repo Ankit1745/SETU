@@ -6,14 +6,17 @@ import {
   Modal,
   TouchableOpacity,
   ScrollView,
-  Alert,
 } from 'react-native';
 import { MaterialCommunityIcons, MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
+import { Language } from '../i18n/translations';
+import { showAppAlert } from '../utils/appAlert';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface WorkWithUsModalProps {
   visible: boolean;
   currentUser?: any;
+  language?: Language;
   onClose: () => void;
   onOpenPartnerRegistration: (type: 'CONTRACTOR' | 'VENDOR') => void;
   onSelectPartnerRole: (role: 'CONTRACTOR' | 'VENDOR' | 'ADMIN') => void;
@@ -23,64 +26,77 @@ interface WorkWithUsModalProps {
 export const WorkWithUsModal: React.FC<WorkWithUsModalProps> = ({
   visible,
   currentUser,
+  language = 'hi',
   onClose,
   onOpenPartnerRegistration,
   onSelectPartnerRole,
   onRequestAdminAuth,
 }) => {
+  const isEn = language === 'en';
   const handleOpenContractorDashboard = () => {
-    if (currentUser && (currentUser.role === 'CONTRACTOR' || currentUser.setuId?.includes('PRO'))) {
+    if (currentUser && (currentUser.role === 'CONTRACTOR' || currentUser.role === 'ADMIN')) {
       onClose();
       onSelectPartnerRole('CONTRACTOR');
     } else {
-      Alert.alert(
-        '🔒 कारीगर ID आवश्यक',
-        `आप वर्तमान में ${currentUser ? `ग्राहक (${currentUser.name})` : 'अतिथि (Guest)'} के रूप में हैं।\n\nठेकेदार डैशबोर्ड में केवल अधिकृत कारीगर ही प्रवेश कर सकते हैं। कृपया पहले 'कारीगर ऑनबोर्डिंग' फॉर्म भरें।`,
+      showAppAlert(
+        isEn ? '🔒 Contractor ID Required' : '🔒 कारीगर ID आवश्यक',
+        isEn
+          ? 'Only authorized contractors can open this portal. Please complete Contractor Onboarding first.'
+          : `आप वर्तमान में ${currentUser ? `ग्राहक (${currentUser.name})` : 'अतिथि (Guest)'} के रूप में हैं।\n\nठेकेदार डैशबोर्ड में केवल अधिकृत कारीगर ही प्रवेश कर सकते हैं। कृपया पहले 'कारीगर ऑनबोर्डिंग' फॉर्म भरें।`,
         [
           {
-            text: 'कारीगर ऑनबोर्डिंग भरें',
+            text: isEn ? 'Open Onboarding' : 'कारीगर ऑनबोर्डिंग भरें',
             onPress: () => {
               onClose();
               onOpenPartnerRegistration('CONTRACTOR');
             },
           },
-          { text: 'रद्द करें', style: 'cancel' },
+          { text: isEn ? 'Cancel' : 'रद्द करें', style: 'cancel' },
         ]
       );
     }
   };
 
   const handleOpenVendorDashboard = () => {
-    if (currentUser && (currentUser.role === 'VENDOR' || currentUser.setuId?.includes('VEN'))) {
+    if (currentUser && (currentUser.role === 'VENDOR' || currentUser.role === 'ADMIN')) {
       onClose();
       onSelectPartnerRole('VENDOR');
     } else {
-      Alert.alert(
-        '🔒 सप्लायर ID आवश्यक',
-        `आप वर्तमान में ${currentUser ? `ग्राहक (${currentUser.name})` : 'अतिथि (Guest)'} के रूप में हैं।\n\nदुकानदार डैशबोर्ड में प्रवेश के लिए अधिकृत सेलर ID आवश्यक है। कृपया पहले सप्लायर ऑनबोर्डिंग फॉर्म भरें।`,
+      showAppAlert(
+        isEn ? '🔒 Vendor ID Required' : '🔒 सप्लायर ID आवश्यक',
+        isEn
+          ? 'Only authorized material suppliers can open this portal. Please complete Supplier Onboarding first.'
+          : `आप वर्तमान में ${currentUser ? `ग्राहक (${currentUser.name})` : 'अतिथि (Guest)'} के रूप में हैं।\n\nदुकानदार डैशबोर्ड में प्रवेश के लिए अधिकृत सेलर ID आवश्यक है। कृपया पहले सप्लायर ऑनबोर्डिंग फॉर्म भरें।`,
         [
           {
-            text: 'सप्लायर ऑनबोर्डिंग भरें',
+            text: isEn ? 'Open Onboarding' : 'सप्लायर ऑनबोर्डिंग भरें',
             onPress: () => {
               onClose();
               onOpenPartnerRegistration('VENDOR');
             },
           },
-          { text: 'रद्द करें', style: 'cancel' },
+          { text: isEn ? 'Cancel' : 'रद्द करें', style: 'cancel' },
         ]
       );
     }
   };
+  const { getModalStyles } = useResponsive();
+  const { isDialog, overlayStyle, containerStyle } = getModalStyles({ maxWidth: 660 });
+
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.container}>
+    <Modal visible={visible} animationType={isDialog ? 'fade' : 'slide'} transparent={true} onRequestClose={onClose}>
+      <View style={overlayStyle}>
+        <View style={[styles.container, containerStyle]}>
           {/* Header */}
           <View style={styles.header}>
-            <View>
-              <Text style={styles.headerTitle}>SETU पार्टनर नेटवर्क (Work with Us)</Text>
+            <View style={{ flex: 1, paddingRight: 10 }}>
+              <Text style={styles.headerTitle}>
+                {isEn ? 'SETU Partner Network (Work with Us)' : 'SETU पार्टनर नेटवर्क (Work with Us)'}
+              </Text>
               <Text style={styles.headerSub}>
-                Urban Company व Flipkart की तरह अपने काम या दुकान को SETU से जोड़ें
+                {isEn
+                  ? 'Register your skill or material store directly on SETU'
+                  : 'Urban Company व Flipkart की तरह अपने काम या दुकान को SETU से जोड़ें'}
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -92,7 +108,7 @@ export const WorkWithUsModal: React.FC<WorkWithUsModalProps> = ({
             {/* Promo Banner */}
             <View style={styles.promoCard}>
               <View style={styles.promoBadge}>
-                <Text style={styles.promoBadgeText}>ऑफर: पहले 30 दिन 0% कमीशन</Text>
+                <Text style={styles.promoBadgeText}>ऑफर: पहले 30 दिन शून्य ऑनबोर्डिंग शुल्क</Text>
               </View>
               <Text style={styles.promoTitle}>अपने हुनर और दुकान को दें डिजिटल उड़ान</Text>
               <Text style={styles.promoDesc}>
@@ -204,7 +220,7 @@ export const WorkWithUsModal: React.FC<WorkWithUsModalProps> = ({
                   </View>
                 </View>
                 <Text style={[styles.adminSub, { color: '#B91C1C' }]}>
-                  मास्टर पिन प्रमाणीकरण आवश्यक • अनधिकृत प्रवेश वर्जित
+                  सर्वर पासवर्ड प्रमाणीकरण आवश्यक • अनधिकृत प्रवेश वर्जित
                 </Text>
               </View>
               <MaterialIcons name="chevron-right" size={20} color="#DC2626" />

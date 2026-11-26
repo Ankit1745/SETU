@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Modal,
   View,
@@ -15,6 +15,7 @@ import {
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
 import { Language } from '../i18n/translations';
+
 import {
   diagnoseVisualProblem,
   calculate3DSpaceDesign,
@@ -29,6 +30,12 @@ import {
   format3DStudioWhatsAppMessage,
 } from '../utils/whatsapp';
 import { pickImageFromGallery, capturePhotoFromCamera } from '../utils/mediaPicker';
+import { useResponsive } from '../hooks/useResponsive';
+
+let _visionDiagSeq = 0;
+function nextVisionDiagnosisId(): string {
+  return `vision_${Date.now()}_${++_visionDiagSeq}`;
+}
 
 export interface AIDesignConsultation {
   isDesign: boolean;
@@ -208,24 +215,85 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
   // ==========================================
   // FREEMIUM TOKEN / ZERO-DB LOCAL TRACKER
   // ==========================================
-  const [dailyCredits, setDailyCredits] = useState<number>(3);
-  const [isPaywallOpen, setIsPaywallOpen] = useState<boolean>(false);
-
-  useEffect(() => {
+  const [dailyCredits, setDailyCredits] = useState<number>(() => {
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
-        const todayKey = `setu_ai_credits_${new Date().toISOString().slice(0, 10)}`;
+        const dateKey = new Date().toISOString().slice(0, 10);
+        const todayKey = `setu_ai_credits_${dateKey}`;
         const saved = window.localStorage.getItem(todayKey);
         if (saved !== null) {
-          setDailyCredits(parseInt(saved, 10));
-        } else {
-          window.localStorage.setItem(todayKey, '3');
-          setDailyCredits(3);
+          const parsed = parseInt(saved, 10);
+          return Number.isFinite(parsed) ? Math.max(0, Math.min(10, parsed)) : 3;
         }
-      } catch (e) {
+        window.localStorage.setItem(todayKey, '3');
+      } catch {
         // Fallback in-memory
       }
     }
+    return 3;
+  });
+  const [isPaywallOpen, setIsPaywallOpen] = useState<boolean>(false);
+  const [demoBonusClaimed, setDemoBonusClaimed] = useState<boolean>(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const dateKey = new Date().toISOString().slice(0, 10);
+        return window.localStorage.getItem(`setu_ai_bonus_${dateKey}`) === '1';
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  });
+  const [viewportImgFailed, setViewportImgFailed] = useState<boolean>(false);
+  const isScanningRef = useRef<boolean>(false);
+  const visionScanSeqRef = useRef<number>(0);
+  const voiceRecognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    const syncTimer = setTimeout(() => {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          const dateKey = new Date().toISOString().slice(0, 10);
+          const todayKey = `setu_ai_credits_${dateKey}`;
+          const saved = window.localStorage.getItem(todayKey);
+          if (saved !== null) {
+            const parsed = parseInt(saved, 10);
+            setDailyCredits(Number.isFinite(parsed) ? Math.max(0, Math.min(10, parsed)) : 3);
+          } else {
+            window.localStorage.setItem(todayKey, '3');
+            setDailyCredits(3);
+          }
+          setDemoBonusClaimed(window.localStorage.getItem(`setu_ai_bonus_${dateKey}`) === '1');
+        } catch {
+          // Fallback in-memory
+        }
+      }
+    }, 0);
+    if (!visible && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // ignore
+      }
+    }
+    return () => {
+      clearTimeout(syncTimer);
+      if (voiceRecognitionRef.current) {
+        try {
+          voiceRecognitionRef.current.abort();
+        } catch {
+          // ignore
+        }
+        voiceRecognitionRef.current = null;
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {
+          // ignore
+        }
+      }
+    };
   }, [visible]);
 
   const consumeCredit = (): boolean => {
@@ -233,13 +301,15 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
       setIsPaywallOpen(true);
       return false;
     }
-    const next = dailyCredits - 1;
+    const next = Math.max(0, dailyCredits - 1);
     setDailyCredits(next);
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         const todayKey = `setu_ai_credits_${new Date().toISOString().slice(0, 10)}`;
         window.localStorage.setItem(todayKey, next.toString());
-      } catch (e) {}
+      } catch {
+        // ignore
+      }
     }
     return true;
   };
@@ -257,6 +327,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
   const [sourceContext, setSourceContext] = useState<'photo' | 'video_frame' | 'sample_demo'>('photo');
   const [customQuery, setCustomQuery] = useState<string>('');
   const [attachedMediaUrl, setAttachedMediaUrl] = useState<string>('');
+  const [attachedMediaBase64, setAttachedMediaBase64] = useState<string>('');
   const [isUploadingMedia, setIsUploadingMedia] = useState<boolean>(false);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
 
@@ -267,7 +338,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('environment');
   const [cameraPermissionError, setCameraPermissionError] = useState<string>('');
 
-  const startRealCamera = async () => {
+  const startRealCamera = useCallback(async () => {
     if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
       try {
         setCameraPermissionError('');
@@ -294,15 +365,15 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
         setCameraPermissionError('कृपया ब्राउज़र में कैमरा अनुमति दें ताकि AI उस्ताद आपकी समस्या लाइव देख सके।');
       }
     }
-  };
+  }, [cameraFacing]);
 
-  const stopRealCamera = () => {
+  const stopRealCamera = useCallback(() => {
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track: any) => track.stop());
       mediaStreamRef.current = null;
     }
     setIsCameraLive(false);
-  };
+  }, []);
 
   const handleToggleFlipCamera = () => {
     setCameraFacing((prev) => (prev === 'environment' ? 'user' : 'environment'));
@@ -310,19 +381,25 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
 
   // Start real camera when modal is open and on video tab
   useEffect(() => {
-    if (visible && activeTab === 'video' && !attachedMediaUrl) {
-      startRealCamera();
-    } else {
-      stopRealCamera();
-    }
+    const camTimer = setTimeout(() => {
+      if (visible && activeTab === 'video' && !attachedMediaUrl) {
+        void startRealCamera();
+      } else {
+        stopRealCamera();
+      }
+    }, 0);
     return () => {
-      stopRealCamera();
+      clearTimeout(camTimer);
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track: any) => track.stop());
+        mediaStreamRef.current = null;
+      }
     };
-  }, [visible, activeTab, cameraFacing, attachedMediaUrl]);
+  }, [visible, activeTab, attachedMediaUrl, startRealCamera, stopRealCamera]);
 
-  // Capture real live camera frame & scan automatically
+  // Capture real live camera frame & scan automatically (charges credit ONLY after valid capture)
   const handleCaptureLiveFrame = async () => {
-    if (!consumeCredit()) return;
+    if (isScanningRef.current) return;
 
     // 1. If camera stream is live, grab canvas snapshot
     let frameBase64 = '';
@@ -342,22 +419,23 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
     }
 
     if (frameBase64) {
+      if (!consumeCredit()) return;
       setAttachedMediaUrl(frameBase64);
+      setAttachedMediaBase64(frameBase64);
       stopRealCamera();
-      // Execute AI Vision Diagnosis immediately!
       await runAIVisionDiagnosis(frameBase64, customQuery, 'video_frame');
-      // Background upload
       ApiService.uploadFile(frameBase64, `live_snap_${Date.now()}.jpg`, 'portfolio').catch(() => {});
       return;
     }
 
-    // 2. If camera stream is not live, open camera capture or gallery picker directly!
+    // 2. If camera stream is not live, open camera capture or gallery picker FIRST before consuming credit
     try {
       const captured = (await capturePhotoFromCamera()) || (await pickImageFromGallery());
       if (captured && captured.base64) {
+        if (!consumeCredit()) return;
         setAttachedMediaUrl(captured.uri);
+        setAttachedMediaBase64(captured.base64);
         await runAIVisionDiagnosis(captured.base64, customQuery, 'photo');
-        // Background upload
         ApiService.uploadFile(captured.base64, captured.name || `photo_${Date.now()}.jpg`, 'portfolio').catch(() => {});
       }
     } catch (err: any) {
@@ -367,25 +445,35 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
 
   // AI Multimodal Vision Diagnosis Runner (Gemini Multimodal Vision Engine)
   const runAIVisionDiagnosis = async (imageBase64: string, query: string, ctx: 'photo' | 'video_frame' | 'sample_demo' = 'photo') => {
+    if (isScanningRef.current) return;
+    isScanningRef.current = true;
+    const scanSeq = ++visionScanSeqRef.current;
     setIsScanning(true);
     setVisionError('');
     setSourceContext(ctx);
+    const activeUserQuery = (query || customQuery || '').trim();
     try {
-      const activeUserQuery = (query || customQuery || '').trim();
       const apiResp = await ApiService.diagnoseVision(
         imageBase64,
         activeUserQuery,
         currentLocation || 'भोपाल',
         language
       );
+      if (scanSeq !== visionScanSeqRef.current) return;
+
       if (apiResp?.success && apiResp.diagnosis) {
         const d = apiResp.diagnosis;
 
-        // Check if this is a space design / renovation request (e.g. almirah, kitchen, wardrobe, elevation, etc.)
+        // Guard repairs/hazards strictly so plumbing/electrical/wall crack photos never hijack into Wardrobe/Kitchen cards
+        const isRepairSignal =
+          Boolean(d.isSafetyHazard) ||
+          d.projectType === 'repair' ||
+          /लीक|leak|टपक|चिंगारी|spark|ट्रिप|trip|शॉर्ट|short circuit|जाम|jam|चटक|crack|सीलन|seepage|रिपेयर|repair|खराब|टूटा|broken|बदबू/i.test(activeUserQuery);
+
         const isDesign =
-          d.isDesignRequest ||
-          ['wardrobe', 'kitchen', 'masonry', 'plumbing', 'electrical'].includes(d.projectType) ||
-          /अलमारी|अलमरी|wardrobe|almirah|kitchen|किचन|दीवार|छत|elevation|मॉडल|डिजाइन|design/i.test(activeUserQuery);
+          !isRepairSignal &&
+          (Boolean(d.isDesignRequest) ||
+            /अलमारी|अलमरी|wardrobe|almirah|kitchen|किचन|मॉड्यूलर|modular|elevation|मॉडल|डिजाइन|design/i.test(activeUserQuery));
 
         if (isDesign) {
           const detectedTrade: 'wardrobe' | 'kitchen' | 'masonry' | 'plumbing' | 'electrical' =
@@ -402,6 +490,8 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
           handleUpdateStudioDesign(detectedTrade, studioLayout, nextFinish, nextL, nextW);
           setVisualMode('after');
 
+          const safeLabor = Math.max(0, Number(d.estimatedLaborCharge) || 12000);
+          const safeTotal = Math.max(safeLabor, Number(d.totalEstimate) || 42000);
           const consultation: AIDesignConsultation = {
             isDesign: true,
             projectType: detectedTrade,
@@ -416,21 +506,26 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
             finishStyleName: d.finishStyleName || 'प्रीमियम फिनिश विथ सॉफ्ट-क्लोज हार्डवेयर',
             cabinetBreakdown: d.cabinetBreakdown || [],
             materialBreakdown: d.requiredParts || [],
-            estimatedLaborCharge: d.estimatedLaborCharge || 12000,
-            totalEstimate: d.totalEstimate || 42000,
-            ustadGuidance: d.ustadGuidanceHindi || d.ustadAdvice || 'मिया! इस जगह पर शानदार मॉडल बन सकता है। नीचे 3D डिजाइन और सामग्री लागत देखें।',
+            estimatedLaborCharge: safeLabor,
+            totalEstimate: safeTotal,
+            ustadGuidance: d.ustadGuidanceHindi || d.ustadAdvice || 'इस जगह पर शानदार मॉडल बन सकता है। नीचे 3D डिजाइन और सामग्री लागत देखें।',
             estimatedFixTime: d.estimatedFixTime || '4 से 5 कार्य दिवस',
           };
 
           setAiDesignConsultation(consultation);
           setDiagnosisResult(null);
-          setIsScanning(false);
           speakDiagnosis(consultation.ustadGuidance);
           return;
         }
 
+        const safeParts = (d.requiredParts || []).map((p: any) => ({
+          name: `${p.name || 'स्पेयर पार्ट'} (${p.brand || 'ISI'})`,
+          approxPrice: Math.max(0, Number(p.approxRate) || 100),
+          unit: p.unit || '1 पीस',
+        }));
+        const safeLaborCharge = Math.max(0, Number(d.estimatedLaborCharge) || 180);
         const mapped: VisualProblemDiagnosis = {
-          id: 'vision_' + Date.now(),
+          id: nextVisionDiagnosisId(),
           category: d.tradeCategory || 'plumber',
           titleHindi: d.problemTitle || (language === 'en' ? 'Home Repair Issue' : 'घरेलू मरम्मत समस्या'),
           visibleObservation: d.visibleObservation || d.visualSymptom || d.problemTitle || 'सतह पर समस्या का लक्षण दिखाई दे रहा है।',
@@ -440,50 +535,42 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
           sourceContext: ctx,
           isSafetyHazard: d.isSafetyHazard || d.severity === 'EMERGENCY' || false,
           safetyMessage: d.safetyMessage || (d.isSafetyHazard ? '⚠️ आपातकालीन सुरक्षा चेतावनी: तुरंत मुख्य DP / MCB बंद करें!' : undefined),
-          neededHardware: (d.requiredParts || []).map((p: any) => ({
-            name: `${p.name} (${p.brand || 'ISI'})`,
-            approxPrice: p.approxRate || 100,
-            unit: p.unit || '1 पीस',
-          })),
+          neededHardware: safeParts,
           laborEstimate: {
-            description: `${currentLocation || 'भोपाल'} मानक कारीगर मजदूरी चार्ज`,
-            approxPrice: d.estimatedLaborCharge || 180,
+            description: `${(currentLocation || 'भोपाल').split('•')[0].trim()} मानक कारीगर मजदूरी चार्ज`,
+            approxPrice: safeLaborCharge,
           },
           totalEstimatedCost:
-            (d.requiredParts || []).reduce((sum: number, p: any) => sum + (p.approxRate || 0), 0) +
-            (d.estimatedLaborCharge || 180),
+            safeParts.reduce((sum: number, p: any) => sum + (Number(p.approxPrice) || 0), 0) + safeLaborCharge,
           diySteps: d.isSafetyHazard ? [] : d.diySteps || [],
           karigarAdvice: d.ustadAdvice || '',
         };
         setDiagnosisResult(mapped);
         setAiDesignConsultation(null);
-        setIsScanning(false);
         speakDiagnosis(mapped.titleHindi + '. ' + mapped.visibleObservation);
         return;
-      } else if (apiResp?.error) {
-        setIsScanning(false);
+      } else if (apiResp?.error && /साफ नहीं|अमान्य|सीमा पूर्ण/.test(apiResp.error)) {
         setVisionError(apiResp.error);
         return;
       }
     } catch (e) {
       console.log('AI Vision error:', e);
+    } finally {
+      isScanningRef.current = false;
+      setIsScanning(false);
     }
 
-    // Heuristics fallback ONLY if user typed a specific query
-    const activeText = (query || customQuery || '').trim();
-    if (activeText) {
-      const diag = diagnoseVisualProblem(activeText, undefined, ctx);
+    // Heuristics fallback when server returns 502 / offline & user typed a query
+    if (activeUserQuery) {
+      const diag = diagnoseVisualProblem(activeUserQuery, undefined, ctx);
       if (diag) {
         setDiagnosisResult(diag);
         setAiDesignConsultation(null);
-        setIsScanning(false);
         speakDiagnosis(diag.titleHindi + '. ' + diag.visibleObservation);
         return;
       }
     }
 
-    // Clear boundary if image is blurry or vision service is offline - NO fabricated diagnosis!
-    setIsScanning(false);
     setVisionError('फोटो का विश्लेषण अभी उपलब्ध नहीं है। कृपया अच्छी रोशनी में साफ फोटो लें या समस्या का विवरण लिखकर बताएं।');
   };
 
@@ -535,7 +622,8 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
     }
     if (!consumeCredit()) return;
 
-    runAIVisionDiagnosis(attachedMediaUrl, textToScan, attachedMediaUrl ? 'photo' : 'sample_demo');
+    const payloadMedia = attachedMediaBase64 || (attachedMediaUrl.startsWith('data:') ? attachedMediaUrl : '');
+    runAIVisionDiagnosis(payloadMedia, textToScan, payloadMedia ? 'photo' : 'sample_demo');
   };
 
   // Text-To-Speech (AI Ustad speaks Hindi)
@@ -567,6 +655,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
       }
 
       setAttachedMediaUrl(picked.uri);
+      setAttachedMediaBase64(picked.base64);
       // Immediately run real AI diagnosis automatically!
       runAIVisionDiagnosis(picked.base64, customQuery, 'photo');
 
@@ -592,7 +681,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
       userLocation: currentLocation,
       mediaUrl: attachedMediaUrl,
     });
-    openWhatsAppChat('9812345678', msg);
+    openWhatsAppChat('', msg);
   };
 
   // ==========================================
@@ -614,13 +703,14 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
   const currentPresets = TRADE_VISUAL_PRESETS[studioType] || TRADE_VISUAL_PRESETS.kitchen;
   const activePreset = currentPresets.find((p) => p.id === selectedPresetId) || currentPresets[0];
 
-  const [studioDesign, setStudioDesign] = useState<SpaceDesign3D>(
+  const [studioDesign, setStudioDesign] = useState<SpaceDesign3D>(() =>
     calculate3DSpaceDesign({
       type: 'kitchen',
       layout: 'L_SHAPE',
       finish: 'ACRYLIC',
       lengthFt: 10,
       widthFt: 8,
+      locality: currentLocation || 'भोपाल',
     })
   );
 
@@ -653,12 +743,23 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
       finish: nextFinish,
       lengthFt: nextLength,
       widthFt: nextWidth,
+      locality: currentLocation || 'भोपाल',
     });
     setStudioDesign(updated);
   };
 
-  // Voice Interaction (AI Ustad Live Hindi Voice Chat)
+  // Voice Interaction (AI Ustad Live Hindi Voice Chat with Stop toggle & leak guard)
   const startVoiceInput = () => {
+    if (isVoiceListening && voiceRecognitionRef.current) {
+      try {
+        voiceRecognitionRef.current.stop();
+      } catch {
+        // ignore
+      }
+      voiceRecognitionRef.current = null;
+      setIsVoiceListening(false);
+      return;
+    }
     if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
       try {
         const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -667,22 +768,26 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
         recognition.interimResults = false;
         recognition.maxAlternatives = 1;
 
+        voiceRecognitionRef.current = recognition;
         setIsVoiceListening(true);
         recognition.onstart = () => {
           setIsVoiceListening(true);
           setVoiceSpeechBubble('🎤 बोलिए भाई, AI उस्ताद सुन रहा है...');
         };
         recognition.onresult = (event: any) => {
+          voiceRecognitionRef.current = null;
           setIsVoiceListening(false);
           const transcript = event.results[0][0].transcript;
           setVoiceSpeechBubble(`🗣️ आपने पूछा: "${transcript}"`);
           handleProcessVoiceQuery(transcript);
         };
         recognition.onerror = () => {
+          voiceRecognitionRef.current = null;
           setIsVoiceListening(false);
           setVoiceSpeechBubble('बोलने के लिए माइक पर दोबारा टैप करें');
         };
         recognition.onend = () => {
+          voiceRecognitionRef.current = null;
           setIsVoiceListening(false);
         };
         recognition.start();
@@ -749,12 +854,21 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
       estimatedTotal: `₹${studioDesign.grandTotal.toLocaleString('en-IN')} (सामान ₹${studioDesign.totalMaterialCost.toLocaleString('en-IN')} + लेबर ₹${studioDesign.laborCost.toLocaleString('en-IN')})`,
       userLocation: currentLocation,
     });
-    openWhatsAppChat('9812345678', msg);
+    openWhatsAppChat('', msg);
   };
 
+  const { getModalStyles } = useResponsive();
+  const { isDialog, overlayStyle, containerStyle } = getModalStyles({
+    maxWidth: 960,
+    fixedHeight: true,
+    desktopHeight: '90%',
+    fullScreenOnMobile: true,
+  });
+
   return (
-    <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={onClose}>
-      <View style={styles.container}>
+    <Modal visible={visible} animationType={isDialog ? 'fade' : 'slide'} transparent={isDialog} onRequestClose={onClose}>
+      <View style={overlayStyle}>
+        <View style={[styles.container, containerStyle]}>
         {/* Top Header & Tab Controls */}
         <View style={styles.topHeader}>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.8}>
@@ -992,16 +1106,24 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                 </View>
 
                 <View style={styles.cleanImageContainer}>
-                  <Image
-                    source={{
-                      uri:
-                        visualMode === 'before'
-                          ? attachedMediaUrl || activePreset.rawSpaceUrl
-                          : activePreset.renderUrl,
-                    }}
-                    style={styles.cleanViewportImage}
-                    resizeMode="cover"
-                  />
+                  {viewportImgFailed ? (
+                    <View style={[styles.cleanViewportImage, { alignItems: 'center', justifyContent: 'center', gap: 8 }]}>
+                      <Ionicons name="image-outline" size={36} color="#64748B" />
+                      <Text style={{ color: '#94A3B8', fontSize: 12 }}>प्रीव्यू इमेज लोड नहीं हो सकी</Text>
+                    </View>
+                  ) : (
+                    <Image
+                      source={{
+                        uri:
+                          visualMode === 'before'
+                            ? attachedMediaUrl || activePreset.rawSpaceUrl
+                            : activePreset.renderUrl,
+                      }}
+                      style={styles.cleanViewportImage}
+                      resizeMode="cover"
+                      onError={() => setViewportImgFailed(true)}
+                    />
+                  )}
                   <View style={styles.viewportWatermarkBadge}>
                     <Text style={styles.viewportWatermarkText}>
                       {visualMode === 'before' ? '📸 आपकी मूल जगह' : `✨ 3D मॉडल: ${activePreset.title}`}
@@ -1023,6 +1145,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                           ]}
                           onPress={() => {
                             setSelectedPresetId(preset.id);
+                            setViewportImgFailed(false);
                             setVisualMode('after');
                           }}
                           activeOpacity={0.8}
@@ -1070,30 +1193,39 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                 </View>
 
                 {/* Total Cost Box */}
-                <View style={styles.summaryCostBox}>
-                  <View style={styles.summaryCostRow}>
-                    <Text style={styles.summaryCostSubLabel}>📦 सामग्री लागत (प्लाई, माइका, फिटिंग्स):</Text>
-                    <Text style={styles.summaryCostSubVal}>
-                      ₹{(aiDesignConsultation?.totalEstimate
-                        ? Math.round(aiDesignConsultation.totalEstimate * 0.65)
-                        : studioDesign.totalMaterialCost
-                      ).toLocaleString('en-IN')}
-                    </Text>
-                  </View>
-                  <View style={styles.summaryCostRow}>
-                    <Text style={styles.summaryCostSubLabel}>🔨 कुशल कारीगर मजदूरी:</Text>
-                    <Text style={styles.summaryCostSubVal}>
-                      ₹{(aiDesignConsultation?.estimatedLaborCharge || studioDesign.laborCost).toLocaleString('en-IN')}
-                    </Text>
-                  </View>
-                  <View style={styles.summaryCostDivider} />
-                  <View style={styles.summaryTotalRow}>
-                    <Text style={styles.summaryTotalLabel}>कुल खर्च (सामान + मजदूरी):</Text>
-                    <Text style={styles.summaryTotalVal}>
-                      ₹{(aiDesignConsultation?.totalEstimate || studioDesign.grandTotal).toLocaleString('en-IN')}
-                    </Text>
-                  </View>
-                </View>
+                {(() => {
+                  const aiTotal = Number(aiDesignConsultation?.totalEstimate) || 0;
+                  const aiLabor = Number(aiDesignConsultation?.estimatedLaborCharge) || 0;
+                  const boundedLabor = aiTotal > 0 ? Math.min(aiLabor, aiTotal) : studioDesign.laborCost;
+                  const computedMaterial = aiTotal > 0 ? Math.max(0, aiTotal - boundedLabor) : studioDesign.totalMaterialCost;
+                  const computedGrand = aiTotal > 0 ? Math.max(aiTotal, boundedLabor) : studioDesign.grandTotal;
+                  const cleanCityLabel = (currentLocation || 'आपके शहर').split('•')[0].split(',')[0].trim();
+                  return (
+                    <>
+                      <View style={styles.summaryCostBox}>
+                        <View style={styles.summaryCostRow}>
+                          <Text style={styles.summaryCostSubLabel}>📦 सामग्री लागत (प्लाई, माइका, फिटिंग्स):</Text>
+                          <Text style={styles.summaryCostSubVal}>
+                            ₹{computedMaterial.toLocaleString('en-IN')}
+                          </Text>
+                        </View>
+                        <View style={styles.summaryCostRow}>
+                          <Text style={styles.summaryCostSubLabel}>🔨 कुशल कारीगर मजदूरी ({cleanCityLabel}):</Text>
+                          <Text style={styles.summaryCostSubVal}>
+                            ₹{boundedLabor.toLocaleString('en-IN')}
+                          </Text>
+                        </View>
+                        <View style={styles.summaryCostDivider} />
+                        <View style={styles.summaryTotalRow}>
+                          <Text style={styles.summaryTotalLabel}>कुल खर्च (सामान + मजदूरी):</Text>
+                          <Text style={styles.summaryTotalVal}>
+                            ₹{computedGrand.toLocaleString('en-IN')}
+                          </Text>
+                        </View>
+                      </View>
+                    </>
+                  );
+                })()}
 
                 {/* Ustad Advice */}
                 <View style={styles.simpleUstadCard}>
@@ -1132,7 +1264,7 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                 >
                   <FontAwesome5 name="whatsapp" size={18} color="#FFFFFF" />
                   <Text style={styles.bigGreenConnectText}>
-                    💬 भोपाल के वेरिफ़ाईड कारीगर से बात करें
+                    💬 {(currentLocation || 'नजदीकी').split('•')[0].split(',')[0].trim()} के वेरिफ़ाईड कारीगर से बात करें
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1231,9 +1363,23 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
               <TouchableOpacity
                 style={styles.paywallBtn}
                 onPress={() => {
+                  if (demoBonusClaimed) {
+                    Alert.alert('सीमा पूर्ण', 'आज का डेमो बोनस कोटा पहले ही लिया जा चुका है।');
+                    return;
+                  }
                   setDailyCredits(10);
+                  setDemoBonusClaimed(true);
+                  if (typeof window !== 'undefined' && window.localStorage) {
+                    try {
+                      const dateKey = new Date().toISOString().slice(0, 10);
+                      window.localStorage.setItem(`setu_ai_credits_${dateKey}`, '10');
+                      window.localStorage.setItem(`setu_ai_bonus_${dateKey}`, '1');
+                    } catch {
+                      // ignore
+                    }
+                  }
                   setIsPaywallOpen(false);
-                  Alert.alert('🎉 प्रीमियम पास एक्टिवेटेड', 'आपको 10 अतिरिक्त AI स्कैन दिए गए हैं!');
+                  Alert.alert('🎉 प्रीमियम पास एक्टिवेटेड', 'आपको आज के लिए 10 डेमो AI स्कैन दिए गए हैं!');
                 }}
                 activeOpacity={0.85}
               >
@@ -1249,12 +1395,13 @@ export const AIVideoDoctorModal: React.FC<AIVideoDoctorModalProps> = ({
                 activeOpacity={0.8}
               >
                 <Text style={styles.paywallSecondaryText}>
-                  या भोपाल के कारीगर से मुफ़्त में पूछें ➔
+                  या {(currentLocation || 'नजदीकी').split('•')[0].split(',')[0].trim()} के कारीगर से मुफ़्त में पूछें ➔
                 </Text>
               </TouchableOpacity>
             </View>
           </View>
         </Modal>
+        </View>
       </View>
     </Modal>
   );

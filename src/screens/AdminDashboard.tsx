@@ -1,15 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
-import { MaterialIcons, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
 import { ApiService } from '../services/api';
+import { Language } from '../i18n/translations';
+import { showAppAlert } from '../utils/appAlert';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface KycApplication {
   id: string;
@@ -17,7 +19,9 @@ interface KycApplication {
   role: 'CONTRACTOR' | 'VENDOR';
   tradeOrShop: string;
   phone: string;
+  rawPhone?: string;
   docNumber: string;
+  docFilePath?: string;
   appliedDate: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
 }
@@ -29,7 +33,7 @@ interface DisputeCase {
   jobTitle: string;
   escrowAmount: number;
   issueDescription: string;
-  status: 'OPEN' | 'RESOLVED';
+  status: 'OPEN' | 'RESOLVED' | 'REFUNDED';
 }
 
 const INITIAL_KYC_APPLICATIONS: KycApplication[] = [
@@ -67,124 +71,167 @@ const INITIAL_DISPUTES: DisputeCase[] = [
   },
 ];
 
-export const AdminDashboard: React.FC = () => {
+export const AdminDashboard: React.FC<{ language?: Language }> = ({ language: _language = 'hi' }) => {
   const [kycList, setKycList] = useState<KycApplication[]>(INITIAL_KYC_APPLICATIONS);
   const [disputes, setDisputes] = useState<DisputeCase[]>(INITIAL_DISPUTES);
   const [liveMetrics, setLiveMetrics] = useState<any>(null);
 
-  useEffect(() => {
-    loadLiveMetrics();
-    // Auto-poll every 6 seconds so incoming registrations appear in real-time
-    const interval = setInterval(loadLiveMetrics, 6000);
-    return () => clearInterval(interval);
+  const applyAdminPayload = useCallback((data: any) => {
+    setLiveMetrics(data.metrics || {});
+    if (Array.isArray(data.kycApplications)) {
+      const mapped: KycApplication[] = data.kycApplications.map((k: any) => ({
+        id: k._id || k.id || k.customId,
+        name: k.name,
+        role: k.role || 'CONTRACTOR',
+        tradeOrShop: k.tradeOrShop || 'पंजीकृत भागीदार',
+        phone: k.phone ? `+91 ${k.phone}` : 'फोन उपलब्ध नहीं',
+        rawPhone: k.phone || '',
+        docNumber: k.docNumber || 'पहचान पत्र विचाराधीन',
+        docFilePath: k.docFilePath || '',
+        appliedDate: k.createdAt ? new Date(k.createdAt).toLocaleDateString('hi-IN') : (k.appliedDate || 'आज'),
+        status: k.status || 'PENDING',
+      }));
+      setKycList(mapped);
+    }
+    if (Array.isArray(data.disputes) && data.disputes.length > 0) {
+      setDisputes(
+        data.disputes.map((d: any) => ({
+          id: d._id || d.id || d.customId,
+          customerName: d.customerName,
+          contractorName: d.contractorName,
+          jobTitle: d.jobTitle,
+          escrowAmount: Number(d.escrowAmount) || 0,
+          issueDescription: d.issueDescription,
+          status: d.status || 'OPEN',
+        }))
+      );
+    }
   }, []);
 
-  const loadLiveMetrics = async () => {
+  const loadLiveMetrics = useCallback(async () => {
     try {
       const data = await ApiService.getAdminMetrics();
       if (data && data.success) {
-        setLiveMetrics(data);
-        if (data.kycApplications && data.kycApplications.length > 0) {
-          const mapped: KycApplication[] = data.kycApplications.map((k: any) => ({
-            id: k._id || k.id || k.customId,
-            name: k.name,
-            role: k.role || 'CONTRACTOR',
-            tradeOrShop: k.tradeOrShop || 'पंजीकृत भागीदार',
-            phone: k.phone ? `+91 ${k.phone}` : 'फोन उपलब्ध नहीं',
-            docNumber: k.docNumber || 'पहचान पत्र विचाराधीन',
-            appliedDate: k.createdAt ? new Date(k.createdAt).toLocaleDateString('hi-IN') : 'आज',
-            status: k.status || 'PENDING',
-          }));
-          setKycList(mapped);
-        }
+        applyAdminPayload(data);
       }
     } catch (err) {
       console.log('Error loading admin metrics:', err);
     }
-  };
+  }, [applyAdminPayload]);
 
-  const handleApproveKyc = async (id: string, name: string) => {
-    setKycList((prev) =>
-      prev.map((k) => (k.id === id ? { ...k, status: 'APPROVED' } : k))
-    );
-    try {
-      await ApiService.actionKyc(id, 'APPROVED');
-    } catch (err) {
-      // handled
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const data = await ApiService.getAdminMetrics();
+        if (!cancelled && data && data.success) {
+          applyAdminPayload(data);
+        }
+      } catch {
+        // non-fatal polling error
+      }
+    };
+    void poll();
+    const interval = setInterval(poll, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [applyAdminPayload]);
+
+  const handleApproveKyc = async (item: KycApplication) => {
+    const res = await ApiService.actionKyc(item.id, 'APPROVED', item.rawPhone);
+    if (!res || !res.success) {
+      showAppAlert('KYC त्रुटि', res?.error || 'सर्वर से KYC स्वीकृति नहीं हो सकी।');
+      return;
     }
-    Alert.alert('✅ KYC स्वीकृत!', `${name} को वेरीफाइड 'ब्लू टिक' और लाइव आईडी कार्ड जारी कर दिया गया है।`);
+    setKycList((prev) => prev.map((k) => (k.id === item.id ? { ...k, status: 'APPROVED' } : k)));
+    showAppAlert('✅ KYC स्वीकृत!', `${item.name} को वेरीफाइड 'ब्लू टिक' और लाइव आईडी कार्ड जारी कर दिया गया है।`);
   };
 
-  const handleRejectKyc = async (id: string, name: string) => {
-    setKycList((prev) =>
-      prev.map((k) => (k.id === id ? { ...k, status: 'REJECTED' } : k))
-    );
-    try {
-      await ApiService.actionKyc(id, 'REJECTED');
-    } catch (err) {
-      // handled
+  const handleRejectKyc = async (item: KycApplication) => {
+    const res = await ApiService.actionKyc(item.id, 'REJECTED', item.rawPhone);
+    if (!res || !res.success) {
+      showAppAlert('KYC त्रुटि', res?.error || 'सर्वर से KYC अस्वीकृति नहीं हो सकी।');
+      return;
     }
-    Alert.alert('KYC अस्वीकृत', `${name} का आवेदन अस्वीकृत कर दिया गया है।`);
+    setKycList((prev) => prev.map((k) => (k.id === item.id ? { ...k, status: 'REJECTED' } : k)));
+    showAppAlert('KYC अस्वीकृत', `${item.name} का आवेदन अस्वीकृत कर दिया गया है।`);
   };
 
-  const handleResolveDispute = (id: string) => {
-    setDisputes((prev) =>
-      prev.map((d) => (d.id === id ? { ...d, status: 'RESOLVED' } : d))
-    );
-    Alert.alert(
+  const handleResolveDispute = async (id: string) => {
+    const res = await ApiService.resolveDispute(id, 'RESOLVED');
+    if (res && res.success === false) {
+      showAppAlert('त्रुटि', res.error || 'विवाद सर्वर पर अपडेट नहीं हो सका।');
+      return;
+    }
+    setDisputes((prev) => prev.map((d) => (d.id === id ? { ...d, status: 'RESOLVED' } : d)));
+    showAppAlert(
       '⚖️ विवाद मध्यस्थता पूर्ण!',
-      'SETU फील्ड सुपरवाइजर ने साइट का मुआयना किया। कारीगर द्वारा टचअप कराने पर 80% भुगतान कारीगर को और 20% ग्राहक को डिस्काउंट सेटल कर दिया गया।'
+      'SETU फील्ड सुपरवाइजर ने मामले का निपटान और एस्क्रो सेटलमेंट रिकॉर्ड कर दिया है।'
     );
   };
+
+  const gpv = liveMetrics?.grossPlatformVolume ?? 0;
+  const commission = liveMetrics?.platformCommissionEarned ?? 0;
+  const escrowHeld = liveMetrics?.escrowFundsHeld ?? 0;
+  const totalUsersCount = liveMetrics?.totalUsers ?? 0;
+  const totalBookingsCount = liveMetrics?.totalBookings ?? 0;
+  const { isSplitDesktop, horizontalPadding, shellStyle } = useResponsive();
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Admin Super Badge Header */}
-      <View style={styles.adminHeaderCard}>
-        <View style={styles.adminTopRow}>
-          <View style={styles.adminBadge}>
-            <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
-            <Text style={styles.adminBadgeText}>SETU केंद्रीय एडमिन नियंत्रण कक्ष (Admin Hub)</Text>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ padding: horizontalPadding, paddingBottom: 48 }}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={shellStyle}>
+        {/* Admin Super Badge Header */}
+        <View style={styles.adminHeaderCard}>
+          <View style={styles.adminTopRow}>
+            <View style={styles.adminBadge}>
+              <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
+              <Text style={styles.adminBadgeText}>SETU केंद्रीय एडमिन नियंत्रण कक्ष (Admin Hub)</Text>
+            </View>
+          </View>
+          <Text style={styles.adminDesc}>
+            KYC सत्यापन, एस्क्रो फंड्स सुरक्षा, प्लेटफॉर्म फीस (₹35 / 5%) और विवाद मध्यस्थता।
+          </Text>
+        </View>
+
+        {/* Financial Metrics Grid (Live DB Values) — 4 columns on desktop, 2x2 on mobile/tablet */}
+        <View style={[styles.metricsGridWrap, isSplitDesktop && styles.metricsGridDesktop]}>
+          <View style={[styles.metricCard, isSplitDesktop ? styles.metricCardQuarter : styles.metricCardHalf]}>
+            <Text style={styles.metricLabel}>सकल व्यापार (GPV)</Text>
+            <Text style={styles.metricValue}>₹{gpv.toLocaleString('en-IN')}</Text>
+            <Text style={styles.metricSub}>{totalBookingsCount} कुल बुकिंग्स मूल्य</Text>
+          </View>
+
+          <View style={[styles.metricCard, isSplitDesktop ? styles.metricCardQuarter : styles.metricCardHalf]}>
+            <Text style={styles.metricLabel}>SETU प्लेटफॉर्म शुल्क</Text>
+            <Text style={[styles.metricValue, { color: COLORS.accent }]}>₹{commission.toLocaleString('en-IN')}</Text>
+            <Text style={styles.metricSub}>₹35 कैश / 5% एस्क्रो</Text>
+          </View>
+
+          <View style={[styles.metricCard, isSplitDesktop ? styles.metricCardQuarter : styles.metricCardHalf]}>
+            <Text style={styles.metricLabel}>एस्क्रो में सुरक्षित राशि</Text>
+            <Text style={[styles.metricValue, { color: COLORS.primary }]}>₹{escrowHeld.toLocaleString('en-IN')}</Text>
+            <Text style={styles.metricSub}>सक्रिय बुकिंग टोकन होल्ड</Text>
+          </View>
+
+          <View style={[styles.metricCard, isSplitDesktop ? styles.metricCardQuarter : styles.metricCardHalf]}>
+            <Text style={styles.metricLabel}>पंजीकृत उपयोगकर्ता व पार्टनर</Text>
+            <Text style={styles.metricValue}>
+              {totalUsersCount} पंजीकृत
+            </Text>
+            <Text style={styles.metricSub}>लाइव डेटाबेस गणना</Text>
           </View>
         </View>
-        <Text style={styles.adminDesc}>
-          KYC सत्यापन, एस्क्रो फंड्स सुरक्षा, 6% कमीशन रेवेन्यू और विवाद मध्यस्थता।
-        </Text>
-      </View>
 
-      {/* Financial Metrices Grid */}
-      <View style={styles.metricsGrid}>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>सकल व्यापार (GPV)</Text>
-          <Text style={styles.metricValue}>₹14,80,000</Text>
-          <Text style={styles.metricSub}>इस माह कुल प्रोजेक्ट वैल्यू</Text>
-        </View>
-
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>SETU कमीशन (6%)</Text>
-          <Text style={[styles.metricValue, { color: COLORS.accent }]}>₹88,800</Text>
-          <Text style={styles.metricSub}>नेट प्लेटफॉर्म कमाई</Text>
-        </View>
-      </View>
-
-      <View style={styles.metricsGrid}>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>एस्क्रो में सुरक्षित राशि</Text>
-          <Text style={[styles.metricValue, { color: COLORS.primary }]}>₹4,12,500</Text>
-          <Text style={styles.metricSub}>माइलस्टोन रिलीज हेतु होल्ड</Text>
-        </View>
-
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>एक्टिव कारीगर & दुकानें</Text>
-          <Text style={styles.metricValue}>
-            {liveMetrics?.totalUsers ? `${liveMetrics.totalUsers} पंजीकृत` : '342 / 86'}
-          </Text>
-          <Text style={styles.metricSub}>सत्यापित नेटवर्क</Text>
-        </View>
-      </View>
-
-      {/* KYC Verification Queue */}
-      <View style={styles.sectionCard}>
+        {/* Dual Workspace: KYC Desk & Dispute Arbitration side-by-side on Desktop */}
+        <View style={isSplitDesktop ? styles.adminColumnsDesktop : undefined}>
+          {/* KYC Verification Queue */}
+          <View style={[styles.sectionCard, isSplitDesktop && { flex: 1 }]}>
         <View style={styles.sectionHeaderRow}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <MaterialIcons name="verified-user" size={18} color={COLORS.primary} />
@@ -248,18 +295,30 @@ export const AdminDashboard: React.FC = () => {
               </View>
             </View>
 
+            {item.docFilePath ? (
+              <TouchableOpacity
+                style={{ marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                onPress={() => showAppAlert('🔒 प्राइवेट KYC दस्तावेज', `फ़ाइल रेफ़रेंस: ${item.docFilePath}\n\nयह फ़ाइल सुरक्षित /uploads/private वॉल्ट में संग्रहीत है।`)}
+              >
+                <Ionicons name="document-lock-outline" size={14} color={COLORS.primary} />
+                <Text style={{ fontSize: 11, fontWeight: '700', color: COLORS.primary }}>
+                  दस्तावेज़ रेफ़रेंस देखें ({item.docFilePath})
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+
             {item.status === 'PENDING' && (
               <View style={styles.kycActionsRow}>
                 <TouchableOpacity
                   style={styles.rejectBtn}
-                  onPress={() => handleRejectKyc(item.id, item.name)}
+                  onPress={() => handleRejectKyc(item)}
                 >
                   <Text style={styles.rejectBtnText}>अस्वीकार</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   style={styles.approveBtn}
-                  onPress={() => handleApproveKyc(item.id, item.name)}
+                  onPress={() => handleApproveKyc(item)}
                 >
                   <Text style={styles.approveBtnText}>सत्यापित करें & ब्लू टिक दें ✓</Text>
                 </TouchableOpacity>
@@ -293,7 +352,7 @@ export const AdminDashboard: React.FC = () => {
             <Text style={styles.disputeParties}>
               👤 ग्राहक: {d.customerName} • 🔨 कारीगर: {d.contractorName}
             </Text>
-            <Text style={styles.disputeDesc}>शिकायत: "{d.issueDescription}"</Text>
+            <Text style={styles.disputeDesc}>शिकायत: &ldquo;{d.issueDescription}&rdquo;</Text>
 
             {d.status === 'OPEN' ? (
               <TouchableOpacity
@@ -313,8 +372,10 @@ export const AdminDashboard: React.FC = () => {
           </View>
         ))}
       </View>
+        </View>
+      </View>
 
-      <View style={{ height: 60 }} />
+      <View style={{ height: 40 }} />
     </ScrollView>
   );
 };
@@ -323,7 +384,26 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
-    padding: 16,
+  },
+  metricsGridWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 14,
+  },
+  metricsGridDesktop: {
+    gap: 12,
+  },
+  metricCardHalf: {
+    width: '48.2%',
+  },
+  metricCardQuarter: {
+    width: '23.8%',
+  },
+  adminColumnsDesktop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 16,
   },
   adminHeaderCard: {
     backgroundColor: '#0F172A',
@@ -358,7 +438,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   metricCard: {
-    flex: 1,
     backgroundColor: COLORS.cardBg,
     borderRadius: 10,
     padding: 12,

@@ -1,8 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
-import { COLORS } from '../theme/colors';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { Language, TRANSLATIONS } from '../i18n/translations';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface BottomNavBarProps {
   language: Language;
@@ -16,9 +16,16 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
   onTabPress,
 }) => {
   const t = TRANSLATIONS[language];
+  const { isDesktop, isTabletOrDesktop } = useResponsive();
+
+  // Desktop (>= 1024px) displays navigation directly in the top Header bar
+  if (isDesktop) {
+    return null;
+  }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.outerWrap, isTabletOrDesktop && styles.outerWrapTablet]}>
+      <View style={[styles.container, isTabletOrDesktop && styles.containerTablet]}>
       {/* 1. Explore / Home */}
       <TouchableOpacity
         style={styles.tabItem}
@@ -126,16 +133,34 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
             activeTab === 'profile' && styles.tabLabelActive,
           ]}
         >
-          {language === 'hi' ? 'खाता' : 'Account'}
+          {t.navProfile || (language === 'en' ? 'Account' : language === 'hinglish' ? 'Khata' : 'खाता')}
         </Text>
       </TouchableOpacity>
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  outerWrap: {
+    width: '100%',
+    ...Platform.select({
+      web: {
+        position: 'sticky' as any,
+        bottom: 0,
+        zIndex: 100,
+      },
+    }),
+  },
+  outerWrapTablet: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+  },
   container: {
     flexDirection: 'row',
+    width: '100%',
     backgroundColor: '#0F172A',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',
@@ -146,9 +171,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...Platform.select({
       web: {
-        position: 'sticky' as any,
-        bottom: 0,
-        zIndex: 100,
         backdropFilter: 'blur(16px)',
         boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.4)',
       },
@@ -160,6 +182,14 @@ const styles = StyleSheet.create({
         elevation: 10,
       },
     }),
+  },
+  containerTablet: {
+    maxWidth: 560,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
   },
   tabItem: {
     alignItems: 'center',

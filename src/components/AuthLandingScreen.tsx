@@ -7,15 +7,15 @@ import {
   TextInput,
   ScrollView,
   ActivityIndicator,
-  Alert,
   Platform,
   Image,
 } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
-import { COLORS } from '../theme/colors';
 import { Language, TRANSLATIONS } from '../i18n/translations';
 import { ApiService } from '../services/api';
 import { getSetuLogo } from '../constants/logos';
+import { showAppAlert } from '../utils/appAlert';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface AuthLandingScreenProps {
   language: Language;
@@ -39,17 +39,25 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
   const [otp, setOtp] = useState('');
   const [name, setName] = useState('');
   const [tradeOrShop, setTradeOrShop] = useState('');
-  const [realOtpReceived, setRealOtpReceived] = useState<string>('');
   const [smsNotification, setSmsNotification] = useState<string | null>(null);
   const [isSendingOtp, setIsSendingOtp] = useState<boolean>(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState<boolean>(false);
   const [verificationToken, setVerificationToken] = useState<string | null>(null);
 
-  // Send OTP
-  const handleSendOtp = async () => {
-    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+  const switchRole = (role: 'CUSTOMER' | 'CONTRACTOR' | 'VENDOR') => {
+    setAuthRole(role);
+    setTradeOrShop('');
+    setOtp('');
+    setVerificationToken(null);
+    setSmsNotification(null);
+    setStep('PHONE');
+  };
+
+  // Send OTP via centralized ApiService
+  const handleSendOtp = async (overridePhone?: string) => {
+    const cleanPhone = (overridePhone ?? phone).replace(/\D/g, '').slice(-10);
     if (cleanPhone.length !== 10) {
-      Alert.alert(
+      showAppAlert(
         language === 'en' ? 'Invalid Number' : 'अमान्य मोबाइल नंबर',
         language === 'en'
           ? 'Please enter a valid 10-digit Indian mobile number.'
@@ -60,20 +68,9 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
 
     setIsSendingOtp(true);
     try {
-      const origin =
-        Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin
-          ? window.location.origin
-          : 'https://setu-1-nine.vercel.app';
-
-      const res = await fetch(`${origin}/api/auth/send-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: cleanPhone }),
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'OTP भेजने में विफल');
+      const data = await ApiService.sendOtp(cleanPhone);
+      if (!data || !data.success) {
+        throw new Error(data?.error || 'OTP भेजने में विफल');
       }
 
       if (data.verificationToken) {
@@ -82,7 +79,6 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
 
       if (data.demoOtp) {
         setOtp(data.demoOtp);
-        setRealOtpReceived(data.demoOtp);
         setSmsNotification(
           language === 'en'
             ? `📩 SMS Sent: Use verification OTP ${data.demoOtp} (auto-filled)`
@@ -97,7 +93,7 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
       }
       setStep('OTP');
     } catch (err: any) {
-      Alert.alert(
+      showAppAlert(
         language === 'en' ? 'OTP Send Failed' : 'OTP विफलता',
         err.message || (language === 'en' ? 'Unable to send OTP. Please check your connection.' : 'OTP भेजने में असमर्थ। कृपया नेटवर्क जाँचें।')
       );
@@ -106,10 +102,10 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
     }
   };
 
-  // Verify OTP
+  // Verify OTP (Never sends ADMIN role via OTP endpoint!)
   const handleVerifyOtp = async () => {
-    if (!otp || otp.length < 4) {
-      Alert.alert(
+    if (!otp || otp.trim().length < 4) {
+      showAppAlert(
         language === 'en' ? 'Enter OTP' : 'OTP दर्ज करें',
         language === 'en' ? 'Please enter the 4-digit code.' : 'कृपया 4-अंकीय OTP कोड डालें।'
       );
@@ -119,26 +115,18 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
     setIsVerifyingOtp(true);
     try {
       const cleanPhone = phone.replace(/\D/g, '').slice(-10);
-      const origin =
-        Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin
-          ? window.location.origin
-          : 'https://setu-1-nine.vercel.app';
+      const safeRole: 'CUSTOMER' | 'CONTRACTOR' | 'VENDOR' = authRole === 'ADMIN' ? 'CUSTOMER' : authRole;
 
-      const res = await fetch(`${origin}/api/auth/verify-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: cleanPhone,
-          otp: otp.trim(),
-          verificationToken,
-          fullName: name.trim() || (authRole === 'CUSTOMER' ? 'अमित कुमार सिंह' : authRole === 'CONTRACTOR' ? 'रमेश शर्मा' : 'गुप्ता जी'),
-          role: authRole,
-          tradeOrShop: tradeOrShop.trim() || (authRole === 'CONTRACTOR' ? 'मास्टर बढ़ई (Modular Kitchen)' : authRole === 'VENDOR' ? 'गुप्ता हार्डवेयर स्टोर' : ''),
-        }),
+      const data = await ApiService.verifyOtp({
+        phone: cleanPhone,
+        otp: otp.trim(),
+        verificationToken,
+        fullName: name.trim() || undefined,
+        role: safeRole,
+        tradeOrShop: tradeOrShop.trim() || undefined,
       });
 
-      const data = await res.json();
-      if (res.ok && data.success && data.user) {
+      if (data && data.success && data.user) {
         if (data.token) {
           ApiService.setAuthToken(data.token);
         }
@@ -148,10 +136,10 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
         }
         onLoginSuccess(data.user);
       } else {
-        throw new Error(data.error || 'सत्यापन विफल रहा।');
+        throw new Error(data?.error || 'सत्यापन विफल रहा।');
       }
     } catch (err: any) {
-      Alert.alert(
+      showAppAlert(
         language === 'en' ? 'Verification Failed' : 'सत्यापन विफल',
         err.message || (language === 'en' ? 'Invalid OTP or server rejection.' : 'अमान्य OTP कोड या सर्वर द्वारा अस्वीकार।')
       );
@@ -160,191 +148,218 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
     }
   };
 
-  // Fast Test Profiles
+  // Prefill & trigger real OTP login for sample accounts (NEVER bypasses server JWT!)
   const handleFastDemoLogin = (role: 'CUSTOMER' | 'CONTRACTOR' | 'VENDOR' | 'ADMIN') => {
     if (role === 'ADMIN') {
       onRequestAdmin();
       return;
     }
 
-    const testUsers = {
-      CUSTOMER: {
-        id: 'u1',
-        phone: '9876543210',
-        name: 'अमित कुमार सिंह',
-        role: 'CUSTOMER',
-        setuId: 'SETU-CUS-1029',
-        rewardPoints: 250,
-        locality: 'एमपी नगर (ज़ोन-1), भोपाल',
-      },
-      CONTRACTOR: {
-        id: 'u2',
-        phone: '9812345678',
-        name: 'रमेश शर्मा (मास्टर बढ़ई)',
-        role: 'CONTRACTOR',
-        setuId: 'SETU-PRO-4481',
-        trade: 'बढ़ई (Carpenter)',
-        walletBalance: 850,
-      },
-      VENDOR: {
-        id: 'u3',
-        phone: '9898989898',
-        name: 'गुप्ता जी',
-        role: 'VENDOR',
-        setuId: 'SETU-VEN-8820',
-        shopName: 'गुप्ता हार्डवेयर & सेनेटरी',
-      },
-    };
+    const demoMeta = {
+      CUSTOMER: { phone: '9876543210', name: 'अंकित (भोपाल)', tradeOrShop: '' },
+      CONTRACTOR: { phone: '9812345678', name: 'रमेश शर्मा', tradeOrShop: 'मास्टर बढ़ई (Modular Kitchen)' },
+      VENDOR: { phone: '9898989898', name: 'गुप्ता जी', tradeOrShop: 'गुप्ता हार्डवेयर & सेनेटरी' },
+    }[role];
 
-    const selected = testUsers[role];
-    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem('setu_current_user', JSON.stringify(selected));
-    }
-    onLoginSuccess(selected);
+    setAuthRole(role);
+    setPhone(demoMeta.phone);
+    setName(demoMeta.name);
+    setTradeOrShop(demoMeta.tradeOrShop);
+    handleSendOtp(demoMeta.phone);
   };
 
   const logoSource = getSetuLogo(language);
+  const { isCompactPhone, isSplitDesktop, isTabletOrDesktop } = useResponsive();
 
   return (
     <View style={styles.root}>
       {/* Top Bar with Language Selector */}
       <View style={styles.topBar}>
-        <View style={styles.brandRow}>
-          <View style={styles.topLogoBadgeContainer}>
-            <Image source={logoSource} style={styles.topLogoImage} resizeMode="cover" />
+        <View style={[styles.topBarInner, isTabletOrDesktop && styles.topBarInnerDesktop]}>
+          <View style={styles.brandRow}>
+            <View style={styles.topLogoBadgeContainer}>
+              <Image source={logoSource} style={styles.topLogoImage} resizeMode="cover" />
+            </View>
+            <Text style={[styles.brandTitle, isCompactPhone && { fontSize: 16 }]}>
+              {language === 'hi' ? 'सेतु' : 'SETU'}
+            </Text>
           </View>
-          <Text style={styles.brandTitle}>{language === 'hi' ? 'सेतु' : 'SETU'}</Text>
-        </View>
 
-        {/* Tri-Lingual Language Selector */}
-        <View style={styles.langPill}>
-          <TouchableOpacity
-            style={[styles.langBtn, language === 'hi' && styles.langBtnActive]}
-            onPress={() => onToggleLanguage('hi')}
-          >
-            <Text style={[styles.langBtnText, language === 'hi' && styles.langBtnTextActive]}>
-              हिन्दी
-            </Text>
-          </TouchableOpacity>
-          <Text style={styles.langDivider}>|</Text>
-          <TouchableOpacity
-            style={[styles.langBtn, language === 'en' && styles.langBtnActive]}
-            onPress={() => onToggleLanguage('en')}
-          >
-            <Text style={[styles.langBtnText, language === 'en' && styles.langBtnTextActive]}>
-              English
-            </Text>
-          </TouchableOpacity>
-          <Text style={styles.langDivider}>|</Text>
-          <TouchableOpacity
-            style={[styles.langBtn, language === 'hinglish' && styles.langBtnActive]}
-            onPress={() => onToggleLanguage('hinglish')}
-          >
-            <Text style={[styles.langBtnText, language === 'hinglish' && styles.langBtnTextActive]}>
-              Hinglish
-            </Text>
-          </TouchableOpacity>
+          {/* Tri-Lingual Language Selector */}
+          <View style={styles.langPill}>
+            <TouchableOpacity
+              style={[styles.langBtn, language === 'hi' && styles.langBtnActive]}
+              onPress={() => onToggleLanguage('hi')}
+            >
+              <Text style={[styles.langBtnText, language === 'hi' && styles.langBtnTextActive]}>
+                {isCompactPhone ? 'हिं' : 'हिन्दी'}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.langDivider}>|</Text>
+            <TouchableOpacity
+              style={[styles.langBtn, language === 'en' && styles.langBtnActive]}
+              onPress={() => onToggleLanguage('en')}
+            >
+              <Text style={[styles.langBtnText, language === 'en' && styles.langBtnTextActive]}>
+                {isCompactPhone ? 'EN' : 'English'}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.langDivider}>|</Text>
+            <TouchableOpacity
+              style={[styles.langBtn, language === 'hinglish' && styles.langBtnActive]}
+              onPress={() => onToggleLanguage('hinglish')}
+            >
+              <Text style={[styles.langBtnText, language === 'hinglish' && styles.langBtnTextActive]}>
+                {isCompactPhone ? 'Hing' : 'Hinglish'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Real Incoming SMS Notification Banner */}
-        {smsNotification && (
-          <View style={styles.smsBanner}>
-            <View style={styles.smsIcon}>
-              <MaterialIcons name="sms" size={18} color="#0284C7" />
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          isSplitDesktop && styles.scrollContentDesktop,
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={[styles.authGrid, isSplitDesktop && styles.authGridDesktop]}>
+          {/* Left Column: 3D Hero Welcome Card with Official Logo */}
+          <View
+            style={[
+              styles.welcomeCard,
+              isSplitDesktop && styles.welcomeCardDesktop,
+            ]}
+          >
+            <View
+              style={[
+                styles.welcomeLogo3DContainer,
+                isSplitDesktop && { width: 96, height: 96, borderRadius: 24, marginBottom: 18 },
+              ]}
+            >
+              <Image source={logoSource} style={styles.welcomeLogo3DImage} resizeMode="cover" />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.smsTitle}>
-                {language === 'en' ? 'SMS Gateway Notification:' : 'आधिकारिक SMS गेटवे सूचना:'}
-              </Text>
-              <Text style={styles.smsBody}>{smsNotification}</Text>
+            <Text
+              style={[
+                styles.welcomeTitle,
+                isSplitDesktop && { fontSize: 30, textAlign: 'left', marginBottom: 8 },
+              ]}
+            >
+              {t.welcomeTitle}
+            </Text>
+            <Text
+              style={[
+                styles.welcomeTagline,
+                isSplitDesktop && { fontSize: 16, textAlign: 'left', marginBottom: 10 },
+              ]}
+            >
+              {t.welcomeSub}
+            </Text>
+            <Text
+              style={[
+                styles.welcomeDesc,
+                isSplitDesktop && { fontSize: 13.5, textAlign: 'left', lineHeight: 21, maxWidth: 440 },
+              ]}
+            >
+              {t.welcomeDesc}
+            </Text>
+
+            {/* 3 Trust Pillars */}
+            <View
+              style={[
+                styles.trustPillarsRow,
+                isSplitDesktop && { justifyContent: 'flex-start', marginTop: 20, gap: 10 },
+              ]}
+            >
+              <View style={[styles.trustPillar, isSplitDesktop && styles.trustPillarDesktop]}>
+                <Ionicons name="shield-checkmark" size={14} color="#22C55E" />
+                <Text style={styles.trustPillarText}>
+                  {language === 'hi' ? '100% वेरिफाइड' : '100% Verified'}
+                </Text>
+              </View>
+              <View style={[styles.trustPillar, isSplitDesktop && styles.trustPillarDesktop]}>
+                <Ionicons name="lock-closed" size={13} color="#0284C7" />
+                <Text style={styles.trustPillarText}>
+                  {language === 'hi' ? 'एस्क्रो सुरक्षित' : 'Escrow Safe'}
+                </Text>
+              </View>
+              <View style={[styles.trustPillar, isSplitDesktop && styles.trustPillarDesktop]}>
+                <Ionicons name="flash" size={13} color="#EA580C" />
+                <Text style={styles.trustPillarText}>
+                  {language === 'hi' ? '15m आगमन' : '15m Arrival'}
+                </Text>
+              </View>
             </View>
           </View>
-        )}
 
-        {/* 3D Hero Welcome Card with Official Logo */}
-        <View style={styles.welcomeCard}>
-          <View style={styles.welcomeLogo3DContainer}>
-            <Image source={logoSource} style={styles.welcomeLogo3DImage} resizeMode="cover" />
-          </View>
-          <Text style={styles.welcomeTitle}>{t.welcomeTitle}</Text>
-          <Text style={styles.welcomeTagline}>{t.welcomeSub}</Text>
-          <Text style={styles.welcomeDesc}>{t.welcomeDesc}</Text>
+          {/* Right Column: SMS Notice + Role Selector + Auth Form Card + Demo Logins */}
+          <View style={[styles.authRightCol, isSplitDesktop && styles.authRightColDesktop]}>
+            {/* Real Incoming SMS Notification Banner */}
+            {smsNotification && (
+              <View style={styles.smsBanner}>
+                <View style={styles.smsIcon}>
+                  <MaterialIcons name="sms" size={18} color="#0284C7" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.smsTitle}>
+                    {language === 'en' ? 'SMS Gateway Notification:' : 'आधिकारिक SMS गेटवे सूचना:'}
+                  </Text>
+                  <Text style={styles.smsBody}>{smsNotification}</Text>
+                </View>
+              </View>
+            )}
 
-          {/* 3 Trust Pillars */}
-          <View style={styles.trustPillarsRow}>
-            <View style={styles.trustPillar}>
-              <Ionicons name="shield-checkmark" size={13} color="#22C55E" />
-              <Text style={styles.trustPillarText}>
-                {language === 'hi' ? '100% वेरिफाइड' : '100% Verified'}
+            {/* Role Selector Tabs */}
+            <View style={styles.roleTabsWrap}>
+              <Text style={styles.roleTabsLabel}>
+                {language === 'en' ? 'Select your role:' : language === 'hinglish' ? 'Apna role chunein:' : 'अपनी भूमिका चुनें:'}
               </Text>
+              <View style={[styles.roleTabs, isCompactPhone && { flexWrap: 'wrap' }]}>
+                <TouchableOpacity
+                  style={[styles.roleTab, isCompactPhone && { minWidth: '47%' }, authRole === 'CUSTOMER' && styles.roleTabActive]}
+                  onPress={() => switchRole('CUSTOMER')}
+                >
+                  <Ionicons name="person" size={14} color={authRole === 'CUSTOMER' ? '#FFFFFF' : '#CBD5E1'} />
+                  <Text style={[styles.roleTabText, authRole === 'CUSTOMER' && styles.roleTabTextActive]}>
+                    {language === 'en' ? 'Customer' : language === 'hinglish' ? 'Grahak' : 'ग्राहक'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.roleTab, isCompactPhone && { minWidth: '47%' }, authRole === 'CONTRACTOR' && styles.roleTabActive]}
+                  onPress={() => switchRole('CONTRACTOR')}
+                >
+                  <FontAwesome5 name="hammer" size={12} color={authRole === 'CONTRACTOR' ? '#FFFFFF' : '#CBD5E1'} />
+                  <Text style={[styles.roleTabText, authRole === 'CONTRACTOR' && styles.roleTabTextActive]}>
+                    {language === 'en' ? 'Contractor' : language === 'hinglish' ? 'Karigar' : 'कारीगर'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.roleTab, isCompactPhone && { minWidth: '47%' }, authRole === 'VENDOR' && styles.roleTabActive]}
+                  onPress={() => switchRole('VENDOR')}
+                >
+                  <MaterialIcons name="store" size={14} color={authRole === 'VENDOR' ? '#FFFFFF' : '#CBD5E1'} />
+                  <Text style={[styles.roleTabText, authRole === 'VENDOR' && styles.roleTabTextActive]}>
+                    {language === 'en' ? 'Store' : language === 'hinglish' ? 'Dukandar' : 'दुकानदार'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.roleTab, isCompactPhone && { minWidth: '47%' }, authRole === 'ADMIN' && styles.roleTabActiveAdmin]}
+                  onPress={() => {
+                    setAuthRole('CUSTOMER');
+                    onRequestAdmin();
+                  }}
+                >
+                  <MaterialIcons name="security" size={14} color={authRole === 'ADMIN' ? '#FFFFFF' : '#F87171'} />
+                  <Text style={[styles.roleTabText, authRole === 'ADMIN' && styles.roleTabTextActive]}>
+                    {language === 'en' ? 'Admin' : 'एडमिन'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <View style={styles.trustPillar}>
-              <Ionicons name="lock-closed" size={12} color="#0284C7" />
-              <Text style={styles.trustPillarText}>
-                {language === 'hi' ? 'एस्क्रो सुरक्षित' : 'Escrow Safe'}
-              </Text>
-            </View>
-            <View style={styles.trustPillar}>
-              <Ionicons name="flash" size={12} color="#EA580C" />
-              <Text style={styles.trustPillarText}>
-                {language === 'hi' ? '15m आगमन' : '15m Arrival'}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Role Selector Tabs */}
-        <View style={styles.roleTabsWrap}>
-          <Text style={styles.roleTabsLabel}>
-            {language === 'en' ? 'Select your role:' : language === 'hinglish' ? 'Apna role chunein:' : 'अपनी भूमिका चुनें:'}
-          </Text>
-          <View style={styles.roleTabs}>
-            <TouchableOpacity
-              style={[styles.roleTab, authRole === 'CUSTOMER' && styles.roleTabActive]}
-              onPress={() => setAuthRole('CUSTOMER')}
-            >
-              <Ionicons name="person" size={14} color={authRole === 'CUSTOMER' ? '#FFFFFF' : '#475569'} />
-              <Text style={[styles.roleTabText, authRole === 'CUSTOMER' && styles.roleTabTextActive]}>
-                {language === 'en' ? 'Customer' : 'ग्राहक'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.roleTab, authRole === 'CONTRACTOR' && styles.roleTabActive]}
-              onPress={() => setAuthRole('CONTRACTOR')}
-            >
-              <FontAwesome5 name="hammer" size={12} color={authRole === 'CONTRACTOR' ? '#FFFFFF' : '#475569'} />
-              <Text style={[styles.roleTabText, authRole === 'CONTRACTOR' && styles.roleTabTextActive]}>
-                {language === 'en' ? 'Contractor' : 'कारीगर'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.roleTab, authRole === 'VENDOR' && styles.roleTabActive]}
-              onPress={() => setAuthRole('VENDOR')}
-            >
-              <MaterialIcons name="store" size={14} color={authRole === 'VENDOR' ? '#FFFFFF' : '#475569'} />
-              <Text style={[styles.roleTabText, authRole === 'VENDOR' && styles.roleTabTextActive]}>
-                {language === 'en' ? 'Store' : 'दुकानदार'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.roleTab, authRole === 'ADMIN' && styles.roleTabActiveAdmin]}
-              onPress={() => {
-                setAuthRole('ADMIN');
-                onRequestAdmin();
-              }}
-            >
-              <MaterialIcons name="security" size={14} color={authRole === 'ADMIN' ? '#FFFFFF' : '#DC2626'} />
-              <Text style={[styles.roleTabText, authRole === 'ADMIN' && styles.roleTabTextActive]}>
-                {language === 'en' ? 'Admin' : 'एडमिन'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
 
         {/* Auth Input Card */}
         <View style={styles.formCard}>
@@ -369,7 +384,7 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
 
               <TouchableOpacity
                 style={styles.submitBtn}
-                onPress={handleSendOtp}
+                onPress={() => handleSendOtp()}
                 disabled={isSendingOtp}
                 activeOpacity={0.85}
               >
@@ -504,6 +519,8 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
             </TouchableOpacity>
           </View>
         </View>
+          </View>
+        </View>
       </ScrollView>
     </View>
   );
@@ -516,14 +533,22 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'web' ? 14 : 0,
   },
   topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#1E293B',
     backgroundColor: '#0F172A',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  topBarInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: 8,
+  },
+  topBarInnerDesktop: {
+    maxWidth: 1120,
+    alignSelf: 'center',
   },
   brandRow: {
     flexDirection: 'row',
@@ -588,7 +613,34 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+    paddingBottom: 36,
     alignItems: 'center',
+    flexGrow: 1,
+  },
+  scrollContentDesktop: {
+    justifyContent: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 28,
+  },
+  authGrid: {
+    width: '100%',
+    maxWidth: 460,
+    alignItems: 'center',
+  },
+  authGridDesktop: {
+    maxWidth: 1060,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 48,
+  },
+  authRightCol: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  authRightColDesktop: {
+    flex: 1,
+    maxWidth: 460,
   },
   smsBanner: {
     width: '100%',
@@ -639,6 +691,13 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     marginBottom: 14,
   },
+  welcomeCardDesktop: {
+    flex: 1,
+    maxWidth: 520,
+    alignItems: 'flex-start',
+    paddingVertical: 24,
+    marginBottom: 0,
+  },
   welcomeLogo3DContainer: {
     width: 84,
     height: 84,
@@ -669,6 +728,8 @@ const styles = StyleSheet.create({
   },
   trustPillarsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
     marginTop: 12,
@@ -683,6 +744,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
     gap: 4,
+  },
+  trustPillarDesktop: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
   },
   trustPillarText: {
     color: '#E2E8F0',
@@ -741,7 +808,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#DC2626',
   },
   roleTabText: {
-    color: '#94A3B8',
+    color: '#CBD5E1',
     fontSize: 11,
     fontWeight: '700',
   },
@@ -885,15 +952,15 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   fastTestPill: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#273549',
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
+    paddingVertical: 7,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#475569',
   },
   fastTestPillText: {
-    color: '#E2E8F0',
+    color: '#F8FAFC',
     fontSize: 11,
     fontWeight: '700',
   },

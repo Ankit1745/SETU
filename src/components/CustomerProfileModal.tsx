@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
-  Alert,
   Image,
   ActivityIndicator,
   Platform,
@@ -17,6 +16,8 @@ import { COLORS } from '../theme/colors';
 import { Language } from '../i18n/translations';
 import { pickImageFromGallery } from '../utils/mediaPicker';
 import { ApiService } from '../services/api';
+import { showAppAlert } from '../utils/appAlert';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface CustomerProfileModalProps {
   visible: boolean;
@@ -41,6 +42,40 @@ const LOCALITY_PRESETS = [
   { name: 'चूना भट्टी & शाहपुरा, भोपाल', pincode: '462016', prosCount: 25 },
 ];
 
+function normalizeProfileUser(
+  verifiedUser: any,
+  authRole: 'CUSTOMER' | 'CONTRACTOR' | 'VENDOR',
+  nameInput: string,
+  phoneInput: string,
+  finalLocation: string,
+  avatarUrl: string,
+  idProofUrl: string,
+  isHindi: boolean
+) {
+  const finalRole = verifiedUser?.role || authRole || 'CUSTOMER';
+  const rolePrefix =
+    finalRole === 'CONTRACTOR'
+      ? 'PRO'
+      : finalRole === 'VENDOR'
+      ? 'VEN'
+      : finalRole === 'ADMIN'
+      ? 'ADM'
+      : 'CUS';
+
+  return {
+    ...(verifiedUser || {}),
+    id: verifiedUser?.id || `u_${Date.now()}`,
+    name: verifiedUser?.name || nameInput.trim() || (isHindi ? 'अंकित शर्मा' : 'Ankit Sharma'),
+    phone: verifiedUser?.phone || phoneInput.replace(/\D/g, '').slice(-10) || '',
+    role: finalRole,
+    location: finalLocation,
+    avatarUrl: avatarUrl || verifiedUser?.avatarUrl || '',
+    idProofUrl: idProofUrl || verifiedUser?.idProofUrl || '',
+    rewardPoints: verifiedUser?.rewardPoints ?? 250,
+    setuId: verifiedUser?.setuId || `SETU-${rolePrefix}-${Math.floor(1000 + Math.random() * 9000)}`,
+  };
+}
+
 export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   visible,
   user,
@@ -52,16 +87,15 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   onLocationUpdate,
   language = 'hi',
 }) => {
-  const isHindi = language === 'hi';
+  const isHindi = language !== 'en';
 
   // Login steps: 'PHONE' -> 'OTP' -> 'LOCATION_PERMISSION'
-  const [authRole, setAuthRole] = useState<'CUSTOMER' | 'PARTNER'>('CUSTOMER');
+  const [authRole, setAuthRole] = useState<'CUSTOMER' | 'CONTRACTOR' | 'VENDOR'>('CUSTOMER');
   const [loginStep, setLoginStep] = useState<'PHONE' | 'OTP' | 'LOCATION_PERMISSION'>('PHONE');
   const [showTestProfiles, setShowTestProfiles] = useState<boolean>(false);
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [name, setName] = useState('');
-  const [selectedLoc, setSelectedLoc] = useState(currentLocation);
 
   // Real Features State
   const [realOtpReceived, setRealOtpReceived] = useState<string>('');
@@ -79,7 +113,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   const [legalModalType, setLegalModalType] = useState<'PRIVACY' | 'TERMS' | 'REFUND' | null>(null);
 
   const handleDeleteAccount = () => {
-    Alert.alert(
+    showAppAlert(
       isHindi ? '⚠️ खाता स्थायी रूप से हटाएं?' : '⚠️ Delete Account Permanently?',
       isHindi
         ? 'क्या आप वाकई अपना SETU खाता हटाना चाहते हैं? आपकी सभी बुकिंग, रिवॉर्ड कॉइन्स और व्यक्तिगत डेटा स्थायी रूप से मिटा दिया जाएगा।'
@@ -89,9 +123,16 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
         {
           text: isHindi ? 'हाँ, खाता हटाएं' : 'Yes, Delete',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
+            if (ApiService.getAuthToken()) {
+              const res = await ApiService.deleteAccount();
+              if (res && !res.success) {
+                showAppAlert('त्रुटि', res.error || 'खाता हटाने में समस्या आई।');
+                return;
+              }
+            }
             onLogout();
-            Alert.alert(
+            showAppAlert(
               isHindi ? '✓ खाता हटा दिया गया' : '✓ Account Deleted',
               isHindi
                 ? 'आपका खाता और व्यक्तिगत डेटा सफलतापूर्वक मिटा दिया गया है।'
@@ -129,21 +170,21 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
         } else {
           setIdProofUrl(fileRef);
         }
-        Alert.alert('✅ सफलता', type === 'avatar' ? 'प्रोफाइल फोटो अपलोड हो गई!' : 'पहचान पत्र सुरक्षित प्राइवेट स्टोरेज में अपलोड हो गया!');
+        showAppAlert('✅ सफलता', type === 'avatar' ? 'प्रोफाइल फोटो अपलोड हो गई!' : 'पहचान पत्र सुरक्षित प्राइवेट स्टोरेज में अपलोड हो गया!');
       } else {
-        Alert.alert('अपलोड विफल', uploadRes?.error || 'फोटो अपलोड नहीं हो सकी।');
+        showAppAlert('अपलोड विफल', uploadRes?.error || 'फोटो अपलोड नहीं हो सकी।');
       }
     } catch (err: any) {
       setIsUploadingPhoto(false);
-      Alert.alert('त्रुटि', 'अपलोड प्रक्रिया में समस्या: ' + err.message);
+      showAppAlert('त्रुटि', 'अपलोड प्रक्रिया में समस्या: ' + err.message);
     }
   };
 
-  // 1. Send Real OTP
+  // 1. Send Real OTP via centralized ApiService
   const handleSendOtp = async () => {
     const clean = phone.replace(/\D/g, '').slice(-10);
     if (clean.length < 10) {
-      Alert.alert(
+      showAppAlert(
         isHindi ? 'अमान्य फोन नंबर' : 'Invalid Phone Number',
         isHindi ? 'कृपया 10 अंकों का वैध मोबाइल नंबर दर्ज करें।' : 'Please enter a valid 10-digit mobile number.'
       );
@@ -152,46 +193,35 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
 
     setIsSendingOtp(true);
     try {
-      const origin =
-        Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin
-          ? window.location.origin
-          : 'https://setu-1-nine.vercel.app';
-
-      const res = await fetch(`${origin}/api/auth/send-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: clean }),
-      });
-      const data = await res.json();
-
-      if (data.success) {
-        const generatedOtp = data.demoOtp || data.realOtp || '1234';
+      const data = await ApiService.sendOtp(clean);
+      if (data && data.success) {
         if (data.verificationToken) {
           setVerificationToken(data.verificationToken);
         }
-        setRealOtpReceived(generatedOtp);
-        setOtp(generatedOtp); // Auto-fill for convenience
-        setSmsNotification(generatedOtp);
+        if (data.demoOtp) {
+          setRealOtpReceived(data.demoOtp);
+          setOtp(data.demoOtp);
+          setSmsNotification(data.demoOtp);
+        } else {
+          setRealOtpReceived('');
+          setOtp('');
+          setSmsNotification(null);
+        }
         setLoginStep('OTP');
       } else {
-        Alert.alert('त्रुटि', data.error || 'OTP भेजने में विफल');
+        showAppAlert('त्रुटि', data?.error || 'OTP भेजने में विफल');
       }
-    } catch (err) {
-      // Fallback in case of network issue
-      const mock = Math.floor(1000 + Math.random() * 9000).toString();
-      setRealOtpReceived(mock);
-      setOtp(mock);
-      setSmsNotification(mock);
-      setLoginStep('OTP');
+    } catch {
+      showAppAlert('नेटवर्क त्रुटि', 'OTP सेवा से संपर्क नहीं हो सका। कृपया पुनः प्रयास करें।');
     } finally {
       setIsSendingOtp(false);
     }
   };
 
-  // 2. Verify Real OTP
+  // 2. Verify Real OTP (Strictly server-verified; NO offline bypass)
   const handleVerifyOtp = async () => {
-    if (!otp) {
-      Alert.alert(
+    if (!otp || otp.trim().length < 4) {
+      showAppAlert(
         isHindi ? 'OTP आवश्यक' : 'OTP Required',
         isHindi ? 'कृपया SMS में आया 4 अंकों का कोड दर्ज करें।' : 'Please enter 4-digit code.'
       );
@@ -202,52 +232,35 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
     const clean = phone.replace(/\D/g, '').slice(-10);
 
     try {
-      const origin =
-        Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin
-          ? window.location.origin
-          : 'https://setu-1-nine.vercel.app';
-
-      const res = await fetch(`${origin}/api/auth/verify-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: clean,
-          otp: otp.trim(),
-          verificationToken,
-          fullName: name.trim() || 'अंकित शर्मा (भोपाल)',
-          role: authRole,
-          avatarUrl: avatarUrl,
-          idProofUrl: idProofUrl,
-        }),
+      const data = await ApiService.verifyOtp({
+        phone: clean,
+        otp: otp.trim(),
+        verificationToken,
+        fullName: name.trim() || undefined,
+        role: authRole,
+        avatarUrl: avatarUrl || undefined,
+        idProofUrl: idProofUrl || undefined,
       });
-      const data = await res.json();
 
-      if (data.success) {
+      if (data && data.success && data.user) {
         if (data.token) {
           ApiService.setAuthToken(data.token);
         }
-        if (data.user) {
-          setVerifiedUser(data.user);
-        }
+        setVerifiedUser(data.user);
         setLoginStep('LOCATION_PERMISSION');
       } else {
-        Alert.alert('सत्यापन विफल', data.error || 'अमान्य OTP कोड।');
+        showAppAlert('सत्यापन विफल', data?.error || 'अमान्य या समाप्त OTP कोड।');
       }
-    } catch (err) {
-      // Fallback
-      if (otp === realOtpReceived || otp === '1234') {
-        setLoginStep('LOCATION_PERMISSION');
-      } else {
-        Alert.alert('सत्यापन विफल', 'अमान्य OTP कोड। कृपया सही 4 अंक डालें।');
-      }
+    } catch {
+      showAppAlert('सत्यापन त्रुटि', 'सर्वर से सत्यापन नहीं हो सका। कृपया पुनः प्रयास करें।');
     } finally {
       setIsVerifyingOtp(false);
     }
   };
 
-  // 3. Real GPS Location Detection & Reverse Geocoding
+  // 3. GPS Location Detection (Web Geolocation + explicit manual preset prompt on native)
   const handleGrantGpsLocation = () => {
-    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation) {
       setIsDetectingGps(true);
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
@@ -268,19 +281,17 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
             const pincode = addr.postcode || '462011';
 
             const detectedLocation = `${area}, ${city} • ${pincode}`;
-            setSelectedLoc(detectedLocation);
             completeLogin(detectedLocation);
-          } catch (e) {
-            const fallbackLoc = `भोपाल (अक्षांश: ${latitude.toFixed(3)}, देशांतर: ${longitude.toFixed(3)})`;
-            setSelectedLoc(fallbackLoc);
+          } catch {
+            const fallbackLoc = `भोपाल (${latitude.toFixed(3)}, ${longitude.toFixed(3)})`;
             completeLogin(fallbackLoc);
           } finally {
             setIsDetectingGps(false);
           }
         },
-        (error) => {
+        () => {
           setIsDetectingGps(false);
-          Alert.alert(
+          showAppAlert(
             'GPS अनुमति अस्वीकृत',
             'कृपया नीचे दी गई सूची से अपना इलाका मैन्युअल रूप से चुनें।'
           );
@@ -288,15 +299,15 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
         { enableHighAccuracy: true, timeout: 8000 }
       );
     } else {
-      const defaultLoc = 'एमपी नगर (ज़ोन-1), भोपाल • 462011 (मैन्युअल चयनित)';
-      setSelectedLoc(defaultLoc);
-      completeLogin(defaultLoc);
+      showAppAlert(
+        'मैन्युअल लोकेशन चुनें',
+        'कृपया नीचे दिए गए प्रमुख इलाकों में से अपना क्षेत्र चुनें।'
+      );
     }
   };
 
   const handleSelectPresetLocation = (locName: string, pincode: string) => {
     const formattedLoc = `${locName} • ${pincode}`;
-    setSelectedLoc(formattedLoc);
     completeLogin(formattedLoc);
   };
 
@@ -305,30 +316,16 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
       onLocationUpdate(finalLocation);
     }
 
-    const finalRole = verifiedUser?.role || (authRole === 'PARTNER' ? 'CONTRACTOR' : 'CUSTOMER');
-    const rolePrefix =
-      finalRole === 'CONTRACTOR'
-        ? 'PRO'
-        : finalRole === 'VENDOR'
-        ? 'VEN'
-        : finalRole === 'ADMIN'
-        ? 'ADM'
-        : 'CUS';
-
-    const newUser = {
-      ...(verifiedUser || {}),
-      id: verifiedUser?.id || 'u_' + Date.now(),
-      name: verifiedUser?.name || name.trim() || (isHindi ? 'अंकित शर्मा' : 'Ankit Sharma'),
-      phone: verifiedUser?.phone || phone.replace(/\D/g, '').slice(-10) || '9876543210',
-      role: finalRole,
-      location: finalLocation,
-      avatarUrl: avatarUrl || verifiedUser?.avatarUrl || '',
-      idProofUrl: idProofUrl || verifiedUser?.idProofUrl || '',
-      rewardPoints: verifiedUser?.rewardPoints ?? 250,
-      setuId:
-        verifiedUser?.setuId ||
-        `SETU-${rolePrefix}-${Math.floor(1000 + Math.random() * 9000)}`,
-    };
+    const newUser = normalizeProfileUser(
+      verifiedUser,
+      authRole,
+      name,
+      phone,
+      finalLocation,
+      avatarUrl,
+      idProofUrl,
+      isHindi
+    );
 
     onLoginSuccess(newUser);
     setLoginStep('PHONE');
@@ -339,7 +336,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
     setVerifiedUser(null);
     onClose();
 
-    Alert.alert(
+    showAppAlert(
       isHindi ? '🎉 लॉगिन सफल!' : '🎉 Login Successful!',
       isHindi
         ? `स्वागत है ${newUser.name}!\nआपकी ID: ${newUser.setuId} (${newUser.role === 'CONTRACTOR' ? '👷 कारीगर' : newUser.role === 'VENDOR' ? '🏪 दुकानदार' : newUser.role === 'ADMIN' ? '🛡️ सुपर एडमिन' : '👤 ग्राहक'})\n📍 लोकेशन: ${finalLocation}`
@@ -347,12 +344,100 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
     );
   };
 
+  const { getModalStyles } = useResponsive();
+  const { isDialog, overlayStyle, containerStyle } = getModalStyles({ maxWidth: 660 });
+
   return (
-    <>
-      <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.container}>
-          {/* Real Incoming SMS Notification Banner */}
+    <Modal visible={visible} animationType={isDialog ? 'fade' : 'slide'} transparent={true} onRequestClose={onClose}>
+      <View style={overlayStyle}>
+        <View style={[styles.container, containerStyle]}>
+          {legalModalType !== null ? (
+            <>
+              <View style={styles.header}>
+                <Text style={styles.headerTitle}>
+                  {legalModalType === 'PRIVACY'
+                    ? (isHindi ? '🔒 गोपनीयता नीति (Privacy Policy)' : 'Privacy Policy')
+                    : legalModalType === 'TERMS'
+                    ? (isHindi ? '📜 नियम एवं शर्तें (Terms & Conditions)' : 'Terms & Conditions')
+                    : (isHindi ? '🛡️ 100% रिफंड व रद्दीकरण नीति' : 'Refund & Cancellation Policy')}
+                </Text>
+                <TouchableOpacity onPress={() => setLegalModalType(null)}>
+                  <Ionicons name="close" size={24} color={COLORS.textPrimary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={{ paddingVertical: 14 }}>
+                {legalModalType === 'PRIVACY' && (
+                  <View style={{ gap: 10 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
+                      1. सूचना संग्रहण व सुरक्षा
+                    </Text>
+                    <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
+                      SETU केवल आवश्यक जानकारी (जैसे मोबाइल नंबर, स्थान और मरम्मत समस्या की फोटो) एकत्रित करता है ताकि आपको निकटतम कारीगर व हार्डवेयर स्टोर से जोड़ा जा सके। आपका डेटा किसी भी तृतीय पक्ष को विज्ञापनों हेतु नहीं बेचा जाता।
+                    </Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
+                      2. कैमरा व लोकेशन उपयोग
+                    </Text>
+                    <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
+                      कैमरे का उपयोग केवल AI उस्ताद द्वारा समस्या (नल, सीलन आदि) के सटीक विश्लेषण और कारीगर को कार्य स्थल दिखाने हेतु किया जाता है। लोकेशन केवल 15 मिनट डिलीवरी हेतु पास के कारीगर ढूंढने में उपयोग होती है।
+                    </Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
+                      3. खाता विलोपन अधिकार (Right to Erasure)
+                    </Text>
+                    <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
+                      ग्राहक किसी भी समय प्रोफाइल सेक्शन में &ldquo;खाता हटाएं&rdquo; बटन दबाकर अपना पूरा खाता और व्यक्तिगत डेटा स्थायी रूप से मिटा सकते हैं।
+                    </Text>
+                  </View>
+                )}
+
+                {legalModalType === 'TERMS' && (
+                  <View style={{ gap: 10 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
+                      1. मध्यस्थता व एस्क्रो गारंटी
+                    </Text>
+                    <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
+                      SETU ग्राहक और स्वतंत्र सत्यापित कारीगरों के बीच एक पारदर्शी सेतु है। सभी बुकिंग्स में एस्क्रो सुरक्षा शामिल है, जिससे काम पूरा होने और ग्राहक द्वारा OTP जारी करने तक पैसा सुरक्षित रहता है।
+                    </Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
+                      2. पारदर्शी मानक दरें
+                    </Text>
+                    <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
+                      प्लेटफॉर्म पर प्रदर्शित सभी दरें (दिहाड़ी या नाप दर) भोपाल मार्केट के आधिकारिक सर्वे पर आधारित हैं। कारीगर ग्राहक से इन दरों से अधिक नहीं मांग सकते।
+                    </Text>
+                  </View>
+                )}
+
+                {legalModalType === 'REFUND' && (
+                  <View style={{ gap: 10 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
+                      1. 100% रिफंड गारंटी (100% Escrow Money-Back)
+                    </Text>
+                    <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
+                      यदि बुक किया गया कारीगर तय समय पर नहीं पहुंचता या काम शुरू करने से पहले रद्द होता है, तो आपका 100% अग्रिम एस्क्रो टोकन तुरंत मूल भुगतान स्रोत में वापस कर दिया जाता है।
+                    </Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
+                      2. शून्य रद्दीकरण शुल्क (Zero Cancellation Fee)
+                    </Text>
+                    <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
+                      कारीगर के आपके घर पहुंचने से पहले कभी भी बुकिंग रद्द करने पर कोई रद्दीकरण पेनल्टी (₹0) नहीं ली जाती।
+                    </Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.submitBtn, { marginTop: 20 }]}
+                  onPress={() => setLegalModalType(null)}
+                >
+                  <Text style={styles.submitBtnText}>
+                    {isHindi ? 'समझ गया (वापस जाएं)' : 'Back to Account'}
+                  </Text>
+                </TouchableOpacity>
+                <View style={{ height: 20 }} />
+              </ScrollView>
+            </>
+          ) : (
+            <>
+              {/* Real Incoming SMS Notification Banner */}
           {smsNotification && loginStep === 'OTP' && (
             <TouchableOpacity
               style={styles.realSmsNotification}
@@ -401,7 +486,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                     <Image source={{ uri: user.avatarUrl }} style={styles.avatarImage} />
                   ) : (
                     <View style={styles.avatarCircle}>
-                      <Text style={styles.avatarLetter}>{user.name.charAt(0)}</Text>
+                      <Text style={styles.avatarLetter}>{(user.name || 'S').trim().charAt(0).toUpperCase()}</Text>
                     </View>
                   )}
                   <View style={{ flex: 1, marginLeft: 12 }}>
@@ -417,9 +502,9 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                   <View style={styles.pointsTopRow}>
                     <View style={styles.coinBadge}>
                       <FontAwesome5 name="coins" size={18} color="#D97706" />
-                      <Text style={styles.coinCount}>{user.rewardPoints || 250} कॉइन्स</Text>
+                      <Text style={styles.coinCount}>{user.rewardPoints ?? 250} कॉइन्स</Text>
                     </View>
-                    <Text style={styles.coinWorth}>मूल्य: ₹{user.rewardPoints || 250} की छूट</Text>
+                    <Text style={styles.coinWorth}>मूल्य: ₹{user.rewardPoints ?? 250} की छूट</Text>
                   </View>
                   <Text style={styles.pointsDesc}>
                     {isHindi
@@ -434,7 +519,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                     style={styles.menuItem}
                     onPress={() => {
                       onClose();
-                      Alert.alert(
+                      showAppAlert(
                         isHindi ? 'मेरी बुकिंग्स' : 'My Bookings',
                         isHindi
                           ? 'आपकी सक्रिय बुकिंग्स और एस्क्रो स्टेटस होम स्क्रीन पर नीचे दिख रहे हैं।'
@@ -455,7 +540,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                     style={styles.menuItem}
                     onPress={() => {
                       onClose();
-                      Alert.alert(
+                      showAppAlert(
                         isHindi ? 'सुरक्षित एस्क्रो' : 'Secure Escrow',
                         isHindi
                           ? 'SETU सुरक्षा गारंटी: आपके सभी पेमेंट्स काम पूरा होने तक सुरक्षित रखे जाते हैं।'
@@ -652,7 +737,9 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                             </Text>
                           </TouchableOpacity>
 
-                          {avatarUrl ? (
+                          {isUploadingPhoto ? (
+                            <ActivityIndicator size="small" color="#4F46E5" />
+                          ) : avatarUrl ? (
                             <Image source={{ uri: avatarUrl }} style={styles.thumbnailPreview} />
                           ) : (
                             <Text style={styles.uploadPlaceholderText}>कोई फोटो नहीं चुनी गई</Text>
@@ -676,7 +763,9 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                           </TouchableOpacity>
 
                           {idProofUrl ? (
-                            <Image source={{ uri: idProofUrl }} style={styles.thumbnailPreview} />
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#059669' }} numberOfLines={1}>
+                              🔒 सुरक्षित दस्तावेज़ जुड़ा: {idProofUrl}
+                            </Text>
                           ) : (
                             <Text style={styles.uploadPlaceholderText}>वेरिफिकेशन बैच हेतु</Text>
                           )}
@@ -732,7 +821,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                             onPress={() => {
                               setName('रमेश शर्मा (कारीगर)');
                               setPhone('9812345678');
-                              setAuthRole('PARTNER');
+                              setAuthRole('CONTRACTOR');
                             }}
                           >
                             <Ionicons name="hammer" size={11} color="#EA580C" />
@@ -744,7 +833,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                             onPress={() => {
                               setName('गुप्ता जी (दुकानदार)');
                               setPhone('9898989898');
-                              setAuthRole('PARTNER');
+                              setAuthRole('VENDOR');
                             }}
                           >
                             <Ionicons name="storefront" size={11} color="#D97706" />
@@ -943,104 +1032,11 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
 
             <View style={{ height: 25 }} />
           </ScrollView>
+            </>
+          )}
         </View>
       </View>
     </Modal>
-
-    {/* 📜 Legal & Compliance Policy Sub-Modal */}
-    <Modal
-      visible={legalModalType !== null}
-      transparent
-      animationType="slide"
-      onRequestClose={() => setLegalModalType(null)}
-    >
-      <View style={styles.overlay}>
-        <View style={[styles.container, { maxHeight: '85%' }]}>
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>
-              {legalModalType === 'PRIVACY'
-                ? (isHindi ? '🔒 गोपनीयता नीति (Privacy Policy)' : 'Privacy Policy')
-                : legalModalType === 'TERMS'
-                ? (isHindi ? '📜 नियम एवं शर्तें (Terms & Conditions)' : 'Terms & Conditions')
-                : (isHindi ? '🛡️ 100% रिफंड व रद्दीकरण नीति' : 'Refund & Cancellation Policy')}
-            </Text>
-            <TouchableOpacity onPress={() => setLegalModalType(null)}>
-              <Ionicons name="close" size={24} color={COLORS.textPrimary} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={{ paddingVertical: 14 }}>
-            {legalModalType === 'PRIVACY' && (
-              <View style={{ gap: 10 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
-                  1. सूचना संग्रहण व सुरक्षा
-                </Text>
-                <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
-                  SETU केवल आवश्यक जानकारी (जैसे मोबाइल नंबर, स्थान और मरम्मत समस्या की फोटो) एकत्रित करता है ताकि आपको निकटतम कारीगर व हार्डवेयर स्टोर से जोड़ा जा सके। आपका डेटा किसी भी तृतीय पक्ष को विज्ञापनों हेतु नहीं बेचा जाता।
-                </Text>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
-                  2. कैमरा व लोकेशन उपयोग
-                </Text>
-                <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
-                  कैमरे का उपयोग केवल AI उस्ताद द्वारा समस्या (नल, सीलन आदि) के सटीक विश्लेषण और कारीगर को कार्य स्थल दिखाने हेतु किया जाता है। लोकेशन केवल 15 मिनट डिलीवरी हेतु पास के कारीगर ढूंढने में उपयोग होती है।
-                </Text>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
-                  3. खाता विलोपन अधिकार (Right to Erasure)
-                </Text>
-                <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
-                  ग्राहक किसी भी समय प्रोफाइल सेक्शन में "खाता हटाएं" बटन दबाकर अपना पूरा खाता और व्यक्तिगत डेटा स्थायी रूप से मिटा सकते हैं।
-                </Text>
-              </View>
-            )}
-
-            {legalModalType === 'TERMS' && (
-              <View style={{ gap: 10 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
-                  1. मध्यस्थता व एस्क्रो गारंटी
-                </Text>
-                <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
-                  SETU ग्राहक और स्वतंत्र सत्यापित कारीगरों के बीच एक पारदर्शी सेतु है। सभी बुकिंग्स में एस्क्रो सुरक्षा शामिल है, जिससे काम पूरा होने और ग्राहक द्वारा OTP जारी करने तक पैसा सुरक्षित रहता है।
-                </Text>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
-                  2. पारदर्शी मानक दरें
-                </Text>
-                <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
-                  प्लेटफॉर्म पर प्रदर्शित सभी दरें (दिहाड़ी या नाप दर) भोपाल मार्केट के आधिकारिक सर्वे पर आधारित हैं। कारीगर ग्राहक से इन दरों से अधिक नहीं मांग सकते।
-                </Text>
-              </View>
-            )}
-
-            {legalModalType === 'REFUND' && (
-              <View style={{ gap: 10 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
-                  1. 100% मनी-बैक गारंटी
-                </Text>
-                <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
-                  यदि बुक किया गया कारीगर तय समय पर नहीं पहुंचता या काम शुरू करने से पहले रद्द होता है, तो आपका 100% अग्रिम एस्क्रो टोकन तुरंत मूल भुगतान स्रोत में वापस कर दिया जाता है।
-                </Text>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textPrimary }}>
-                  2. शून्य रद्दीकरण शुल्क (Zero Cancellation Fee)
-                </Text>
-                <Text style={{ fontSize: 11.5, color: '#475569', lineHeight: 17 }}>
-                  कारीगर के आपके घर पहुंचने से पहले कभी भी बुकिंग रद्द करने पर कोई रद्दीकरण पेनल्टी (₹0) नहीं ली जाती।
-                </Text>
-              </View>
-            )}
-
-            <TouchableOpacity
-              style={[styles.submitBtn, { marginTop: 20 }]}
-              onPress={() => setLegalModalType(null)}
-            >
-              <Text style={styles.submitBtnText}>
-                {isHindi ? 'समझ गया (बंद करें)' : 'Understood (Close)'}
-              </Text>
-            </TouchableOpacity>
-            <View style={{ height: 20 }} />
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-    </>
   );
 };
 

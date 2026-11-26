@@ -1,9 +1,11 @@
 import React from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Linking, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Linking, Platform, ViewStyle } from 'react-native';
 import { MaterialIcons, Ionicons, FontAwesome } from '@expo/vector-icons';
 import { Contractor } from '../data/mockData';
 import { COLORS } from '../theme/colors';
-import { Language, TRANSLATIONS } from '../i18n/translations';
+import { Language } from '../i18n/translations';
+import { showAppAlert } from '../utils/appAlert';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface ContractorCardProps {
   contractor: Contractor;
@@ -11,6 +13,7 @@ interface ContractorCardProps {
   onBookPress: (contractor: Contractor) => void;
   onCallPress: (contractor: Contractor) => void;
   language?: Language;
+  containerStyle?: ViewStyle;
 }
 
 export const ContractorCard: React.FC<ContractorCardProps> = ({
@@ -19,19 +22,23 @@ export const ContractorCard: React.FC<ContractorCardProps> = ({
   onBookPress,
   onCallPress,
   language = 'hi',
+  containerStyle,
 }) => {
-  const t = TRANSLATIONS[language];
   const heroImage = contractor.portfolioPhotos?.[0]?.imageUrl || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=600';
+  const { isCompactPhone, isTabletOrDesktop } = useResponsive();
+  const [avatarFailed, setAvatarFailed] = React.useState(false);
+  const showAvatarImage = Boolean(contractor.avatar && contractor.avatar.trim() && !avatarFailed);
+  const initialChar = (contractor.name || 'S').trim().charAt(0).toUpperCase();
 
   return (
-    <View style={styles.cardContainer}>
+    <View style={[styles.cardContainer, containerStyle]}>
       <TouchableOpacity
-        style={styles.card}
+        style={[styles.card, isTabletOrDesktop && { flex: 1, justifyContent: 'space-between' }]}
         activeOpacity={0.94}
         onPress={() => onViewProfilePress(contractor)}
       >
         {/* 1. TINDER-STYLE HERO SHOWCASE PHOTO BANNER */}
-        <View style={styles.heroBanner}>
+        <View style={[styles.heroBanner, isTabletOrDesktop && { height: 170 }]}>
           <Image source={{ uri: heroImage }} style={styles.heroImg} />
           <View style={styles.heroOverlay} />
 
@@ -40,9 +47,9 @@ export const ContractorCard: React.FC<ContractorCardProps> = ({
             <View style={styles.floatingRatingPill}>
               <FontAwesome name="star" size={11} color="#FBBF24" />
               <Text style={styles.floatingRatingText}>
-                {contractor.reviewsCount > 0
-                  ? `${contractor.rating.toFixed(1)} (${contractor.reviewsCount}+)`
-                  : language === 'hi' ? 'नया कारीगर' : 'New Pro'}
+                {(contractor.reviewsCount || 0) > 0
+                  ? `${Number(contractor.rating || 0).toFixed(1)} (${contractor.reviewsCount}+)`
+                  : language === 'en' ? 'New Pro' : 'नया कारीगर'}
               </Text>
             </View>
 
@@ -51,7 +58,7 @@ export const ContractorCard: React.FC<ContractorCardProps> = ({
               <Text style={styles.floatingEtaText}>
                 {contractor.etaMinutes && contractor.distance
                   ? `~${contractor.etaMinutes}m आगमन • ${contractor.distance}`
-                  : language === 'hi' ? 'भोपाल में उपलब्ध' : 'Available in Bhopal'}
+                  : language === 'en' ? 'Available Nearby' : language === 'hinglish' ? 'Paas Me Uplabdh' : 'नजदीक में उपलब्ध'}
               </Text>
             </View>
           </View>
@@ -59,7 +66,17 @@ export const ContractorCard: React.FC<ContractorCardProps> = ({
           {/* Bottom Title on Hero Banner */}
           <View style={styles.heroBottomRow}>
             <View style={styles.avatarStoryRing}>
-              <Image source={{ uri: contractor.avatar }} style={styles.avatarImg} />
+              {showAvatarImage ? (
+                <Image
+                  source={{ uri: contractor.avatar }}
+                  style={styles.avatarImg}
+                  onError={() => setAvatarFailed(true)}
+                />
+              ) : (
+                <View style={[styles.avatarImg, styles.avatarFallbackCircle]}>
+                  <Text style={styles.avatarFallbackText}>{initialChar}</Text>
+                </View>
+              )}
               {contractor.available && <View style={styles.onlineDot} />}
             </View>
 
@@ -164,14 +181,14 @@ export const ContractorCard: React.FC<ContractorCardProps> = ({
           </View>
 
           {/* 4. ACTION BUTTONS: PROFILES & BOOK */}
-          <View style={styles.actionButtonsRow}>
+          <View style={[styles.actionButtonsRow, isCompactPhone && { flexWrap: 'wrap', gap: 6 }]}>
             <TouchableOpacity
-              style={styles.viewProfileBtn}
+              style={[styles.viewProfileBtn, isCompactPhone && { flex: 1, justifyContent: 'center', minWidth: '48%' }]}
               onPress={() => onViewProfilePress(contractor)}
               activeOpacity={0.8}
             >
               <Ionicons name="eye-outline" size={15} color="#1E40AF" />
-              <Text style={styles.viewProfileBtnText}>
+              <Text style={styles.viewProfileBtnText} numberOfLines={1}>
                 {language === 'hi' ? 'प्रोफाइल देखें' : 'View Profile'}
               </Text>
             </TouchableOpacity>
@@ -189,17 +206,17 @@ export const ContractorCard: React.FC<ContractorCardProps> = ({
               onPress={() => {
                 const targetPhone = contractor.phone || (contractor.phoneMasked && !contractor.phoneMasked.includes('XXX') ? contractor.phoneMasked : null);
                 if (!targetPhone) {
-                  Alert.alert(
-                    language === 'hi' ? 'संपर्क अनुपलब्ध' : 'Contact Unavailable',
-                    language === 'hi'
-                      ? 'सीधा फोन/व्हाट्सएप नंबर उपलब्ध नहीं है। कृपया ऐप के माध्यम से बुकिंग या कोटेशन अनुरोध भेजें।'
-                      : 'Direct number not available. Please send a booking or quotation request through the app.'
+                  showAppAlert(
+                    language === 'en' ? 'Contact Unavailable' : 'संपर्क अनुपलब्ध',
+                    language === 'en'
+                      ? 'Direct number not available. Please send a booking or quotation request through the app.'
+                      : 'सीधा फोन/व्हाट्सएप नंबर उपलब्ध नहीं है। कृपया ऐप के माध्यम से बुकिंग या कोटेशन अनुरोध भेजें।'
                   );
                   return;
                 }
                 const clean = targetPhone.replace(/\D/g, '').slice(-10);
                 const msg = encodeURIComponent(
-                  `नमस्ते ${contractor.name}! मैंने SETU भोपाल ऐप पर आपकी प्रोफाइल (${contractor.specialtyHindi}) देखी है। मुझे काम के संबंध में बात करनी है।`
+                  `नमस्ते ${contractor.name}! मैंने SETU ऐप पर आपकी प्रोफाइल (${contractor.specialtyHindi}) देखी है। मुझे काम के संबंध में बात करनी है।`
                 );
                 const url = `https://wa.me/91${clean}?text=${msg}`;
                 if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.open === 'function') {
@@ -214,12 +231,12 @@ export const ContractorCard: React.FC<ContractorCardProps> = ({
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.bookActionButton}
+              style={[styles.bookActionButton, isCompactPhone && { minWidth: '100%' }]}
               onPress={() => onBookPress(contractor)}
               activeOpacity={0.85}
             >
               <MaterialIcons name="event-available" size={16} color="#FFFFFF" />
-              <Text style={styles.bookActionText}>
+              <Text style={styles.bookActionText} numberOfLines={1}>
                 {language === 'hi' ? 'बुक करें ➔' : 'Book ➔'}
               </Text>
             </TouchableOpacity>
@@ -702,5 +719,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: '#1D4ED8',
+  },
+  avatarFallbackCircle: {
+    backgroundColor: '#1E40AF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarFallbackText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
   },
 });

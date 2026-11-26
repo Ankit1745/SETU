@@ -7,11 +7,10 @@ import {
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
-  Alert,
-  Platform,
 } from 'react-native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { COLORS } from '../theme/colors';
+import { ApiService } from '../services/api';
+import { showAppAlert } from '../utils/appAlert';
 
 interface AdminSecurityModalProps {
   visible: boolean;
@@ -25,11 +24,22 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
   onSuccess,
 }) => {
   const [loginId, setLoginId] = useState('admin');
-  const [passcode, setPasscode] = useState('SETU@Admin2026#Bhopal');
+  const [passcode, setPasscode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  const handleDismiss = () => {
+    setPasscode('');
+    setErrorMessage('');
+    setIsVerifying(false);
+    onClose();
+  };
+
   const handleVerify = async () => {
+    if (!loginId.trim()) {
+      setErrorMessage('कृपया एडमिन लॉगिन आईडी दर्ज करें।');
+      return;
+    }
     if (!passcode.trim()) {
       setErrorMessage('कृपया मास्टर एडमिन सुरक्षा पासवर्ड दर्ज करें।');
       return;
@@ -39,30 +49,18 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
     setErrorMessage('');
 
     try {
-      const origin =
-        Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.origin
-          ? window.location.origin
-          : 'https://setu-1-nine.vercel.app';
+      const data = await ApiService.adminLogin(loginId.trim(), passcode.trim());
 
-      const res = await fetch(`${origin}/api/admin/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          loginId: loginId.trim(),
-          password: passcode.trim(),
-          passcode: passcode.trim(),
-        }),
-      });
-      const data = await res.json();
-
-      if (res.ok && data.success && data.token) {
-        onSuccess(data.token);
+      if (data && data.success && data.token) {
+        const issuedToken = data.token;
+        setPasscode('');
+        onSuccess(issuedToken);
         onClose();
-        Alert.alert('✅ एडमिन प्रमाणीकरण सफल', 'SETU केंद्रीय नियंत्रण कक्ष में आपका स्वागत है।');
+        showAppAlert('✅ एडमिन प्रमाणीकरण सफल', 'SETU केंद्रीय नियंत्रण कक्ष में आपका स्वागत है।');
       } else {
-        setErrorMessage(data.error || 'अमान्य लॉगिन आईडी या पासवर्ड! प्रवेश अस्वीकृत।');
+        setErrorMessage(data?.error || 'अमान्य लॉगिन आईडी या पासवर्ड! प्रवेश अस्वीकृत।');
       }
-    } catch (err: any) {
+    } catch {
       setErrorMessage('सर्वर से संपर्क नहीं हो सका। केवल अधिकृत सुपर एडमिन ही प्रवेश कर सकते हैं।');
     } finally {
       setIsVerifying(false);
@@ -70,7 +68,7 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
   };
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={handleDismiss}>
       <View style={styles.modalOverlay}>
         <View style={styles.card}>
           {/* Header */}
@@ -78,7 +76,7 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
             <View style={styles.shieldIconBox}>
               <Ionicons name="shield-checkmark" size={26} color="#DC2626" />
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+            <TouchableOpacity onPress={handleDismiss} style={styles.closeBtn}>
               <Ionicons name="close" size={20} color="#64748B" />
             </TouchableOpacity>
           </View>
@@ -125,11 +123,11 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
               />
             </View>
 
-            {/* Quick credentials hint */}
+            {/* Security notice */}
             <View style={styles.credentialsHint}>
               <Ionicons name="key" size={13} color="#D97706" />
               <Text style={styles.credentialsHintText}>
-                डिफ़ॉल्ट क्रेडेंशियल्स: ID: <Text style={{fontWeight: '700'}}>admin</Text> | Pass: <Text style={{fontWeight: '700'}}>SETU@Admin2026#Bhopal</Text>
+                सर्वर द्वारा कॉन्फ़िगर किए गए एडमिन पासवर्ड से लॉगिन करें अथवा नीचे Read-Only डेमो देखें।
               </Text>
             </View>
 
@@ -143,7 +141,7 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
 
           {/* Action Buttons */}
           <View style={styles.actionsRow}>
-            <TouchableOpacity style={styles.cancelBtn} onPress={onClose} activeOpacity={0.8}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={handleDismiss} activeOpacity={0.8}>
               <Text style={styles.cancelBtnText}>रद्द करें</Text>
             </TouchableOpacity>
 
@@ -161,22 +159,13 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* Safe Demo Read-Only Access */}
-          <TouchableOpacity
-            style={styles.demoReadonlyBtn}
-            onPress={() => {
-              onSuccess('demo_readonly_token');
-              onClose();
-              Alert.alert(
-                '👀 एडमिन डेमो मोड सक्रिय',
-                'आप केवल सैंपल रिकॉर्ड्स (KYC, बुकिंग, मेट्रिक्स) सुरक्षित रूप से पढ़ सकते हैं।'
-              );
-            }}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="eye-outline" size={16} color="#4F46E5" />
-            <Text style={styles.demoReadonlyBtnText}>Admin Demo देखें (Read-Only Sample Records)</Text>
-          </TouchableOpacity>
+          {/* Security notice — NO client-side Admin demo bypass! */}
+          <View style={styles.credentialsHint}>
+            <Ionicons name="lock-closed" size={14} color="#DC2626" />
+            <Text style={styles.credentialsHintText}>
+              सुरक्षा नियम: बिना सर्वर JWT प्रमाणित पासवर्ड के एडमिन पैनल एक्सेस संभव नहीं है।
+            </Text>
+          </View>
         </View>
       </View>
     </Modal>

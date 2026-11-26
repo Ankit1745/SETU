@@ -1,9 +1,9 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, Image } from 'react-native';
 import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
-import { COLORS } from '../theme/colors';
 import { Language, TRANSLATIONS } from '../i18n/translations';
 import { getSetuLogo } from '../constants/logos';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface HeaderProps {
   currentLocation: string;
@@ -16,6 +16,8 @@ interface HeaderProps {
   language: Language;
   onToggleLanguage: () => void;
   onSelectLanguage?: (lang: Language) => void;
+  activeTab?: 'home' | 'quick' | 'estimator' | 'partner' | 'profile';
+  onTabPress?: (tab: 'home' | 'quick' | 'estimator' | 'partner' | 'profile') => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,154 +31,252 @@ export const Header: React.FC<HeaderProps> = ({
   language,
   onToggleLanguage,
   onSelectLanguage,
+  activeTab = 'home',
+  onTabPress,
 }) => {
-  const t = TRANSLATIONS[language];
-
   // Dynamic official 3D logo based on active language
   const logoSource = getSetuLogo(language);
+  const { isCompactPhone, isTabletOrDesktop, isDesktop, shellStyle } = useResponsive();
+  const t = TRANSLATIONS[language];
 
   return (
-    <View style={styles.container}>
-      {/* Top Brand & Actions Bar */}
-      <View style={styles.topRow}>
-        {/* 3D Official Brand Identity */}
-        <TouchableOpacity style={styles.brandContainer} activeOpacity={0.88}>
-          <View style={styles.logoBadgeContainer}>
-            <Image source={logoSource} style={styles.logoImage} resizeMode="cover" />
-          </View>
-          <View style={styles.brandTextWrap}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Text style={styles.brandTitle}>{language === 'hi' ? 'सेतु' : 'SETU'}</Text>
-              <View style={styles.proOfficialTag}>
-                <Text style={styles.proOfficialTagText}>3D</Text>
-              </View>
+    <View style={[styles.container, isTabletOrDesktop && styles.containerDesktop]}>
+      <View style={shellStyle}>
+        {/* Top Brand & Actions Bar */}
+        <View style={styles.topRow}>
+          {/* 3D Official Brand Identity */}
+          <TouchableOpacity
+            style={styles.brandContainer}
+            activeOpacity={0.88}
+            onPress={() => onTabPress?.('home')}
+          >
+            <View style={[styles.logoBadgeContainer, isCompactPhone && styles.logoBadgeCompact]}>
+              <Image source={logoSource} style={styles.logoImage} resizeMode="cover" />
             </View>
-            <Text style={styles.brandSubtitle}>
-              {language === 'hi'
-                ? 'कारीगर • सामग्री • 15m'
-                : 'Pros • Materials • 15m'}
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-        {/* Right Action Icons (Interactive Language Selector, Profile, Partner Hub) */}
-        <View style={styles.actionsRight}>
-          {/* Tri-lingual Interactive Language Switcher */}
-          <View style={styles.langPillContainer}>
-            <TouchableOpacity
-              style={[styles.langChoiceBtn, language === 'hi' && styles.langChoiceBtnActive]}
-              onPress={() => onSelectLanguage ? onSelectLanguage('hi') : onToggleLanguage()}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.langChoiceText, language === 'hi' && styles.langChoiceTextActive]}>
-                हिं
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.langChoiceBtn, language === 'en' && styles.langChoiceBtnActive]}
-              onPress={() => onSelectLanguage ? onSelectLanguage('en') : onToggleLanguage()}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.langChoiceText, language === 'en' && styles.langChoiceTextActive]}>
-                EN
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.langChoiceBtn, language === 'hinglish' && styles.langChoiceBtnActive]}
-              onPress={() => onSelectLanguage ? onSelectLanguage('hinglish') : onToggleLanguage()}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.langChoiceText, language === 'hinglish' && styles.langChoiceTextActive]}>
-                Hing
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* User Profile or High-Contrast 3D Login Pill */}
-          {user ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <TouchableOpacity
-                style={styles.userProfilePill}
-                onPress={onOpenProfile}
-                activeOpacity={0.8}
-              >
-                <View style={styles.avatarMiniCircle}>
-                  <Text style={styles.avatarMiniText}>
-                    {user.name ? user.name.charAt(0) : 'U'}
-                  </Text>
-                </View>
-                <Text style={styles.userMiniName} numberOfLines={1}>
-                  {user.name?.split(' ')[0]}
+            <View style={styles.brandTextWrap}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={[styles.brandTitle, isCompactPhone && { fontSize: 14 }]}>
+                  {language === 'hi' ? 'सेतु' : 'SETU'}
                 </Text>
-                <View style={styles.pointsMiniBadge}>
-                  <FontAwesome5 name="coins" size={9} color="#D97706" />
-                  <Text style={styles.pointsMiniText}>{user.rewardPoints || 250}</Text>
+                <View style={styles.proOfficialTag}>
+                  <Text style={styles.proOfficialTagText}>3D</Text>
                 </View>
-              </TouchableOpacity>
-              {onLogout && (
-                <TouchableOpacity
-                  style={styles.logoutMiniBtn}
-                  onPress={onLogout}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Logout"
-                >
-                  <Ionicons name="exit-outline" size={13} color="#DC2626" />
-                </TouchableOpacity>
+              </View>
+              {!isCompactPhone && (
+                <Text style={styles.brandSubtitle}>
+                  {language === 'en'
+                    ? 'Pros • Materials • 15m'
+                    : language === 'hinglish'
+                    ? 'Karigar • Samaan • 15m'
+                    : 'कारीगर • सामग्री • 15m'}
+                </Text>
               )}
             </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.loginPillBtn}
-              onPress={onOpenProfile}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="log-in" size={13} color="#FFFFFF" />
-              <Text style={styles.loginPillText}>
-                {language === 'hi' ? 'लॉगिन' : 'Login'}
-              </Text>
-            </TouchableOpacity>
+          </TouchableOpacity>
+
+          {/* Desktop Primary Navigation Links (>= 1024px) */}
+          {isDesktop && onTabPress && (
+            <View style={styles.desktopNavGroup}>
+              <TouchableOpacity
+                style={[styles.desktopNavItem, activeTab === 'home' && styles.desktopNavItemActive]}
+                onPress={() => onTabPress('home')}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name={activeTab === 'home' ? 'compass' : 'compass-outline'}
+                  size={15}
+                  color={activeTab === 'home' ? '#FFFFFF' : '#CBD5E1'}
+                />
+                <Text style={[styles.desktopNavText, activeTab === 'home' && styles.desktopNavTextActive]}>
+                  {t.navExplore}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.desktopNavItem, activeTab === 'estimator' && styles.desktopNavItemAiActive]}
+                onPress={() => onTabPress('estimator')}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name="sparkles"
+                  size={15}
+                  color={activeTab === 'estimator' ? '#FFFFFF' : '#FBBF24'}
+                />
+                <Text style={[styles.desktopNavText, activeTab === 'estimator' && styles.desktopNavTextActive]}>
+                  {t.navEstimator}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.desktopNavItem, activeTab === 'quick' && styles.desktopNavItemSosActive]}
+                onPress={() => onTabPress('quick')}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="flash" size={14} color="#F87171" />
+                <Text style={[styles.desktopNavText, { color: '#FCA5A5' }]}>
+                  {t.navQuick}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.desktopNavItem, activeTab === 'partner' && styles.desktopNavItemActive]}
+                onPress={() => onTabPress('partner')}
+                activeOpacity={0.85}
+              >
+                <MaterialIcons
+                  name="business-center"
+                  size={15}
+                  color={activeTab === 'partner' ? '#FFFFFF' : '#CBD5E1'}
+                />
+                <Text style={[styles.desktopNavText, activeTab === 'partner' && styles.desktopNavTextActive]}>
+                  {t.navPartner}
+                </Text>
+              </TouchableOpacity>
+            </View>
           )}
 
-          {/* 3D Partner Hub Button */}
+          {/* Right Action Icons (Interactive Language Selector, Profile, Partner Hub) */}
+          <View style={[styles.actionsRight, isCompactPhone && { gap: 4 }]}>
+            {/* Tri-lingual Interactive Language Switcher */}
+            <View style={styles.langPillContainer}>
+              <TouchableOpacity
+                style={[styles.langChoiceBtn, isCompactPhone && { paddingHorizontal: 4 }, language === 'hi' && styles.langChoiceBtnActive]}
+                onPress={() => onSelectLanguage ? onSelectLanguage('hi') : onToggleLanguage()}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.langChoiceText, language === 'hi' && styles.langChoiceTextActive]}>
+                  हिं
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.langChoiceBtn, isCompactPhone && { paddingHorizontal: 4 }, language === 'en' && styles.langChoiceBtnActive]}
+                onPress={() => onSelectLanguage ? onSelectLanguage('en') : onToggleLanguage()}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.langChoiceText, language === 'en' && styles.langChoiceTextActive]}>
+                  EN
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.langChoiceBtn, isCompactPhone && { paddingHorizontal: 4 }, language === 'hinglish' && styles.langChoiceBtnActive]}
+                onPress={() => onSelectLanguage ? onSelectLanguage('hinglish') : onToggleLanguage()}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.langChoiceText, language === 'hinglish' && styles.langChoiceTextActive]}>
+                  {isCompactPhone ? 'Hg' : 'Hing'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* User Profile or High-Contrast 3D Login Pill */}
+            {user ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <TouchableOpacity
+                  style={styles.userProfilePill}
+                  onPress={onOpenProfile}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.avatarMiniCircle}>
+                    <Text style={styles.avatarMiniText}>
+                      {user.name ? user.name.charAt(0) : 'U'}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.userMiniName,
+                      { maxWidth: isTabletOrDesktop ? 130 : isCompactPhone ? 46 : 72 },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {user.name?.split(' ')[0]}
+                  </Text>
+                  <View style={styles.pointsMiniBadge}>
+                    <FontAwesome5 name="coins" size={9} color="#D97706" />
+                    <Text style={styles.pointsMiniText}>{user.rewardPoints ?? 250}</Text>
+                  </View>
+                </TouchableOpacity>
+                {onLogout && (
+                  <TouchableOpacity
+                    style={styles.logoutMiniBtn}
+                    onPress={onLogout}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Logout"
+                  >
+                    <Ionicons name="exit-outline" size={13} color="#DC2626" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.loginPillBtn}
+                onPress={onOpenProfile}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="log-in" size={13} color="#FFFFFF" />
+                <Text style={styles.loginPillText}>
+                  {language === 'en' ? 'Login' : language === 'hinglish' ? 'Login' : 'लॉगिन'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {/* 3D Partner Hub Button (compact icon-only label hide only on tiny screens if user logged in) */}
+            {(!isDesktop || !onTabPress) && (
+              <TouchableOpacity
+                style={[styles.workWithUsBtn, isCompactPhone && { paddingHorizontal: 6 }]}
+                onPress={onOpenWorkWithUs}
+                activeOpacity={0.85}
+              >
+                <MaterialIcons name="business-center" size={12} color="#FFFFFF" />
+                {(!isCompactPhone || !user) && (
+                  <Text style={styles.workWithUsText}>
+                    {language === 'en' ? 'Partner' : language === 'hinglish' ? 'Partner' : 'पार्टनर'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Location Bar & Quick Repair SOS Bar */}
+        <View style={[styles.bottomBar, isTabletOrDesktop && styles.bottomBarDesktop]}>
+          {/* Location selector with 3D glass accent */}
           <TouchableOpacity
-            style={styles.workWithUsBtn}
-            onPress={onOpenWorkWithUs}
-            activeOpacity={0.85}
+            style={[styles.locationSection, isTabletOrDesktop && { flex: 0, minWidth: 280, paddingHorizontal: 12, paddingVertical: 6 }]}
+            activeOpacity={0.8}
+            onPress={onLocationPress}
           >
-            <MaterialIcons name="business-center" size={12} color="#FFFFFF" />
-            <Text style={styles.workWithUsText}>
-              {language === 'hi' ? 'पार्टनर' : 'Partner'}
+            <View style={styles.locationIconWrap}>
+              <Ionicons name="location" size={12} color="#EA580C" />
+            </View>
+            <Text style={styles.locationText} numberOfLines={1}>
+              {currentLocation}
             </Text>
+            <MaterialIcons name="keyboard-arrow-down" size={15} color="#64748B" />
+          </TouchableOpacity>
+
+          {isTabletOrDesktop && (
+            <View style={styles.desktopTrustBanner}>
+              <Ionicons name="shield-checkmark" size={13} color="#34D399" />
+              <Text style={styles.desktopTrustBannerText}>
+                {language === 'en'
+                  ? 'Aadhaar Verified Pros • CPWD Rate Standard • Escrow Safe'
+                  : language === 'hinglish'
+                  ? 'Verified Karigar • CPWD Sahi Rate • Escrow Secure'
+                  : 'आधार सत्यापित कारीगर • CPWD मानक दर • एस्क्रो सुरक्षित'}
+              </Text>
+            </View>
+          )}
+
+          {/* SETU Quick Instant 15m SOS */}
+          <TouchableOpacity
+            style={[styles.quickSosPill, isTabletOrDesktop && { paddingHorizontal: 12, paddingVertical: 6 }]}
+            activeOpacity={0.85}
+            onPress={onQuickModePress}
+          >
+            <Ionicons name="flash" size={11} color="#FFFFFF" />
+            <Text style={styles.quickSosText}>{TRANSLATIONS[language].quickSos}</Text>
           </TouchableOpacity>
         </View>
-      </View>
-
-      {/* Location Bar & Quick Repair SOS Bar */}
-      <View style={styles.bottomBar}>
-        {/* Location selector with 3D glass accent */}
-        <TouchableOpacity
-          style={styles.locationSection}
-          activeOpacity={0.8}
-          onPress={onLocationPress}
-        >
-          <View style={styles.locationIconWrap}>
-            <Ionicons name="location" size={12} color="#EA580C" />
-          </View>
-          <Text style={styles.locationText} numberOfLines={1}>
-            {currentLocation}
-          </Text>
-          <MaterialIcons name="keyboard-arrow-down" size={15} color="#64748B" />
-        </TouchableOpacity>
-
-        {/* SETU Quick Instant 15m SOS */}
-        <TouchableOpacity
-          style={styles.quickSosPill}
-          activeOpacity={0.85}
-          onPress={onQuickModePress}
-        >
-          <Ionicons name="flash" size={11} color="#FFFFFF" />
-          <Text style={styles.quickSosText}>{t.quickSos}</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -200,11 +300,17 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  containerDesktop: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     minHeight: 42,
+    gap: 8,
   },
   brandContainer: {
     flexDirection: 'row',
@@ -231,6 +337,64 @@ const styles = StyleSheet.create({
         elevation: 6,
       },
     }),
+  },
+  logoBadgeCompact: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+  },
+  desktopNavGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    padding: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  desktopNavItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 9,
+  },
+  desktopNavItemActive: {
+    backgroundColor: '#2563EB',
+  },
+  desktopNavItemAiActive: {
+    backgroundColor: '#7C3AED',
+  },
+  desktopNavItemSosActive: {
+    backgroundColor: 'rgba(220, 38, 38, 0.28)',
+  },
+  desktopNavText: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  desktopNavTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
+  bottomBarDesktop: {
+    marginTop: 10,
+    paddingTop: 8,
+    gap: 12,
+  },
+  desktopTrustBanner: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  desktopTrustBannerText: {
+    color: '#94A3B8',
+    fontSize: 11.5,
+    fontWeight: '600',
   },
   logoImage: {
     width: '100%',

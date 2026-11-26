@@ -52,7 +52,7 @@ const ContractorSchema = new mongoose.Schema({
   category: { 
     type: String, 
     required: true,
-    enum: ['plumber', 'electrician', 'carpenter', 'mason', 'painter', 'cleaning', 'ac_repair', 'wedding_tent', 'wedding_makeup', 'event_dj', 'wedding_photo']
+    enum: ['plumber', 'electrician', 'carpenter', 'mason', 'painter', 'welder', 'tiling', 'general', 'caterer', 'cleaning', 'ac_repair', 'wedding_tent', 'wedding_makeup', 'event_dj', 'wedding_photo']
   },
   specialtyHindi: { type: String, required: true },
   bio: { type: String, default: '' },

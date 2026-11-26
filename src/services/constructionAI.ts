@@ -9,7 +9,7 @@ export interface CustomerProblemContext {
   locationKey?: 'kitchen' | 'bathroom' | 'bedroom' | 'living_room' | 'switchboard' | 'roof' | 'general';
   problem?: string;
   trade?: string;
-  category?: 'carpenter' | 'plumber' | 'mason' | 'painter' | 'electrician';
+  category?: 'carpenter' | 'plumber' | 'mason' | 'painter' | 'electrician' | 'tiling' | 'welder' | 'ac_repair' | 'general';
   isSafetyHazard?: boolean;
   safetyMessage?: string;
   needsClarification?: boolean;
@@ -23,7 +23,7 @@ export interface CustomerProblemContext {
 
 export interface SetuAIResponse {
   trade: string;
-  category: 'carpenter' | 'plumber' | 'mason' | 'painter' | 'electrician';
+  category: 'carpenter' | 'plumber' | 'mason' | 'painter' | 'electrician' | 'tiling' | 'welder' | 'ac_repair' | 'general';
   techniqueName: string;
   techniqueSpecs: string[];
   standardFormula: string;
@@ -38,6 +38,14 @@ export interface SetuAIResponse {
   safetyMessage?: string;
 }
 
+const HAZARD_REGEX = /(chingari|चिंगारी|spark|sparks|dhuan|धुआं|धुआ|smoke|current|करंट|shock|शॉक|short circuit|शॉर्ट सर्किट|jalne ki|जलने की बदबू|aag\b|आग)/i;
+const PLUMBING_REGEX = /(nal\b|नल|tap\b|tapak|टपक|leak|लीक|pipe|पाइप|flush|फ्लश|geyser|गीजर|drain|नाली|कमोड|commode|faucet|plumber|प्लंबर)/i;
+const CARPENTRY_REGEX = /(almari|अलमारी|wardrobe|hinge|कब्जा|हिंज|darwaza|दरवाजा|door|farnichar|फर्नीचर|furniture|plywood|प्लाई|drawer|दराज|lock|ताला|carpenter|बढ़ई|माइका|laminate|\bbed\b|बेड)/i;
+const ELECTRICAL_REGEX = /(bijli|बिजली|electric|mcb|switch|स्विच|wire|वायर|fan\b|पंखा|light|लाइट|inverter|इनवर्टर|plug|प्लग|socket|सॉकेट)/i;
+const AC_HVAC_REGEX = /(\bac\b|एसी |air condition|cooling नहीं|ठंडी हवा नहीं|ac gas|compressor|कंप्रेसर|split ac|window ac)/i;
+const PAINTING_REGEX = /(paint|पेंट|putty|पुट्टी|rang\b|रंग|whitewash|सफेदी|distemper|डिस्टेंपर|painter|पेंटर|waterproof)/i;
+const MASONRY_REGEX = /(tile|टाइल्स|टाइल|marble|मार्बल|chinai|चिनाई|brick|ईंट|plaster|प्लास्टर|dhalai|ढलाई|rcc|slab|seelan|सीलन|mason|मिस्त्री)/i;
+
 /**
  * Multi-Factor Intent & Location Disentanglement Engine
  * Accurately parses Hindi, English, and Roman Hindi (Hinglish)
@@ -46,37 +54,17 @@ export interface SetuAIResponse {
  */
 export function parseCustomerProblem(
   rawQuery: string,
-  previousContext?: CustomerProblemContext | null
+  previousContext?: (CustomerProblemContext & { priorContext?: CustomerProblemContext }) | null
 ): CustomerProblemContext {
   const q = (rawQuery || '').toLowerCase().trim();
 
   // -------------------------------------------------------------
   // 1. SAFETY HAZARD FIRST (High-risk electrical / fire / spark)
   // -------------------------------------------------------------
-  const isHazard =
-    q.includes('chingari') ||
-    q.includes('चिंगारी') ||
-    q.includes('spark') ||
-    q.includes('sparks') ||
-    q.includes('dhuan') ||
-    q.includes('धुआं') ||
-    q.includes('धुआ') ||
-    q.includes('smoke') ||
-    q.includes('current') ||
-    q.includes('करंट') ||
-    q.includes('shock') ||
-    q.includes('शॉक') ||
-    q.includes('short circuit') ||
-    q.includes('शॉर्ट सर्किट') ||
-    q.includes('jalne ki') ||
-    q.includes('जलने की बदबू') ||
-    q.includes('aag') ||
-    q.includes('आग');
-
-  if (isHazard) {
+  if (HAZARD_REGEX.test(q)) {
     return {
       rawQuery,
-      location: q.includes('switch') || q.includes('board') || q.includes('स्विच') ? 'Switchboard (बिजली बोर्ड)' : 'विद्युत पॉइंट',
+      location: /switch|board|स्विच/i.test(q) ? 'Switchboard (बिजली बोर्ड)' : 'विद्युत पॉइंट',
       locationKey: 'switchboard',
       problem: 'चिंगारी / स्पार्क / शॉर्ट-सर्किट का गंभीर जोखिम',
       trade: 'इलेक्ट्रीशियन (Emergency Electrician)',
@@ -94,15 +82,17 @@ export function parseCustomerProblem(
   // -------------------------------------------------------------
   // 2. CONTEXT CONTINUATION FROM PREVIOUS TURN (Clarification Reply)
   // -------------------------------------------------------------
-  if (previousContext && previousContext.needsClarification) {
-    const prevLocation = previousContext.location || 'Bathroom (बाथरूम)';
-    
+  const resolvedPrior = previousContext?.priorContext || previousContext;
+  if (resolvedPrior && (previousContext?.needsClarification || previousContext?.priorContext)) {
+    const prevLocation = resolvedPrior.location || 'Bathroom (बाथरूम)';
+    const prevLocKey = resolvedPrior.locationKey || 'bathroom';
+
     // Check if reply specifies "wall" / "दीवार से"
-    if (q.includes('deewar') || q.includes('दीवार') || q.includes('wall') || q.includes('seelan') || q.includes('सीलन') || q.includes('रिस')) {
+    if (/(deewar|दीवार|wall|seelan|सीलन|रिस)/i.test(q)) {
       return {
         rawQuery,
         location: prevLocation,
-        locationKey: previousContext.locationKey || 'bathroom',
+        locationKey: prevLocKey,
         problem: 'दीवार से पानी रिसना (सीलन / कंसील्ड पाइप लीकेज)',
         trade: 'प्लंबर & लीकेज विशेषज्ञ (Plumber)',
         category: 'plumber',
@@ -116,11 +106,11 @@ export function parseCustomerProblem(
     }
 
     // Check if reply specifies "tap" / "नल से"
-    if (q.includes('nal') || q.includes('नल') || q.includes('tap') || q.includes('tapak') || q.includes('टपक')) {
+    if (/(nal\b|नल|tap\b|tapak|टपक)/i.test(q)) {
       return {
         rawQuery,
         location: prevLocation,
-        locationKey: previousContext.locationKey || 'bathroom',
+        locationKey: prevLocKey,
         problem: 'नल से पानी टपकना',
         trade: 'प्लंबर (Plumber)',
         category: 'plumber',
@@ -134,11 +124,11 @@ export function parseCustomerProblem(
     }
 
     // Check if reply specifies "floor" / "फर्श पर" / "नाली"
-    if (q.includes('farsh') || q.includes('फर्श') || q.includes('floor') || q.includes('naali') || q.includes('नाली') || q.includes('jama') || q.includes('drain')) {
+    if (/(farsh|फर्श|floor|naali|नाली|jama|drain)/i.test(q)) {
       return {
         rawQuery,
         location: prevLocation,
-        locationKey: previousContext.locationKey || 'bathroom',
+        locationKey: prevLocKey,
         problem: 'फर्श पर पानी जमा होना (ड्रेनेज चोक)',
         trade: 'प्लंबर (Plumber)',
         category: 'plumber',
@@ -155,25 +145,17 @@ export function parseCustomerProblem(
   // -------------------------------------------------------------
   // 3. DETECT INCOMPLETE / AMBIGUOUS INFORMATION (Ask Clarification)
   // -------------------------------------------------------------
-  // E.g. "Bathroom me pani aa raha hai" / "बाथरूम में पानी आ रहा है"
   const isAmbiguousWater =
-    (q.includes('pani aa raha') || q.includes('पानी आ रहा') || q.includes('water coming') || q.includes('pani gir raha') || q.includes('पानी गिर रहा')) &&
-    !q.includes('nal') &&
-    !q.includes('नल') &&
-    !q.includes('tap') &&
-    !q.includes('deewar') &&
-    !q.includes('दीवार') &&
-    !q.includes('geyser') &&
-    !q.includes('गीजर') &&
-    !q.includes('naali') &&
-    !q.includes('नाली');
+    /(pani aa raha|पानी आ रहा|water coming|pani gir raha|पानी गिर रहा)/i.test(q) &&
+    !/(nal\b|नल|tap\b|deewar|दीवार|geyser|गीजर|naali|नाली|farsh|फर्श)/i.test(q);
 
-  if (isAmbiguousWater && (q.includes('bathroom') || q.includes('बाथरूम') || q.includes('washroom') || q.includes('टॉयलेट') || q.includes('कमरे'))) {
-    const loc = q.includes('bathroom') || q.includes('बाथरूम') || q.includes('washroom') ? 'Bathroom (बाथरूम)' : 'कमरा';
+  if (isAmbiguousWater && /(bathroom|बाथरूम|washroom|टॉयलेट|कमरे|room)/i.test(q)) {
+    const isBathroom = /(bathroom|बाथरूम|washroom|टॉयलेट)/i.test(q);
+    const loc = isBathroom ? 'Bathroom (बाथरूम)' : 'कमरा';
     return {
       rawQuery,
       location: loc,
-      locationKey: 'bathroom',
+      locationKey: isBathroom ? 'bathroom' : 'bedroom',
       problem: 'पानी आने का अज्ञात स्रोत',
       needsClarification: true,
       clarificationQuestion: 'पानी नल से टपक रहा है, दीवार से रिस रहा है या फर्श पर जमा हो रहा है?',
@@ -187,137 +169,35 @@ export function parseCustomerProblem(
   // -------------------------------------------------------------
   // 4. MULTI-FACTOR LOCATION & PROBLEM PARSING
   // -------------------------------------------------------------
-  // Extract Location
   let detectedLocation = 'सामान्य कार्य';
   let locationKey: CustomerProblemContext['locationKey'] = 'general';
 
-  if (q.includes('kitchen') || q.includes('किचन') || q.includes('रसोई') || q.includes('rasoi')) {
+  if (/(kitchen|किचन|रसोई|rasoi)/i.test(q)) {
     detectedLocation = 'किचन (रसोई)';
     locationKey = 'kitchen';
-  } else if (q.includes('bathroom') || q.includes('बाथरूम') || q.includes('washroom') || q.includes('gusal-khana')) {
+  } else if (/(bathroom|बाथरूम|washroom|gusal-khana)/i.test(q)) {
     detectedLocation = 'Bathroom (बाथरूम)';
     locationKey = 'bathroom';
-  } else if (q.includes('bedroom') || q.includes('बेडरूम') || q.includes('कमरा') || q.includes('room')) {
+  } else if (/(bedroom|बेडरूम|कमरा|कमरे|\broom\b)/i.test(q)) {
     detectedLocation = 'Bedroom (कमरा)';
     locationKey = 'bedroom';
-  } else if (q.includes('roof') || q.includes('छत') || q.includes('terrace') || q.includes('dhalai')) {
+  } else if (/(roof|छत|terrace|dhalai)/i.test(q)) {
     detectedLocation = 'Roof (छत)';
     locationKey = 'roof';
-  } else if (q.includes('switchboard') || q.includes('स्विच') || q.includes('board') || q.includes('meter')) {
+  } else if (/(switchboard|स्विच|board|meter)/i.test(q)) {
     detectedLocation = 'Switchboard (बिजली बोर्ड)';
     locationKey = 'switchboard';
-  } else if (q.includes('living room') || q.includes('हॉल') || q.includes('hall')) {
+  } else if (/(living room|हॉल|\bhall\b)/i.test(q)) {
     detectedLocation = 'Living Room (हॉल)';
     locationKey = 'living_room';
   }
 
-  // Multi-Factor Problem & Category Disentanglement:
-  // Plumber cues:
-  const hasPlumbingClues =
-    q.includes('nal') ||
-    q.includes('नल') ||
-    q.includes('tap') ||
-    q.includes('tapak') ||
-    q.includes('टपक') ||
-    q.includes('leak') ||
-    q.includes('लीक') ||
-    q.includes('pipe') ||
-    q.includes('पाइप') ||
-    q.includes('flush') ||
-    q.includes('फ्लश') ||
-    q.includes('geyser') ||
-    q.includes('गीजर') ||
-    q.includes('drain') ||
-    q.includes('नाली') ||
-    q.includes('कमोड') ||
-    q.includes('commode') ||
-    q.includes('faucet') ||
-    q.includes('plumber') ||
-    q.includes('प्लंबर');
-
-  // Carpenter cues:
-  const hasCarpentryClues =
-    q.includes('almari') ||
-    q.includes('अलमारी') ||
-    q.includes('wardrobe') ||
-    q.includes('hinge') ||
-    q.includes('कब्जा') ||
-    q.includes('हिंज') ||
-    q.includes('darwaza') ||
-    q.includes('दरवाजा') ||
-    q.includes('door') ||
-    q.includes('farnichar') ||
-    q.includes('फर्नीचर') ||
-    q.includes('furniture') ||
-    q.includes('plywood') ||
-    q.includes('प्लाई') ||
-    q.includes('drawer') ||
-    q.includes('दराज') ||
-    q.includes('lock') ||
-    q.includes('ताला') ||
-    q.includes('carpenter') ||
-    q.includes('बढ़ई') ||
-    q.includes('माइका') ||
-    q.includes('laminate') ||
-    q.includes('bed') ||
-    q.includes('बेड');
-
-  // Electrician cues:
-  const hasElectricalClues =
-    q.includes('bijli') ||
-    q.includes('बिजली') ||
-    q.includes('electric') ||
-    q.includes('mcb') ||
-    q.includes('switch') ||
-    q.includes('स्विच') ||
-    q.includes('wire') ||
-    q.includes('वायर') ||
-    q.includes('fan') ||
-    q.includes('पंखा') ||
-    q.includes('light') ||
-    q.includes('लाइट') ||
-    q.includes('inverter') ||
-    q.includes('इनवर्टर') ||
-    q.includes('plug') ||
-    q.includes('प्लग') ||
-    q.includes('socket') ||
-    q.includes('सॉकेट');
-
-  // Painting cues:
-  const hasPaintingClues =
-    q.includes('paint') ||
-    q.includes('पेंट') ||
-    q.includes('putty') ||
-    q.includes('पुट्टी') ||
-    q.includes('rang') ||
-    q.includes('रंग') ||
-    q.includes('whitewash') ||
-    q.includes('सफेदी') ||
-    q.includes('distemper') ||
-    q.includes('डिस्टेंपर') ||
-    q.includes('painter') ||
-    q.includes('पेंटर');
-
-  // Civil / Masonry cues:
-  const hasMasonryClues =
-    q.includes('tile') ||
-    q.includes('टाइल्स') ||
-    q.includes('marble') ||
-    q.includes('मार्बल') ||
-    q.includes('chinai') ||
-    q.includes('चिनाई') ||
-    q.includes('brick') ||
-    q.includes('ईंट') ||
-    q.includes('plaster') ||
-    q.includes('प्लास्टर') ||
-    q.includes('dhalai') ||
-    q.includes('ढलाई') ||
-    q.includes('rcc') ||
-    q.includes('slab') ||
-    q.includes('seelan') ||
-    q.includes('सीलन') ||
-    q.includes('mason') ||
-    q.includes('मिस्त्री');
+  const hasPlumbingClues = PLUMBING_REGEX.test(q);
+  const hasCarpentryClues = CARPENTRY_REGEX.test(q);
+  const hasAcClues = AC_HVAC_REGEX.test(q);
+  const hasElectricalClues = ELECTRICAL_REGEX.test(q);
+  const hasPaintingClues = PAINTING_REGEX.test(q);
+  const hasMasonryClues = MASONRY_REGEX.test(q);
 
   // Priority-based Disentangled Matching:
   // E.g. "Kitchen ka nal tapak raha hai" -> location is kitchen, problem is nal tapakna -> PLUMBER!
@@ -364,6 +244,23 @@ export function parseCustomerProblem(
       understoodSummary: `समझ गया: ${detectedLocation} में ${prob} की समस्या है (कारपेंटर कार्य)।`,
       nextActionPrompt: `${prob} हेतु बढ़ई (कारपेंटर) दिखाऊँ?`,
       actionCategoryButton: 'सत्यापित बढ़ई देखें',
+      isTentative: true,
+    };
+  }
+
+  if (hasAcClues) {
+    return {
+      rawQuery,
+      location: detectedLocation,
+      locationKey,
+      problem: 'AC कूलिंग / गैस / सर्विसिंग समस्या',
+      trade: 'AC & इलेक्ट्रीशियन विशेषज्ञ (AC Tech)',
+      category: 'electrician',
+      isSafetyHazard: false,
+      needsClarification: false,
+      understoodSummary: `समझ गया: ${detectedLocation} में AC कूलिंग / वायरिंग / गैस सर्विसिंग कार्य की आवश्यकता है।`,
+      nextActionPrompt: 'AC व इलेक्ट्रिकल विशेषज्ञ दिखाऊँ?',
+      actionCategoryButton: 'सत्यापित AC विशेषज्ञ देखें',
       isTentative: true,
     };
   }
@@ -692,7 +589,7 @@ export function analyzeConstructionQuery(rawQuery: string): SetuAIResponse {
 
 export interface VisualProblemDiagnosis {
   id: string;
-  category: 'plumber' | 'carpenter' | 'mason' | 'painter' | 'electrician';
+  category: 'plumber' | 'carpenter' | 'mason' | 'painter' | 'electrician' | 'tiling' | 'welder' | 'ac_repair' | 'general';
   titleHindi: string;
   visibleObservation: string; // प्रत्यक्ष दिखे लक्षण (Visible Observation)
   inferredCause: string;      // संभावित कारण (Inferred Cause)
@@ -857,6 +754,127 @@ export const VISUAL_PROBLEM_SCENARIOS: Record<string, VisualProblemDiagnosis> = 
     karigarAdvice:
       'उस्ताद की हिदायत: टाइल को कभी भी केवल सफेद सीमेंट से न चिपकवाएं, केमिकल एडहेसिव (Roff/Laticrete) ही एकमात्र टिकाऊ समाधान है।',
   },
+  ac_cooling: {
+    id: 'ac_cooling',
+    category: 'ac_repair',
+    titleHindi: '❄️ स्प्लिट/विंडो AC कूलिंग कम होना या पानी टपकना',
+    visibleObservation: 'AC की इनडोर यूनिट से गर्म/कम ठंडी हवा आ रही है या ड्रेन ट्रे से पानी नीचे टपक रहा है।',
+    inferredCause: 'फिल्टर या कंडेंसर कॉइल पर भारी धूल जमी है, ड्रेन पाइप ब्लॉक है, या रेफ्रिजरेंट गैस (R32/R410A) कम हुई है।',
+    visualSymptom: 'AC चलने पर कमरा ठंडा न होना और इनडोर कॉइल पर बर्फ या पानी जमा होना।',
+    realProblem: 'जेट पंप सर्विसिंग पेंडिंग, चोक ड्रेन लाइन या फ्लेयर नट से गैस लीकेज।',
+    neededHardware: [
+      { name: 'जेट-पंप कॉइल क्लीनिंग केमिकल & बैक-पैक कवर', approxPrice: 120, unit: 'सर्विस किट' },
+      { name: 'ब्रास फ्लेयर नट + नाइट्रोजन प्रेशर चेक', approxPrice: 180, unit: 'लीक टेस्ट सेट' },
+    ],
+    laborEstimate: {
+      description: 'AC टेक्निशियन फोम-जेट सर्विसिंग & ड्रेन क्लीनिंग',
+      approxPrice: 499,
+    },
+    totalEstimatedCost: 799,
+    diySteps: [
+      '1. सबसे पहले इनडोर फ्रंट पैनल खोलकर दोनों मेश फिल्टर पानी से धोकर छाया में सुखाएं।',
+      '2. ड्रेन पाइप का बाहरी सिरा जांचें कि कहीं कीचड़ या काई से जाम तो नहीं है।',
+      '3. गैस रिफिल कराने से पहले हमेशा नाइट्रोजन से लीकेज टेस्ट जरूर करवाएं।',
+    ],
+    karigarAdvice:
+      'उस्ताद की हिदायत: सीधे गैस टॉप-अप न करवाएं! पहले लीकेज बंद करवाएं और वैक्यूम पंप चलाने के बाद ही गैस डलवाएं।',
+  },
+  geyser_leak: {
+    id: 'geyser_leak',
+    category: 'plumber',
+    titleHindi: '🚿 बाथरूम गीज़र से पानी टपकना या हीटिंग न होना',
+    visibleObservation: 'गीज़र टैंक के निचले जोड़ों से पानी की बूंदें गिर रही हैं या इनलेट/आउटलेट पाइप ढीला दिख रहा है।',
+    inferredCause: 'हीटिंग एलिमेंट गैस्केट (रबर सील) खराब हुई है, सेफ्टी PRV वाल्व फंसा है, या 1.5kW/2kW कॉइल में स्केलिंग जम गई है।',
+    visualSymptom: 'गीज़र चालू करने पर नीचे से पानी चूना या इंडिकेटर जलकर भी पानी गरम न होना।',
+    realProblem: 'हार्ड वाटर स्केलिंग से गैस्केट/एलिमेंट खराब होना (अंदरूनी टैंक फटने से पहले जांच जरूरी)।',
+    neededHardware: [
+      { name: 'कॉपर 2kW हीटिंग एलिमेंट + थर्मोस्टेट & रबर गैस्केट', approxPrice: 480, unit: '1 सेट' },
+      { name: '1/2" ब्रास PRV सेफ्टी वाल्व + SS कनेक्शन पाइप', approxPrice: 290, unit: '1 सेट' },
+    ],
+    laborEstimate: {
+      description: 'प्लंबर / गीज़र मैकेनिक डीस्केलिंग व एलिमेंट रिप्लेसमेंट',
+      approxPrice: 350,
+    },
+    totalEstimatedCost: 1120,
+    diySteps: [
+      '1. तुरंत गीज़र का पावर प्लग निकालें और कोल्ड वाटर इनलेट वाल्व बंद करें।',
+      '2. यदि पानी मुख्य बॉडी के अंदर से रिस रहा है तो नया गीज़र बदलना सुरक्षित रहेगा, अन्यथा गैस्केट/एलिमेंट बदला जा सकता है।',
+    ],
+    karigarAdvice:
+      'उस्ताद की हिदायत: गीज़र टैंक की हर 2 साल में डीस्केलिंग व मैग्नीशियम एनोड रॉड बदलवाने से टैंक 8-10 साल तक सुरक्षित रहता है।',
+  },
+  putty_peeling: {
+    id: 'putty_peeling',
+    category: 'painter',
+    titleHindi: '🎨 दीवार पर पुट्टी/पेंट के बबल बनना व पपड़ी झड़ना',
+    visibleObservation: 'दीवार की ऊपरी पेंट परत गुब्बारे की तरह फूल गई है और उंगली से छूने पर पपड़ी उखड़ रही है।',
+    inferredCause: 'पुराने पेंट के ऊपर बिना प्राइमर और पूरी सैंडिंग के नया पेंट चढ़ाया गया, या हल्की सतही नमी अंदर फंसी है।',
+    visualSymptom: 'दीवार से पेंट की परतें छिलकर नीचे गिरना।',
+    realProblem: 'कमजोर प्राइमर बॉन्ड (Poor adhesion) अथवा हल्की नमी।',
+    neededHardware: [
+      { name: 'बिरला/जेके वॉल पुट्टी (20kg बैग)', approxPrice: 490, unit: '1 बैग' },
+      { name: 'एशियन पेंट्स TruCare इंटीरियर प्राइमर (1L)', approxPrice: 210, unit: '1 लीटर' },
+      { name: 'रेगमार्क 120 व 220 ग्रिट पेपर', approxPrice: 45, unit: '4 शीट' },
+    ],
+    laborEstimate: {
+      description: 'पेंटर स्क्रैपिंग, 2 कोट पुट्टी, प्राइमर व टच-अप',
+      approxPrice: 450,
+    },
+    totalEstimatedCost: 1195,
+    diySteps: [
+      '1. पपड़ी वाले पूरे हिस्से को पुट्टी ब्लेड से साफ़ ईंट/प्लास्टर तक खुरचें।',
+      '2. सीमेंट प्राइमर लगाकर सुखाएं, फिर 2 पतले कोट पुट्टी चढ़ाएं।',
+    ],
+    karigarAdvice:
+      'उस्ताद की हिदायत: कभी भी पुरानी उखड़ती पपड़ी के ऊपर सीधे पेंट न चलाएं — पहले प्राइमर से सतह बांधना जरूरी है।',
+  },
+  wood_termite: {
+    id: 'wood_termite',
+    category: 'carpenter',
+    titleHindi: '🪵 चौखट/अलमारी में दीमक या लकड़ी का बुरादा दिखना',
+    visibleObservation: 'लकड़ी की चौखट या प्लाईवुड के कोने से बारीक मिट्टी की लाइनिंग या लकड़ी का पाउडर गिर रहा है।',
+    inferredCause: 'सादी कमर्शियल प्लाई या अनट्रीटेड सॉफ्टवुड में दीमक (Termite) या वुड-बोरर कीड़ा लग गया है।',
+    visualSymptom: 'दरवाजे की पट्टी का खोखला होना और बारीक बुरादा झड़ना।',
+    realProblem: 'नमी युक्त दीवार के पास दीमक/बोरर संक्रमण।',
+    neededHardware: [
+      { name: 'Terminator एंटी-टर्माइट केमिकल (1 लीटर + इंजेक्शन सिरिंज)', approxPrice: 420, unit: '1 बोतल' },
+      { name: 'सेंचुरी BWP 710 वाटरप्रूफ टर्माइट-प्रूफ प्लाई पैच', approxPrice: 650, unit: 'पैच शीट' },
+    ],
+    laborEstimate: {
+      description: 'कारपेंटर केमिकल इंजेक्शन ट्रीटमेंट व सड़ी पट्टी बदलाव',
+      approxPrice: 450,
+    },
+    totalEstimatedCost: 1520,
+    diySteps: [
+      '1. प्रभावित पल्ले/बक्सों को खाली करें और सिरिंज से हर छिद्र में टर्मिनेटर केमिकल इंजेक्ट करें।',
+      '2. सड़ी हुई लकड़ी पूरी हटाकर BWP 710 ग्रेड मरीन प्लाई या WPC फ्रेम से बदलवाएं।',
+    ],
+    karigarAdvice:
+      'उस्ताद की हिदायत: केवल ऊपर से पेंट या वार्निश करने से दीमक नहीं मरती! दीवार व चौखट के जोड़ में केमिकल ड्रिल ट्रीटमेंट आवश्यक है।',
+  },
+  ceiling_crack: {
+    id: 'ceiling_crack',
+    category: 'mason',
+    titleHindi: '🏚️ छत की प्लास्टर दरार या सरिया दिखना (Spalling)',
+    visibleObservation: 'छत के स्लैब में सीधी/जालीनुमा दरार दिख रही है या पपड़ी टूटकर अंदर का जंग लगा सरिया झांक रहा है।',
+    inferredCause: 'छत के ऊपर जमा बारिश का पानी स्लैब तक पहुंचकर सरिये को जंग (Corrosion) लगा रहा है, जिससे कंक्रीट फूलकर गिर रहा है।',
+    visualSymptom: 'छत से प्लास्टर झड़ना, दरार से पानी रिसना या स्टील का दिखना।',
+    realProblem: 'स्लैब वॉटरप्रूफिंग फेल होना और रीबार रस्ट स्पैलिंग।',
+    isSafetyHazard: true,
+    safetyMessage: '⚠️ सुरक्षा चेतावनी: यदि छत से भारी कंक्रीट टुकड़े गिर रहे हैं तो उसके ठीक नीचे न खड़े हों/बैठें और तुरंत स्ट्रक्चरल राजमिस्त्री से जांच कराएं।',
+    neededHardware: [
+      { name: 'Dr. Fixit Pidicrete URP + एंटी-कोरोजन जिंक प्राइमर (1L)', approxPrice: 520, unit: '1 सेट' },
+      { name: 'अल्ट्राटेक/ACC PPC सीमेंट + धुली रेत', approxPrice: 420, unit: 'रिपेयर बैग' },
+    ],
+    laborEstimate: {
+      description: 'राजमिस्त्री चिपिंग, रस्ट ट्रीटमेंट व पॉलीमर मोर्टार रिपेयर',
+      approxPrice: 600,
+    },
+    totalEstimatedCost: 1540,
+    diySteps: [],
+    karigarAdvice:
+      'उस्ताद की हिदायत: छत के ऊपर टेरिस वॉटरप्रूफिंग करवाना अनिवार्य है और नीचे से सरिये पर एंटी-रस्ट प्राइमर लगाकर ही पॉलीमर मोर्टार से भरें।',
+  },
 };
 
 /**
@@ -881,6 +899,16 @@ export function diagnoseVisualProblem(
     selected = { ...VISUAL_PROBLEM_SCENARIOS[scenarioKeyOrQuery] };
   } else if (q.includes('chingari') || q.includes('चिंगारी') || q.includes('spark') || q.includes('धुआं')) {
     selected = { ...VISUAL_PROBLEM_SCENARIOS.switchboard_spark };
+  } else if (/\bac\b|एसी |cooling|ठंडी हवा|compressor/.test(q) || preferredCategory === 'ac_repair') {
+    selected = { ...VISUAL_PROBLEM_SCENARIOS.ac_cooling };
+  } else if (/गीजर|geyser|हीटर|heater/.test(q)) {
+    selected = { ...VISUAL_PROBLEM_SCENARIOS.geyser_leak };
+  } else if (/दीमक|termite|बुरादा|borer|कीड़ा/.test(q)) {
+    selected = { ...VISUAL_PROBLEM_SCENARIOS.wood_termite };
+  } else if (/छत|ceiling|slab|स्लैब|सरिया|दरार|crack/.test(q)) {
+    selected = { ...VISUAL_PROBLEM_SCENARIOS.ceiling_crack };
+  } else if (/पुट्टी|putty|पपड़ी|bubble|छिल/.test(q)) {
+    selected = { ...VISUAL_PROBLEM_SCENARIOS.putty_peeling };
   } else if (q.includes('नल') || q.includes('tap') || q.includes('tapak') || q.includes('टपक') || preferredCategory === 'plumber') {
     selected = { ...VISUAL_PROBLEM_SCENARIOS.tap_leakage };
   } else if (q.includes('सीलन') || q.includes('seepage') || q.includes('शोरा') || q.includes('नमी') || preferredCategory === 'painter') {
@@ -889,7 +917,7 @@ export function diagnoseVisualProblem(
     selected = { ...VISUAL_PROBLEM_SCENARIOS.mcb_tripping };
   } else if (q.includes('दरवाजा') || q.includes('door') || q.includes('hinge') || q.includes('कब्जा') || preferredCategory === 'carpenter') {
     selected = { ...VISUAL_PROBLEM_SCENARIOS.door_jam };
-  } else if (q.includes('टाइल') || q.includes('tile') || preferredCategory === 'mason') {
+  } else if (q.includes('टाइल') || q.includes('tile') || preferredCategory === 'mason' || preferredCategory === 'tiling') {
     selected = { ...VISUAL_PROBLEM_SCENARIOS.tile_crack };
   } else {
     // If query is completely unrecognized and not a demo scenario, do NOT fabricate!
@@ -971,23 +999,29 @@ export function calculateCustomerEstimate(params: CustomerEstimateParams): Custo
     quantity,
     unitType,
     contractorDailyRate,
-    helperRate = 0,
+    helperRate = null,
     materialItemsCatalog = [],
   } = params;
 
+  const safeQty = Math.max(0.5, Number(quantity) || 1);
   let laborCost: number | null = null;
   let laborCostText = '';
   let laborDetails = '';
 
   if (contractorDailyRate !== null && contractorDailyRate !== undefined && contractorDailyRate > 0) {
+    const validHelper = helperRate !== null && helperRate !== undefined && Number(helperRate) > 0
+      ? Math.round(Number(helperRate))
+      : 0;
     if (unitType === 'day') {
-      laborCost = contractorDailyRate * quantity;
+      laborCost = Math.round((contractorDailyRate + validHelper) * safeQty);
       laborCostText = `₹${laborCost.toLocaleString('en-IN')}`;
-      laborDetails = `कारीगर दर: ₹${contractorDailyRate}/दिन × ${quantity} दिन = ₹${laborCost.toLocaleString('en-IN')}`;
+      laborDetails = validHelper > 0
+        ? `कारीगर ₹${contractorDailyRate}/दिन + हेल्पर ₹${validHelper}/दिन × ${safeQty} दिन = ₹${laborCost.toLocaleString('en-IN')}`
+        : `कारीगर दर: ₹${contractorDailyRate}/दिन × ${safeQty} दिन = ₹${laborCost.toLocaleString('en-IN')}`;
     } else {
-      laborCost = contractorDailyRate * quantity;
+      laborCost = Math.round(contractorDailyRate * safeQty);
       laborCostText = `₹${laborCost.toLocaleString('en-IN')}`;
-      laborDetails = `दर: ₹${contractorDailyRate}/${unitType} × ${quantity} = ₹${laborCost.toLocaleString('en-IN')}`;
+      laborDetails = `दर: ₹${contractorDailyRate}/${unitType} × ${safeQty} = ₹${laborCost.toLocaleString('en-IN')}`;
     }
   } else {
     laborCost = null;
@@ -1067,14 +1101,29 @@ export interface SpaceDesign3D {
   }[];
 }
 
+function getRegionalSpaceLaborMultiplier(locality = ''): number {
+  const loc = (locality || '').toLowerCase();
+  if (/मुंबई|mumbai|thane|navi mumbai/.test(loc)) return 1.38;
+  if (/दिल्ली|delhi|noida|gurgaon|gurugram|ncr|बेंगलुरु|bangalore|bengaluru/.test(loc)) return 1.3;
+  if (/पुणे|pune|हैदराबाद|hyderabad|चेन्नई|chennai|अहमदाबाद|ahmedabad/.test(loc)) return 1.2;
+  if (/इंदौर|indore|जयपुर|jaipur|कोलकाता|kolkata|लखनऊ|lucknow/.test(loc)) return 1.08;
+  return 1.0;
+}
+
 export function calculate3DSpaceDesign(params: {
   type: 'kitchen' | 'wardrobe' | 'masonry' | 'plumbing' | 'electrical';
   layout?: string;
   finish?: string;
   lengthFt?: number;
   widthFt?: number;
+  locality?: string;
 }): SpaceDesign3D {
-  const { type, layout = 'L_SHAPE', finish = 'ACRYLIC', lengthFt = 10, widthFt = 8 } = params;
+  const { type, layout = 'L_SHAPE', finish = 'ACRYLIC', locality = 'भोपाल' } = params;
+  const rawLen = Number(params.lengthFt);
+  const rawWid = Number(params.widthFt);
+  const lengthFt = Math.min(200, Math.max(2, Number.isFinite(rawLen) && rawLen > 0 ? rawLen : 10));
+  const widthFt = Math.min(200, Math.max(2, Number.isFinite(rawWid) && rawWid > 0 ? rawWid : 8));
+  const laborMultiplier = getRegionalSpaceLaborMultiplier(locality);
 
   // 1. MASONRY (राजमिस्त्री - घर/दीवार संरचना)
   if (type === 'masonry') {
@@ -1090,7 +1139,7 @@ export function calculate3DSpaceDesign(params: {
     const sandCost = Math.round(sandCft * 42);
     const steelCost = Math.round(steelKg * 68);
     const totalMaterialCost = cementCost + brickCost + sandCost + steelCost;
-    const laborCost = Math.round(wallArea * 48); // Bhopal mason standard
+    const laborCost = Math.round(wallArea * 48 * laborMultiplier); // Regional mason standard
     const grandTotal = totalMaterialCost + laborCost;
 
     return {
@@ -1132,7 +1181,6 @@ export function calculate3DSpaceDesign(params: {
   // 2. PLUMBING (प्लम्बर - कंसील्ड पाइपलाइन & ड्रेनेज)
   if (type === 'plumbing') {
     const pipeLength1In = Math.round((lengthFt + widthFt) * 1.5);
-    const pipeLengthHalfIn = Math.round((lengthFt + widthFt) * 2);
     const fittingsCount = 14;
 
     const cpvcPipeCost = Math.round(pipeLength1In * 65);
@@ -1140,7 +1188,7 @@ export function calculate3DSpaceDesign(params: {
     const drainagePipeCost = Math.round(lengthFt * 95);
     const valvesCost = 1850;
     const totalMaterialCost = cpvcPipeCost + fittingsCost + drainagePipeCost + valvesCost;
-    const laborCost = 3500; // Complete point-wise bathroom/kitchen plumbing
+    const laborCost = Math.round(3500 * laborMultiplier); // Regional bathroom/kitchen plumbing
     const grandTotal = totalMaterialCost + laborCost;
 
     return {
@@ -1189,7 +1237,7 @@ export function calculate3DSpaceDesign(params: {
     const boxCost = modularBoxes * 210;
     const mcbCost = 1600;
     const totalMaterialCost = conduitCost + wireCost + boxCost + mcbCost;
-    const laborCost = 2800;
+    const laborCost = Math.round(2800 * laborMultiplier);
     const grandTotal = totalMaterialCost + laborCost;
 
     return {
@@ -1259,7 +1307,7 @@ export function calculate3DSpaceDesign(params: {
   const totalMaterialCost = plyCost + micaCost + hardwareCost;
 
   const laborRatePerSqFt = type === 'kitchen' ? 380 : 350;
-  const laborCost = Math.round(totalSqFt * laborRatePerSqFt);
+  const laborCost = Math.round(totalSqFt * laborRatePerSqFt * laborMultiplier);
   const grandTotal = totalMaterialCost + laborCost;
 
   const layoutNames: Record<string, string> = {

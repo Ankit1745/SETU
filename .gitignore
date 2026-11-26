@@ -46,3 +46,7 @@ backend/database.json
 .vercel
 
 tests_compiled/
+dist_verify/
+test_*.js
+backend/uploads/public/setu_*
+

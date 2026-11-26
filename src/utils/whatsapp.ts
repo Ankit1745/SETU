@@ -1,29 +1,36 @@
-import { Linking, Platform, Alert } from 'react-native';
+import { Linking, Platform } from 'react-native';
+import { showAppAlert } from './appAlert';
 
 /**
  * Clean phone number to Indian 10-digit international format (+91XXXXXXXXXX)
+ * Returns empty string if no valid contact phone was provided (never routes to a hardcoded third party!).
  */
-export function formatIndianPhoneNumber(phone: string): string {
+export function formatIndianPhoneNumber(phone?: string | null): string {
   const digits = (phone || '').replace(/\D/g, '');
+  if (!digits) return '';
   if (digits.length === 10) {
     return `91${digits}`;
   }
   if (digits.length === 12 && digits.startsWith('91')) {
     return digits;
   }
-  // Default fallback for demo / test numbers
-  return '919876543210';
+  return '';
 }
 
 /**
- * Open WhatsApp chat with pre-filled message seamlessly on Web & Native Android/iOS
+ * Open WhatsApp chat with pre-filled message seamlessly on Web & Native Android/iOS.
+ * If recipient phone is missing/unverified, opens WhatsApp's contact picker share URL instead of messaging a hardcoded number.
  */
-export async function openWhatsAppChat(phone: string, message: string): Promise<void> {
+export async function openWhatsAppChat(phone: string | undefined | null, message: string): Promise<void> {
   const cleanPhone = formatIndianPhoneNumber(phone);
   const encodedText = encodeURIComponent(message);
 
-  const nativeUrl = `whatsapp://send?phone=${cleanPhone}&text=${encodedText}`;
-  const webUrl = `https://wa.me/${cleanPhone}?text=${encodedText}`;
+  const nativeUrl = cleanPhone
+    ? `whatsapp://send?phone=${cleanPhone}&text=${encodedText}`
+    : `whatsapp://send?text=${encodedText}`;
+  const webUrl = cleanPhone
+    ? `https://wa.me/${cleanPhone}?text=${encodedText}`
+    : `https://wa.me/?text=${encodedText}`;
 
   if (Platform.OS === 'web') {
     if (typeof window !== 'undefined') {
@@ -45,8 +52,8 @@ export async function openWhatsAppChat(phone: string, message: string): Promise<
     console.warn('[WhatsApp] Native deep-link failed, falling back to web:', err);
     try {
       await Linking.openURL(webUrl);
-    } catch (e) {
-      Alert.alert(
+    } catch {
+      showAppAlert(
         'WhatsApp नहीं खुला',
         'कृपया जांचें कि आपके फ़ोन में WhatsApp इनस्टॉल है या नहीं।'
       );
@@ -68,7 +75,7 @@ export function formatAiDoctorWhatsAppMessage(params: {
 }): string {
   const partsList = params.partsNeeded.map((p) => `  • ${p}`).join('\n');
   return `नमस्ते ${params.contractorName} जी,
-मैंने SETU ऐप पर आपकी प्रोफाइल और 4.9★ रेटिंग देखी है।
+मैंने SETU ऐप पर आपकी प्रोफाइल देखी है।
 
 🤖 *SETU AI उस्ताद (लाइव वीडियो रिपोर्ट)*:
 📍 *लोकेशन:* ${params.userLocation}

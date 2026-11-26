@@ -6,11 +6,11 @@ import {
   Modal,
   TouchableOpacity,
   ScrollView,
-  Alert,
 } from 'react-native';
-import { MaterialCommunityIcons, MaterialIcons, Ionicons } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { MegaContract } from '../data/mockData';
 import { COLORS } from '../theme/colors';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface MegaContractModalProps {
   visible: boolean;
@@ -25,12 +25,19 @@ export const MegaContractModal: React.FC<MegaContractModalProps> = ({
   onClose,
   onRequestConsultation,
 }) => {
+  const { getModalStyles } = useResponsive();
   if (!contract) return null;
+  const { isDialog, overlayStyle, containerStyle } = getModalStyles({
+    maxWidth: 740,
+    fixedHeight: true,
+    mobileHeight: '90%',
+    desktopHeight: '88%',
+  });
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.container}>
+    <Modal visible={visible} animationType={isDialog ? 'fade' : 'slide'} transparent={true} onRequestClose={onClose}>
+      <View style={overlayStyle}>
+        <View style={[styles.container, containerStyle]}>
           {/* Header */}
           <View style={styles.header}>
             <View style={{ flex: 1 }}>

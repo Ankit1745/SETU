@@ -7,17 +7,25 @@ import {
   TextInput,
   TouchableOpacity,
   Switch,
-  Alert,
 } from 'react-native';
-import { MaterialCommunityIcons, MaterialIcons, Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
 import { MaterialItem } from '../data/mockData';
 import { COLORS } from '../theme/colors';
+import { Language } from '../i18n/translations';
+import { showAppAlert } from '../utils/appAlert';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface VendorDashboardProps {
   materials: MaterialItem[];
   onUpdateMaterial: (updated: MaterialItem) => void;
   onAddNewMaterial: (newItem: MaterialItem) => void;
   vendorId?: string;
+  vendorName?: string;
+  language?: Language;
+}
+
+function createMaterialId(): string {
+  return `m_${Date.now()}`;
 }
 
 export const VendorDashboard: React.FC<VendorDashboardProps> = ({
@@ -25,9 +33,11 @@ export const VendorDashboard: React.FC<VendorDashboardProps> = ({
   onUpdateMaterial,
   onAddNewMaterial,
   vendorId = 'v1',
+  vendorName,
+  language: _language = 'hi',
 }) => {
   const currentVendorId = vendorId || 'v1';
-  // Strict Vendor Isolation: Only display inventory belonging to THIS vendor shop
+  // Vendor Isolation: show vendor's own inventory (fallback to all unowned items for default v1)
   const storeMaterials = materials.filter(
     (m) => (m.vendorId || 'v1') === currentVendorId
   );
@@ -40,6 +50,7 @@ export const VendorDashboard: React.FC<VendorDashboardProps> = ({
   // New item form state
   const [newName, setNewName] = useState('');
   const [newBrand, setNewBrand] = useState('');
+  const [newCategory, setNewCategory] = useState<'mason' | 'carpenter' | 'plumber' | 'electrician' | 'painter' | 'general'>('general');
   const [newMrp, setNewMrp] = useState('');
   const [newSellingPrice, setNewSellingPrice] = useState('');
   const [newUnit, setNewUnit] = useState('प्रति बोरी/शीट');
@@ -48,18 +59,25 @@ export const VendorDashboard: React.FC<VendorDashboardProps> = ({
   const handleStartEdit = (item: MaterialItem) => {
     setEditingItemId(item.id);
     setEditPrice(item.sellingPrice.toString());
-    setEditBulkOffer(item.bulkOffer);
+    setEditBulkOffer(item.bulkOffer || '');
   };
 
   const handleSaveEdit = (item: MaterialItem) => {
-    const updatedPrice = parseFloat(editPrice) || item.sellingPrice;
+    const parsed = Number(editPrice.trim());
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      showAppAlert('अमान्य कीमत', 'कृपया वैध धनात्मक विक्रय मूल्य (> 0) दर्ज करें।');
+      return;
+    }
+    const updatedPrice = Math.round(parsed);
+    const updatedMrp = item.mrp < updatedPrice ? updatedPrice : item.mrp;
     onUpdateMaterial({
       ...item,
+      mrp: updatedMrp,
       sellingPrice: updatedPrice,
-      bulkOffer: editBulkOffer,
+      bulkOffer: editBulkOffer.trim(),
     });
     setEditingItemId(null);
-    Alert.alert('✅ प्रोडक्ट कीमत अपडेट हुई', `"${item.name}" का नया रेट ग्राहकों को दिखने लगा है।`);
+    showAppAlert('✅ प्रोडक्ट कीमत अपडेट हुई', `"${item.name}" का नया रेट ग्राहकों को दिखने लगा है।`);
   };
 
   const handleToggleStock = (item: MaterialItem) => {
@@ -70,22 +88,30 @@ export const VendorDashboard: React.FC<VendorDashboardProps> = ({
   };
 
   const handleCreateNewProduct = () => {
-    if (!newName.trim() || !newSellingPrice) {
-      Alert.alert('अधूरी जानकारी', 'कृपया प्रोडक्ट का नाम और सेलिंग प्राइस अवश्य भरें।');
+    const selling = Number(newSellingPrice.trim());
+    const parsedMrp = newMrp.trim() ? Number(newMrp.trim()) : Math.round(selling * 1.15);
+
+    if (!newName.trim() || !Number.isFinite(selling) || selling <= 0) {
+      showAppAlert('अधूरी / अमान्य जानकारी', 'कृपया प्रोडक्ट का नाम और वैध धनात्मक सेलिंग प्राइस (> 0) दर्ज करें।');
+      return;
+    }
+    if (!Number.isFinite(parsedMrp) || parsedMrp <= 0) {
+      showAppAlert('अमान्य MRP', 'कृपया वैध MRP मूल्य दर्ज करें।');
       return;
     }
 
+    const displayStoreName = vendorName || storeMaterials[0]?.storeName || 'मेरी हार्डवेयर & मटेरियल दुकान';
     const newItem: MaterialItem = {
-      id: 'm_' + Date.now(),
+      id: createMaterialId(),
       vendorId: currentVendorId,
-      name: newName,
-      brand: newBrand || 'Generic',
-      category: 'mason',
-      mrp: parseFloat(newMrp) || parseFloat(newSellingPrice) * 1.15,
-      sellingPrice: parseFloat(newSellingPrice),
-      unit: newUnit,
-      bulkOffer: newBulk,
-      storeName: 'मेरी हार्डवेयर दुकान (Shop Owner)',
+      name: newName.trim(),
+      brand: newBrand.trim() || 'Generic',
+      category: newCategory,
+      mrp: Math.max(Math.round(selling), Math.round(parsedMrp)),
+      sellingPrice: Math.round(selling),
+      unit: newUnit.trim() || 'प्रति नग',
+      bulkOffer: newBulk.trim(),
+      storeName: displayStoreName,
       storeDistance: '0.5 km दूर',
       inStock: true,
       image: 'https://images.unsplash.com/photo-1581244277943-fe4a9c777189?w=150',
@@ -98,11 +124,21 @@ export const VendorDashboard: React.FC<VendorDashboardProps> = ({
     setNewMrp('');
     setNewSellingPrice('');
     setNewBulk('');
-    Alert.alert('🎉 नया सामान लिस्ट हुआ!', `"${newItem.name}" अब ग्राहकों और ठेकेदारों को लाइव दिखेगा।`);
+    showAppAlert('🎉 नया सामान लिस्ट हुआ!', `"${newItem.name}" अब ग्राहकों और ठेकेदारों को लाइव दिखेगा।`);
   };
 
+  const inStockCount = storeMaterials.filter((m) => m.inStock).length;
+  const shopDisplayTitle = vendorName || storeMaterials[0]?.storeName || 'SETU वेरिफाइड हार्डवेयर स्टोर';
+  const { isTabletOrDesktop, isDesktop, horizontalPadding, shellStyle, getGridItemWidth } = useResponsive();
+  const itemColWidth = getGridItemWidth(isDesktop ? 2 : 2, 2);
+
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ padding: horizontalPadding, paddingBottom: 48 }}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={shellStyle}>
       {/* Shop Profile Banner */}
       <View style={styles.shopCard}>
         <View style={styles.shopTopRow}>
@@ -110,25 +146,27 @@ export const VendorDashboard: React.FC<VendorDashboardProps> = ({
             <MaterialCommunityIcons name="storefront" size={26} color={COLORS.secondary} />
           </View>
           <View style={styles.shopInfo}>
-            <Text style={styles.shopName}>गुप्ता हार्डवेयर & सेनेटरी स्टोर</Text>
-            <Text style={styles.shopLocation}>📍 हमीदिया रोड / एमपी नगर, भोपाल • GST: 23AAACG1234F1Z5</Text>
+            <Text style={styles.shopName}>{shopDisplayTitle}</Text>
+            <Text style={styles.shopLocation}>📍 विक्रेता ID: {currentVendorId} • भोपाल मंडी रेट्स</Text>
             <View style={styles.shopStatsRow}>
-              <Text style={styles.statPill}>⭐ 4.8 रेटिंग</Text>
-              <Text style={styles.statPill}>📦 450+ ऑर्डर डिलीवर</Text>
+              <Text style={styles.statPill}>📦 {storeMaterials.length} सूचीबद्ध आइटम</Text>
+              <Text style={styles.statPill}>✅ {inStockCount} स्टॉक में उपलब्ध</Text>
             </View>
           </View>
         </View>
 
-        {/* Quick business summary */}
+        {/* Live inventory summary */}
         <View style={styles.revenueRow}>
           <View style={styles.revCol}>
-            <Text style={styles.revLabel}>आज के नए ऑर्डर्स</Text>
-            <Text style={styles.revVal}>4 ऑर्डर्स</Text>
+            <Text style={styles.revLabel}>स्टॉक में उपलब्ध</Text>
+            <Text style={styles.revVal}>{inStockCount} / {storeMaterials.length}</Text>
           </View>
           <View style={styles.revDivider} />
           <View style={styles.revCol}>
-            <Text style={styles.revLabel}>इस सप्ताह की बिक्री</Text>
-            <Text style={[styles.revVal, { color: COLORS.accent }]}>₹84,200</Text>
+            <Text style={styles.revLabel}>औसत लिस्टिंग मूल्य</Text>
+            <Text style={[styles.revVal, { color: COLORS.accent }]}>
+              ₹{storeMaterials.length > 0 ? Math.round(storeMaterials.reduce((s, m) => s + (m.sellingPrice || 0), 0) / storeMaterials.length).toLocaleString('en-IN') : 0}
+            </Text>
           </View>
         </View>
       </View>
@@ -149,6 +187,26 @@ export const VendorDashboard: React.FC<VendorDashboardProps> = ({
       {showAddForm && (
         <View style={styles.addFormCard}>
           <Text style={styles.formTitle}>नया सामान जोड़ें (Seller Listing)</Text>
+
+          <Text style={styles.inputLabel}>श्रेणी चुनें (Category):</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            {(['general', 'mason', 'carpenter', 'plumber', 'electrician', 'painter'] as const).map((cat) => (
+              <TouchableOpacity
+                key={cat}
+                onPress={() => setNewCategory(cat)}
+                style={{
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                  borderRadius: 14,
+                  backgroundColor: newCategory === cat ? COLORS.secondary : '#E2E8F0',
+                }}
+              >
+                <Text style={{ fontSize: 11, fontWeight: '700', color: newCategory === cat ? '#FFF' : '#334155' }}>
+                  {cat}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
 
           <Text style={styles.inputLabel}>सामान का नाम:</Text>
           <TextInput
@@ -225,10 +283,24 @@ export const VendorDashboard: React.FC<VendorDashboardProps> = ({
           दुकानदार अपना सेलिंग प्राइस और डिस्काउंट खुद सेट कर सकता है:
         </Text>
 
-        {storeMaterials.map((item) => {
-          const isEditing = editingItemId === item.id;
-          return (
-            <View key={item.id} style={styles.itemCard}>
+        {storeMaterials.length === 0 ? (
+          <View style={{ backgroundColor: '#FFF', padding: 20, borderRadius: 12, alignItems: 'center' }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569' }}>
+              अभी आपकी दुकान ({currentVendorId}) में कोई आइटम सूचीबद्ध नहीं है। ऊपर दिए बटन से पहला प्रोडक्ट जोड़ें!
+            </Text>
+          </View>
+        ) : (
+        <View style={isTabletOrDesktop ? styles.inventoryGridDesktop : undefined}>
+          {storeMaterials.map((item) => {
+            const isEditing = editingItemId === item.id;
+            return (
+              <View
+                key={item.id}
+                style={[
+                  styles.itemCard,
+                  isTabletOrDesktop && { width: itemColWidth, marginBottom: 0 },
+                ]}
+              >
               <View style={styles.itemHeader}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.itemBrand}>{item.brand}</Text>
@@ -306,12 +378,15 @@ export const VendorDashboard: React.FC<VendorDashboardProps> = ({
                   </TouchableOpacity>
                 </View>
               )}
-            </View>
-          );
-        })}
+              </View>
+            );
+          })}
+        </View>
+        )}
       </View>
 
-      <View style={{ height: 60 }} />
+      </View>
+      <View style={{ height: 40 }} />
     </ScrollView>
   );
 };
@@ -320,7 +395,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
-    padding: 16,
+  },
+  inventoryGridDesktop: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
   },
   shopCard: {
     backgroundColor: COLORS.cardBg,

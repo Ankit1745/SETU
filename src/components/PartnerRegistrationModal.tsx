@@ -7,31 +7,37 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
-  Alert,
   Switch,
   Image,
   ActivityIndicator,
 } from 'react-native';
-import { MaterialCommunityIcons, MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
 import { pickImageFromGallery } from '../utils/mediaPicker';
 import { ApiService } from '../services/api';
+import { Language } from '../i18n/translations';
+import { showAppAlert } from '../utils/appAlert';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface PartnerRegistrationModalProps {
   visible: boolean;
   initialType?: 'CONTRACTOR' | 'VENDOR';
+  language?: Language;
   onClose: () => void;
-  onRegistrationComplete: (partnerData: any) => void;
+  onRegistrationComplete: (partnerData: any) => Promise<boolean> | boolean | void;
 }
 
 export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> = ({
   visible,
   initialType = 'CONTRACTOR',
+  language = 'hi',
   onClose,
   onRegistrationComplete,
 }) => {
+  const _isEn = language === 'en';
   const [partnerType, setPartnerType] = useState<'CONTRACTOR' | 'VENDOR'>(initialType);
   const [currentStep, setCurrentStep] = useState<number>(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // STEP 1: Basic Info & Trade / Store
   const [fullName, setFullName] = useState('');
@@ -50,16 +56,16 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
   const [isUploading, setIsUploading] = useState(false);
 
   // STEP 3: Experience, Tools & Rate Card (Contractor) / Delivery Radius (Vendor)
-  // SETU Rule: Do not force default high rates or 5-star experience. Contractor sets own rates; blank means "भाव पूछें".
   const [experienceYears, setExperienceYears] = useState('0');
   const [isTeamThekedar, setIsTeamThekedar] = useState(false);
   const [teamSize, setTeamSize] = useState('1');
-  const [hasOwnTools, setHasOwnTools] = useState(true);
+  const [hasOwnTools] = useState(true);
   const [dailyRate, setDailyRate] = useState('');
   const [helperRate, setHelperRate] = useState('');
   const [thekaRate, setThekaRate] = useState('');
   const [thekaUnitLabel, setThekaUnitLabel] = useState('प्रति यूनिट / काम');
   const [deliveryRadiusKm, setDeliveryRadiusKm] = useState('10');
+  const [minFreeDeliveryAmount, setMinFreeDeliveryAmount] = useState('3000');
 
   // STEP 4: Bank Account & UPI Setup for Instant Escrow Payouts
   const [accountHolderName, setAccountHolderName] = useState('');
@@ -93,36 +99,52 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
         const fileRef = isKyc ? (uploadRes.privateRef || uploadRes.filename) : (uploadRes.fullUrl || uploadRes.url);
         if (isKyc) {
           setAadhaarPhotoUrl(fileRef);
-          Alert.alert('✅ केवाईसी दस्तावेज सुरक्षित', 'आपका पहचान पत्र सुरक्षित प्राइवेट स्टोरेज में अपलोड हो गया है। केवल अधिकृत एडमिन सत्यापन हेतु देख सकते हैं।');
+          showAppAlert('✅ केवाईसी दस्तावेज सुरक्षित', 'आपका पहचान पत्र सुरक्षित प्राइवेट स्टोरेज में अपलोड हो गया है। केवल अधिकृत एडमिन सत्यापन हेतु देख सकते हैं।');
         } else {
           setWorkPhotoUrl(fileRef);
-          Alert.alert('✅ फोटो अपलोड सफल', 'आपकी कार्य फोटो सफलतापूर्वक जुड़ गई है!');
+          showAppAlert('✅ फोटो अपलोड सफल', 'आपकी कार्य फोटो सफलतापूर्वक जुड़ गई है!');
         }
       } else {
-        Alert.alert('अपलोड विफल', uploadRes?.error || 'फाइल अपलोड नहीं हो सकी।');
+        showAppAlert('अपलोड विफल', uploadRes?.error || 'फाइल अपलोड नहीं हो सकी।');
       }
     } catch (err: any) {
       setIsUploading(false);
-      Alert.alert('त्रुटि', 'फाइल अपलोड में समस्या: ' + err.message);
+      showAppAlert('त्रुटि', 'फाइल अपलोड में समस्या: ' + err.message);
     }
   };
 
   const totalSteps = partnerType === 'CONTRACTOR' ? 5 : 4;
 
+  const parseSafeOptionalRate = (raw: string): number | null | 'INVALID' => {
+    if (!raw.trim()) return null;
+    const num = Number(raw.trim());
+    if (!Number.isFinite(num) || num <= 0) return 'INVALID';
+    return Math.round(num);
+  };
+
   const handleNext = () => {
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
     if (currentStep === 1) {
-      if (!fullName.trim() || phone.length < 10) {
-        Alert.alert('अधूरी जानकारी', 'कृपया पूरा नाम और 10 अंकों का मोबाइल नंबर अवश्य भरें।');
+      if (!fullName.trim() || cleanPhone.length < 10) {
+        showAppAlert('अधूरी जानकारी', 'कृपया पूरा नाम और 10 अंकों का वैध मोबाइल नंबर अवश्य भरें।');
         return;
       }
     } else if (currentStep === 2) {
-      if (partnerType === 'CONTRACTOR' && !aadhaarNumber.trim()) {
-        Alert.alert('KYC आवश्यक', 'सुरक्षा सत्यापन हेतु 12 अंकों का आधार नंबर दर्ज करें।');
-        return;
+      if (partnerType === 'CONTRACTOR') {
+        const aadhaarDigits = aadhaarNumber.replace(/\D/g, '');
+        if (aadhaarDigits.length !== 12) {
+          showAppAlert('KYC आवश्यक', 'सुरक्षा सत्यापन हेतु सही 12 अंकों का आधार नंबर दर्ज करें।');
+          return;
+        }
       }
-    } else if (currentStep === 3) {
-      if (partnerType === 'CONTRACTOR' && (!dailyRate || !thekaRate)) {
-        Alert.alert('रेट-कार्ड आवश्यक', 'कृपया अपनी 1 दिन की दिहाड़ी और ठेका दर दर्ज करें।');
+    } else if (currentStep === 3 && partnerType === 'CONTRACTOR') {
+      // SETU Rule: Blank rates stay null ("भाव पूछें"), only reject negative/invalid values!
+      if (
+        parseSafeOptionalRate(dailyRate) === 'INVALID' ||
+        parseSafeOptionalRate(helperRate) === 'INVALID' ||
+        parseSafeOptionalRate(thekaRate) === 'INVALID'
+      ) {
+        showAppAlert('अमान्य दर', 'दर केवल धनात्मक संख्या (> 0) होनी चाहिए या "भाव पूछें" हेतु खाली छोड़ें।');
         return;
       }
     }
@@ -134,78 +156,102 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
     }
   };
 
-  const handleFinalSubmit = () => {
-    const randomDigits = Math.floor(1000 + Math.random() * 9000);
-    const prefix = partnerType === 'CONTRACTOR' ? 'PRO' : 'VEN';
-    const newSetuId = `SETU-${prefix}-${randomDigits}`;
+  const handleFinalSubmit = async () => {
+    if (isSubmitting) return;
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    const parsedDaily = parseSafeOptionalRate(dailyRate);
+    const parsedHelper = parseSafeOptionalRate(helperRate);
+    const parsedTheka = parseSafeOptionalRate(thekaRate);
 
     const helperCategory = (trade: string) => {
       const t = trade.toLowerCase();
       if (t.includes('carpenter') || t.includes('बढ़ई')) return 'carpenter';
-      if (t.includes('mason') || t.includes('मिस्त्री') || t.includes('टाइल्स')) return 'mason';
+      if (t.includes('टाइल्स') || t.includes('tile')) return 'tiling';
+      if (t.includes('mason') || t.includes('मिस्त्री')) return 'mason';
       if (t.includes('plumber') || t.includes('प्लंबर')) return 'plumber';
-      if (t.includes('electrician') || t.includes('इलेक्ट्रीशियन') || t.includes('ac')) return 'electrician';
+      if (t.includes('ac') || t.includes('एसी')) return 'ac_repair';
+      if (t.includes('electrician') || t.includes('इलेक्ट्रीशियन')) return 'electrician';
       if (t.includes('painter') || t.includes('पेंटर')) return 'painter';
       if (t.includes('टेंट') || t.includes('डेकोर')) return 'wedding_tent';
       if (t.includes('कैटरर') || t.includes('हलवाई')) return 'caterer';
       if (t.includes('मेकअप')) return 'wedding_makeup';
       if (t.includes('dj') || t.includes('डीजे')) return 'event_dj';
       if (t.includes('फोटो') || t.includes('कैमरा')) return 'wedding_photo';
-      return 'carpenter';
+      return 'general';
     };
 
     const newPartner = {
-      setuId: newSetuId,
-      name: fullName,
-      phone: phone,
+      name: fullName.trim(),
+      phone: cleanPhone,
       role: partnerType,
-      category: helperCategory(selectedTrade),
-      tradeOrShop: partnerType === 'CONTRACTOR' ? selectedTrade : storeName || 'हार्डवेयर स्टोर',
-      city: city,
-      locality: locality,
-      dailyWageRate: dailyRate.trim() ? parseFloat(dailyRate) : null,
-      helperRate: helperRate.trim() ? parseFloat(helperRate) : null,
-      contractUnitRate: thekaRate.trim() ? parseFloat(thekaRate) : null,
-      unitLabel: thekaUnitLabel || 'प्रति काम',
-      experienceYears: parseInt(experienceYears) || 0,
-      isTeamThekedar: isTeamThekedar,
-      teamSize: isTeamThekedar ? parseInt(teamSize) || 4 : 1,
-      bankAccount: bankAccountNumber,
-      upiId: upiId,
-      aadhaarNumber: aadhaarNumber,
-      aadhaarPhotoUrl: aadhaarPhotoUrl,
-      workPhotoUrl: workPhotoUrl,
-      workPhotoTitle: workPhotoTitle,
-      kycStatus: 'PENDING_APPROVAL', // Admin will review & grant blue tick
-      verified: false, // Starts unverified! Only admin verification grants verified badge
+      category: partnerType === 'VENDOR' ? 'general' : helperCategory(selectedTrade),
+      tradeOrShop: partnerType === 'CONTRACTOR' ? selectedTrade : storeName.trim() || `${fullName.trim()} हार्डवेयर स्टोर`,
+      city: city.trim() || 'भोपाल',
+      locality: locality.trim() || 'एमपी नगर',
+      dailyWageRate: parsedDaily === 'INVALID' ? null : parsedDaily,
+      helperRate: parsedHelper === 'INVALID' ? null : parsedHelper,
+      contractUnitRate: parsedTheka === 'INVALID' ? null : parsedTheka,
+      unitLabel: thekaUnitLabel.trim() || 'प्रति काम',
+      experienceYears: Math.max(0, parseInt(experienceYears, 10) || 0),
+      isTeamThekedar,
+      teamSize: isTeamThekedar ? Math.max(1, parseInt(teamSize, 10) || 4) : 1,
+      hasOwnTools,
+      noCriminalRecord,
+      deliveryRadiusKm: Math.max(1, parseInt(deliveryRadiusKm, 10) || 10),
+      minFreeDeliveryAmount: Math.max(0, parseInt(minFreeDeliveryAmount, 10) || 0),
+      accountHolderName: accountHolderName.trim(),
+      bankAccount: bankAccountNumber.trim(),
+      ifscCode: ifscCode.trim().toUpperCase(),
+      upiId: upiId.trim(),
+      aadhaarNumber: aadhaarNumber.replace(/\D/g, ''),
+      panNumber: panNumber.trim().toUpperCase(),
+      gstNumber: gstNumber.trim().toUpperCase(),
+      aadhaarDocRef: aadhaarPhotoUrl,
+      workPhotoUrl: workPhotoUrl.trim(),
+      workPhotoTitle: workPhotoTitle.trim(),
+      kycStatus: 'PENDING_APPROVAL',
+      verified: false,
       rating: 0,
       reviewsCount: 0,
       registeredAt: new Date().toISOString(),
     };
 
-    onRegistrationComplete(newPartner);
-    onClose();
-    Alert.alert(
-      '🎉 आवेदन सफलतापूर्वक सबमिट हुआ!',
-      `बधाई हो ${fullName}! आपका पार्टनर रजिस्ट्रेशन फॉर्म और डिजिटल ID (${newSetuId}) बन गया है। आप सीधे अपने पार्टनर डैशबोर्ड में प्रवेश कर रहे हैं।`,
-      [{ text: 'डैशबोर्ड में जाएं' }]
-    );
+    setIsSubmitting(true);
+    try {
+      const ok = await onRegistrationComplete(newPartner);
+      if (ok === false) return;
+      onClose();
+      showAppAlert(
+        '🎉 आवेदन सफलतापूर्वक सबमिट हुआ!',
+        `बधाई हो ${fullName}! आपका पार्टनर पंजीकरण आवेदन सबमिट हो गया है और आप अपने डैशबोर्ड में प्रवेश कर रहे हैं।`
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
+  const { getModalStyles } = useResponsive();
+  const { isDialog, overlayStyle, containerStyle } = getModalStyles({
+    maxWidth: 720,
+    fixedHeight: true,
+    mobileHeight: '92%',
+    desktopHeight: '90%',
+  });
+
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.container}>
+    <Modal visible={visible} animationType={isDialog ? 'fade' : 'slide'} transparent={true} onRequestClose={onClose}>
+      <View style={overlayStyle}>
+        <View style={[styles.container, containerStyle]}>
           {/* Header */}
           <View style={styles.header}>
-            <View>
+            <View style={{ flex: 1, paddingRight: 10 }}>
               <Text style={styles.headerTitle}>
                 {partnerType === 'CONTRACTOR'
-                  ? 'Urban Company स्टाइल: कारीगर / ठेकेदार ऑनबोर्डिंग'
-                  : 'Flipkart/Amazon सेलर स्टाइल: सप्लायर रजिस्ट्रेशन'}
+                  ? 'कारीगर / ठेकेदार ऑनबोर्डिंग'
+                  : 'सप्लायर (दुकानदार) रजिस्ट्रेशन'}
               </Text>
               <Text style={styles.headerSub}>
-                चरण {currentStep} का {totalSteps} • आधिकारिक पार्टनर अनुबंध
+                चरण {currentStep} / {totalSteps} • आधिकारिक पार्टनर अनुबंध {_isEn ? '(Partner)' : ''}
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -401,11 +447,12 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                         </Text>
                       </TouchableOpacity>
 
-                      {aadhaarPhotoUrl ? (
-                        <Image
-                          source={{ uri: aadhaarPhotoUrl }}
-                          style={{ width: 44, height: 32, borderRadius: 6, borderWidth: 1, borderColor: '#10B981' }}
-                        />
+                      {isUploading ? (
+                        <ActivityIndicator size="small" color="#4F46E5" />
+                      ) : aadhaarPhotoUrl ? (
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#059669' }} numberOfLines={1}>
+                          🔒 आधार अपलोड हुआ: {aadhaarPhotoUrl}
+                        </Text>
                       ) : (
                         <Text style={{ fontSize: 11, color: '#64748B', fontStyle: 'italic' }}>
                           फोटो जरूरी है (ब्लू टिक हेतु)
@@ -461,8 +508,7 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                 <View style={styles.kycSecurityBadge}>
                   <Ionicons name="shield-checkmark" size={18} color="#059669" />
                   <Text style={styles.kycSecurityText}>
-                    आपका डेटा 256-बिट एन्क्रिप्शन के साथ सुरक्षित है। SETU एडमिन सत्यापन के बाद आपको
-                    'वेरीफाइड प्रो' ब्लू टिक मिलेगा।
+                    आपका डेटा सुरक्षित है। SETU एडमिन सत्यापन के बाद आपको &apos;वेरीफाइड प्रो&apos; ब्लू टिक मिलेगा।
                   </Text>
                 </View>
               </View>
@@ -582,7 +628,13 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                     />
 
                     <Text style={styles.label}>फ्री डिलीवरी की न्यूनतम आर्डर सीमा (₹):</Text>
-                    <TextInput style={styles.input} placeholder="उदा. ₹3,000 से अधिक पर फ्री" />
+                    <TextInput
+                      style={styles.input}
+                      placeholder="उदा. 3000"
+                      keyboardType="numeric"
+                      value={minFreeDeliveryAmount}
+                      onChangeText={setMinFreeDeliveryAmount}
+                    />
                   </>
                 )}
               </View>
@@ -726,10 +778,14 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity style={styles.nextBtn} onPress={handleNext} activeOpacity={0.85}>
-              <Text style={styles.nextBtnText}>
-                {currentStep === totalSteps ? 'आवेदन सबमिट करें ✓' : 'अगला चरण ➔'}
-              </Text>
+            <TouchableOpacity style={styles.nextBtn} onPress={handleNext} activeOpacity={0.85} disabled={isSubmitting}>
+              {isSubmitting ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <Text style={styles.nextBtnText}>
+                  {currentStep === totalSteps ? 'आवेदन सबमिट करें ✓' : 'अगला चरण ➔'}
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>

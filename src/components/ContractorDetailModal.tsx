@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
-  Alert,
   TextInput,
   NativeSyntheticEvent,
   NativeScrollEvent,
@@ -17,6 +16,9 @@ import { Contractor, MaterialItem, WorkVideo } from '../data/mockData';
 import { COLORS } from '../theme/colors';
 import { VideoPlayerModal } from './VideoPlayerModal';
 import { RateSurveyModal } from './RateSurveyModal';
+import { ApiService } from '../services/api';
+import { showAppAlert } from '../utils/appAlert';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface ContractorDetailModalProps {
   visible: boolean;
@@ -36,22 +38,16 @@ export const ContractorDetailModal: React.FC<ContractorDetailModalProps> = ({
   const [activeTab, setActiveTab] = useState<'photos' | 'videos' | 'materials' | 'rates' | 'reviews'>('photos');
   const scrollViewRef = useRef<any>(null);
 
-  // Modals
+  // Sub-views
   const [selectedVideo, setSelectedVideo] = useState<WorkVideo | null>(null);
   const [showRateSurveyModal, setShowRateSurveyModal] = useState<boolean>(false);
-  
-  // Interactive Customer Reviews List & Add Review Modal
-  const [reviewsList, setReviewsList] = useState(contractor?.reviews || []);
+
+  // Extra customer-submitted reviews keyed by contractor id (no setState-in-effect needed)
+  const [addedReviewsByContractor, setAddedReviewsByContractor] = useState<Record<string, any[]>>({});
   const [showAddReviewModal, setShowAddReviewModal] = useState<boolean>(false);
   const [newRating, setNewRating] = useState<number>(5);
   const [newComment, setNewComment] = useState<string>('');
   const [hasAttachedVideo, setHasAttachedVideo] = useState<boolean>(false);
-
-  React.useEffect(() => {
-    if (contractor) {
-      setReviewsList(contractor.reviews || []);
-    }
-  }, [contractor]);
 
   // Track Y offsets of each section for smooth scroll & active tab sync
   const sectionYOffsets = useRef<{ [key: string]: number }>({
@@ -61,39 +57,78 @@ export const ContractorDetailModal: React.FC<ContractorDetailModalProps> = ({
     rates: 950,
     reviews: 1300,
   });
+  const { getModalStyles } = useResponsive();
+  const { isDialog, overlayStyle, containerStyle } = getModalStyles({
+    maxWidth: 820,
+    fixedHeight: true,
+    mobileHeight: '92%',
+    desktopHeight: '90%',
+  });
 
   if (!contractor) return null;
 
-  const handleSubmitReview = () => {
+  const reviewsList = [
+    ...(addedReviewsByContractor[contractor.id] || []),
+    ...(Array.isArray(contractor.reviews) ? contractor.reviews : []),
+  ];
+
+  const handleSubmitReview = async () => {
     if (!newComment.trim()) {
-      Alert.alert('समीक्षा आवश्यक', 'कृपया अपना अनुभव या काम की प्रतिक्रिया लिखें।');
+      showAppAlert('समीक्षा आवश्यक', 'कृपया अपना अनुभव या काम की प्रतिक्रिया लिखें।');
       return;
     }
-    const newRev = {
+
+    const res = ApiService.getAuthToken()
+      ? await ApiService.addContractorReview(contractor.id, {
+          rating: newRating,
+          comment: newComment.trim(),
+          workDone: contractor.specialtyHindi,
+        })
+      : null;
+
+    if (res && res.success === false) {
+      showAppAlert('त्रुटि', res.error || 'समीक्षा सर्वर पर दर्ज नहीं हो सकी।');
+      return;
+    }
+
+    const newRev = res?.review || {
       id: 'rev_' + Date.now(),
-      customerName: 'अमित कुमार सिंह (सत्यापित ग्राहक)',
+      customerName: 'SETU ग्राहक',
       rating: newRating,
-      comment: newComment,
-      date: 'आज',
+      comment: newComment.trim(),
+      date: new Date().toLocaleDateString('hi-IN'),
       workDone: contractor.specialtyHindi,
-      location: 'अरेरा कॉलोनी, भोपाल',
-      verifiedWork: true,
+      location: 'भोपाल',
+      verifiedWork: Boolean(ApiService.getAuthToken()),
     };
-    setReviewsList((prev) => [newRev, ...prev]);
+
+    setAddedReviewsByContractor((prev) => ({
+      ...prev,
+      [contractor.id]: [newRev, ...(prev[contractor.id] || [])],
+    }));
     setShowAddReviewModal(false);
     setNewComment('');
     setHasAttachedVideo(false);
-    Alert.alert(
+    showAppAlert(
       '🎉 समीक्षा स्वीकृत!',
-      'आपकी समीक्षा व वीडियो प्रतिक्रिया सत्यापित हो गई है। आपको 50 SETU कॉइन्स मिले हैं!'
+      'आपकी समीक्षा प्रोफ़ाइल पर जोड़ दी गई है!'
     );
   };
 
   const handleOrderMaterial = (item: MaterialItem) => {
-    Alert.alert(
-      'सामग्री ऑर्डर कन्फर्मेशन',
-      `"${item.name}" का आर्डर ${item.storeName} को भेजा गया है। ठेकेदार (${contractor.name}) के काम के समय यह साइट पर डिलीवर हो जाएगा।`,
-      [{ text: 'ठीक है' }]
+    showAppAlert(
+      'सामग्री + कारीगर बुकिंग',
+      `"${item.name}" (₹${item.sellingPrice}) को ${contractor.name} की बुकिंग के साथ जोड़ने के लिए आगे बढ़ें?`,
+      [
+        { text: 'रद्द करें', style: 'cancel' },
+        {
+          text: 'बुकिंग खोलें ➔',
+          onPress: () => {
+            onClose();
+            onBookPress(contractor);
+          },
+        },
+      ]
     );
   };
 
@@ -121,9 +156,9 @@ export const ContractorDetailModal: React.FC<ContractorDetailModalProps> = ({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.container}>
+    <Modal visible={visible} animationType={isDialog ? 'fade' : 'slide'} transparent={true} onRequestClose={onClose}>
+      <View style={overlayStyle}>
+        <View style={[styles.container, containerStyle]}>
           {/* Top Modal Navigation Header */}
           <View style={styles.header}>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -237,11 +272,11 @@ export const ContractorDetailModal: React.FC<ContractorDetailModalProps> = ({
                   <Text style={styles.specialtyText}>{contractor.specialtyHindi}</Text>
                   <View style={styles.statsRow}>
                     <View style={styles.ratingBadge}>
-                      <Text style={styles.ratingText}>{contractor.rating.toFixed(1)}</Text>
+                      <Text style={styles.ratingText}>{Number(contractor.rating || 0).toFixed(1)}</Text>
                       <FontAwesome name="star" size={10} color="#FFFFFF" style={{ marginLeft: 2 }} />
                     </View>
                     <Text style={styles.statSub}>
-                      ({contractor.reviewsCount} समीक्षाएं) • {contractor.jobsCompleted} काम पूरे
+                      ({contractor.reviewsCount || 0} समीक्षाएं) • {contractor.jobsCompleted || 0} काम पूरे
                     </Text>
                   </View>
                 </View>
@@ -251,7 +286,7 @@ export const ContractorDetailModal: React.FC<ContractorDetailModalProps> = ({
 
               {/* Skills Tags */}
               <View style={styles.skillsRow}>
-                {contractor.skills.map((s, idx) => (
+                {(contractor.skills || []).map((s, idx) => (
                   <View key={idx} style={styles.skillTag}>
                     <Text style={styles.skillTagText}>✓ {s}</Text>
                   </View>
@@ -557,7 +592,7 @@ export const ContractorDetailModal: React.FC<ContractorDetailModalProps> = ({
             >
               <View style={styles.reviewSummaryBox}>
                 <View style={styles.scoreCircle}>
-                  <Text style={styles.scoreText}>{contractor.rating.toFixed(1)}</Text>
+                  <Text style={styles.scoreText}>{Number(contractor.rating || 0).toFixed(1)}</Text>
                   <Text style={styles.scoreSub}>/ 5.0</Text>
                 </View>
                 <View style={{ flex: 1, marginLeft: 14 }}>
@@ -598,7 +633,7 @@ export const ContractorDetailModal: React.FC<ContractorDetailModalProps> = ({
                       <Text style={styles.verifiedJobBadge}>✓ वेरिफाइड वर्क</Text>
                     </View>
 
-                    <Text style={styles.reviewComment}>"{rev.comment}"</Text>
+                    <Text style={styles.reviewComment}>&ldquo;{rev.comment}&rdquo;</Text>
                     <Text style={styles.reviewDateText}>सत्यापित दिनांक: {rev.date}</Text>
                   </View>
                 ))
@@ -644,31 +679,30 @@ export const ContractorDetailModal: React.FC<ContractorDetailModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* Video Player Modal */}
-          <VideoPlayerModal
-            visible={!!selectedVideo}
-            video={selectedVideo}
-            onClose={() => setSelectedVideo(null)}
-          />
+          {/* Video Player Overlay */}
+          {selectedVideo && (
+            <VideoPlayerModal
+              visible={true}
+              video={selectedVideo}
+              onClose={() => setSelectedVideo(null)}
+            />
+          )}
 
-          {/* All-India Rate Survey Index Modal */}
-          <RateSurveyModal
-            visible={showRateSurveyModal}
-            onClose={() => setShowRateSurveyModal(false)}
-            selectedTradeId={contractor.category}
-          />
+          {/* All-India Rate Survey Index Overlay */}
+          {showRateSurveyModal && (
+            <RateSurveyModal
+              visible={true}
+              onClose={() => setShowRateSurveyModal(false)}
+              selectedTradeId={contractor.category}
+            />
+          )}
 
-          {/* Add Review & Video Testimonial Modal */}
-          <Modal
-            visible={showAddReviewModal}
-            animationType="slide"
-            transparent={true}
-            onRequestClose={() => setShowAddReviewModal(false)}
-          >
-            <View style={styles.addReviewOverlay}>
+          {/* Inline Add Review Panel (avoids simultaneous nested Modals on iOS) */}
+          {showAddReviewModal && (
+            <View style={[styles.addReviewOverlay, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 50 }]}>
               <View style={styles.addReviewContainer}>
                 <View style={styles.addReviewHeader}>
-                  <View>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
                     <Text style={styles.addReviewTitle}>समीक्षा & अनुभव शेयर करें</Text>
                     <Text style={styles.addReviewSub}>{contractor.name} के काम का मूल्यांकन</Text>
                   </View>
@@ -712,7 +746,7 @@ export const ContractorDetailModal: React.FC<ContractorDetailModalProps> = ({
                   onPress={() => {
                     setHasAttachedVideo(!hasAttachedVideo);
                     if (!hasAttachedVideo) {
-                      Alert.alert('🎥 वीडियो क्लिप जुड़ी', 'ग्राहक वीडियो फीडबैक क्लिप जोड़ दी गई है!');
+                      showAppAlert('🎥 वीडियो क्लिप जुड़ी', 'ग्राहक वीडियो फीडबैक क्लिप जोड़ दी गई है!');
                     }
                   }}
                   activeOpacity={0.8}
@@ -738,11 +772,11 @@ export const ContractorDetailModal: React.FC<ContractorDetailModalProps> = ({
                   onPress={handleSubmitReview}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.submitReviewBtnText}>समीक्षा पोस्ट करें (+50 कॉइन्स) ➔</Text>
+                  <Text style={styles.submitReviewBtnText}>समीक्षा पोस्ट करें ➔</Text>
                 </TouchableOpacity>
               </View>
             </View>
-          </Modal>
+          )}
         </View>
       </View>
     </Modal>

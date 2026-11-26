@@ -6,17 +6,13 @@ import {
   ScrollView,
   TextInput,
   TouchableOpacity,
-  Alert,
   Modal,
   Platform,
   Linking,
   Image,
 } from 'react-native';
-import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import {
-  CATEGORIES,
-  MEGA_PROJECTS,
-  RATE_TYPE_FILTERS,
   BHOPAL_MARKET_INDEX,
   INITIAL_MATERIALS,
   Contractor,
@@ -24,21 +20,24 @@ import {
   MegaContract,
   QuickServiceItem,
 } from '../data/mockData';
+import { showAppAlert } from '../utils/appAlert';
 import { ContractorCard } from '../components/ContractorCard';
 import { BookingModal } from '../components/BookingModal';
 import { ContractorDetailModal } from '../components/ContractorDetailModal';
 import { QuickServiceModal } from '../components/QuickServiceModal';
 import { MegaContractModal } from '../components/MegaContractModal';
 import { RateSurveyModal } from '../components/RateSurveyModal';
-import { SetuAIStudioModal } from '../components/SetuAIStudioModal';
+import { SetuAIStudioModal, SetuBookingPrefill } from '../components/SetuAIStudioModal';
 import { COLORS } from '../theme/colors';
 import { Language, TRANSLATIONS } from '../i18n/translations';
 import { getSetuLogo } from '../constants/logos';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface CustomerHomeProps {
   contractors: Contractor[];
   materials?: MaterialItem[];
   currentLocation: string;
+  isLocationPickerOpen?: boolean;
   onOpenLocationPicker: () => void;
   onNewBookingCreated: (booking: any) => void;
   showQuickModalDirectly?: boolean;
@@ -48,10 +47,35 @@ interface CustomerHomeProps {
   language?: Language;
 }
 
+function safeLocalGet(key: string): string | null {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage?.getItem(key) ?? null : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeLocalSet(key: string, value: string): void {
+  try {
+    if (typeof window !== 'undefined') window.localStorage?.setItem(key, value);
+  } catch {
+    // Ignore quota / private browsing errors
+  }
+}
+
+function safeLocalRemove(key: string): void {
+  try {
+    if (typeof window !== 'undefined') window.localStorage?.removeItem(key);
+  } catch {
+    // Ignore
+  }
+}
+
 export const CustomerHome: React.FC<CustomerHomeProps> = ({
   contractors,
   materials = INITIAL_MATERIALS,
   currentLocation,
+  isLocationPickerOpen = false,
   onOpenLocationPicker,
   onNewBookingCreated,
   showQuickModalDirectly = false,
@@ -61,15 +85,26 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   language = 'hi',
 }) => {
   const t = TRANSLATIONS[language];
+  const {
+    width,
+    isTabletOrDesktop,
+    isSplitDesktop,
+    isDesktop,
+    horizontalPadding,
+    shellStyle,
+    getModalStyles,
+  } = useResponsive();
+  const proCols = width >= 1180 ? 3 : width >= 720 ? 2 : 1;
+  const proCardWidth = proCols === 3 ? '32.2%' : proCols === 2 ? '48.8%' : '100%';
+  const postModalResponsive = getModalStyles({ maxWidth: 620 });
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNeed, setSelectedNeed] = useState<'ALL' | 'QUICK' | 'CONSTRUCTION' | 'WEDDING' | 'MATERIALS'>('ALL');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedRateType, setSelectedRateType] = useState<string>('ALL');
 
-  // Real Speech Recognition (बोलने वाला सेक्शन)
+  // Real Speech Recognition
   const [isListening, setIsListening] = useState(false);
-  const [liveTranscript, setLiveTranscript] = useState('');
 
   // Unified SETU AI Studio & Modals state
   const [showSetuAI, setShowSetuAI] = useState(false);
@@ -77,32 +112,58 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   const [showQuickModal, setShowQuickModal] = useState(false);
   const [showRateSurveyModal, setShowRateSurveyModal] = useState(false);
   const [selectedMegaContract, setSelectedMegaContract] = useState<MegaContract | null>(null);
-  const [selectedContractorForBooking, setSelectedContractorForBooking] = useState<Contractor | null>(null);
-  const [selectedContractorForDetail, setSelectedContractorForDetail] = useState<Contractor | null>(null);
+  const [selectedContractorForBooking, setSelectedContractorForBooking] = useState<Contractor | null>(() => {
+    if (typeof window === 'undefined' || !contractors || contractors.length === 0) return null;
+    const hash = window.location?.hash || '';
+    const matchBooking = hash.match(/booking=([^&]+)/);
+    const targetBookingId = matchBooking ? matchBooking[1] : safeLocalGet('setu_active_contractor_booking');
+    return targetBookingId
+      ? contractors.find((c) => c.id === targetBookingId || (c as any).customId === targetBookingId || (c as any).userId === targetBookingId) || null
+      : null;
+  });
+  const [bookingPrefill, setBookingPrefill] = useState<SetuBookingPrefill | null>(null);
+  const [selectedContractorForDetail, setSelectedContractorForDetail] = useState<Contractor | null>(() => {
+    if (typeof window === 'undefined' || !contractors || contractors.length === 0) return null;
+    const hash = window.location?.hash || '';
+    const matchDetail = hash.match(/contractor=([^&]+)/);
+    const targetDetailId = matchDetail ? matchDetail[1] : safeLocalGet('setu_active_contractor_detail');
+    return targetDetailId
+      ? contractors.find((c) => c.id === targetDetailId || (c as any).customId === targetDetailId || (c as any).userId === targetDetailId) || null
+      : null;
+  });
 
   // Airtasker / Thumbtack Model: Post-a-Job (Custom Task & Budget Posting)
   const [showPostTaskModal, setShowPostTaskModal] = useState(false);
   const [postTaskTitle, setPostTaskTitle] = useState('');
   const [postTaskBudget, setPostTaskBudget] = useState('');
-  const [postTaskCategory, setPostTaskCategory] = useState<'carpenter' | 'plumber' | 'electrician' | 'mason' | 'painter'>('carpenter');
+  const [postTaskCategory, setPostTaskCategory] = useState<
+    'carpenter' | 'plumber' | 'electrician' | 'mason' | 'painter' | 'tiling' | 'welder' | 'ac_repair' | 'general'
+  >('carpenter');
+  const scrollViewRef = React.useRef<any>(null);
+  const [prosSectionY, setProsSectionY] = useState<number>(0);
 
   const handlePostTaskSubmit = () => {
-    if (!postTaskTitle.trim() || !postTaskBudget.trim()) {
-      Alert.alert(
-        language === 'hi' ? 'अधूरी जानकारी' : 'Incomplete details',
-        language === 'hi' ? 'कृपया काम का विवरण और अपना बजट अवश्य लिखें।' : 'Please provide work title and budget.'
+    const budgetNum = Number(postTaskBudget.trim());
+    if (!postTaskTitle.trim() || !Number.isFinite(budgetNum) || budgetNum <= 0) {
+      showAppAlert(
+        language === 'en' ? 'Incomplete details' : 'अधूरी / अमान्य जानकारी',
+        language === 'en' ? 'Please provide work title and a valid positive budget (> 0).' : 'कृपया काम का विवरण और वैध धनात्मक बजट (₹ > 0) अवश्य लिखें।'
       );
       return;
     }
     const newJob = {
       id: 'jr_' + Date.now(),
+      contractorId: 'open_market',
+      contractorName: 'ओपन कस्टम जॉब',
       category: postTaskCategory,
-      workType: postTaskTitle,
+      bookingMode: 'भाव_पूछें',
+      workType: postTaskTitle.trim(),
       hiringType: 'ओपन कस्टम जॉब (Budget Offer)',
       customerName: 'सत्यापित ग्राहक',
       location: currentLocation.split('•')[0].trim() || 'भोपाल',
-      budgetOffer: parseFloat(postTaskBudget) || 1200,
-      description: `ग्राहक द्वारा पोस्ट किया गया ओपन टास्क। बजट: ₹${postTaskBudget}`,
+      budgetOffer: Math.round(budgetNum),
+      totalLaborAmount: Math.round(budgetNum),
+      description: `ग्राहक द्वारा पोस्ट किया गया ओपन टास्क। बजट: ₹${Math.round(budgetNum)}`,
       date: 'तत्काल / आज ही',
       status: 'PENDING',
     };
@@ -110,102 +171,78 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
     setShowPostTaskModal(false);
     setPostTaskTitle('');
     setPostTaskBudget('');
-    Alert.alert(
-      language === 'hi' ? '🎉 आपका काम लाइव हो गया!' : '🎉 Job Posted Successfully!',
-      language === 'hi'
-        ? `"${newJob.workType}" के लिए पास के कारीगरों को अलर्ट भेज दिया गया है। वे आपके बजट (₹${newJob.budgetOffer}) पर जल्द संपर्क करेंगे।`
-        : `Nearby contractors alerted for "${newJob.workType}" with budget ₹${newJob.budgetOffer}.`
+    showAppAlert(
+      language === 'en' ? '🎉 Job Posted Successfully!' : '🎉 आपका काम लाइव हो गया!',
+      language === 'en'
+        ? `Nearby contractors alerted for "${newJob.workType}" with budget ₹${newJob.budgetOffer}.`
+        : `"${newJob.workType}" के लिए पास के कारीगरों को अलर्ट भेज दिया गया है। वे आपके बजट (₹${newJob.budgetOffer}) पर जल्द संपर्क करेंगे।`
     );
   };
 
-  // Sync external direct modal triggers
-  React.useEffect(() => {
-    if (showQuickModalDirectly) {
-      setShowQuickModal(true);
-    }
-  }, [showQuickModalDirectly]);
-
+  const isQuickModalOpen = showQuickModal || showQuickModalDirectly;
   const isSetuModalOpen = showSetuAI || showEstimatorDirectly;
-
-  // Restore active contractor profile / booking modal on browser refresh
-  React.useEffect(() => {
-    if (typeof window !== 'undefined' && contractors && contractors.length > 0) {
-      const hash = window.location?.hash || '';
-      const matchDetail = hash.match(/contractor=([^&]+)/);
-      const matchBooking = hash.match(/booking=([^&]+)/);
-      const targetDetailId = matchDetail ? matchDetail[1] : window.localStorage?.getItem('setu_active_contractor_detail');
-      const targetBookingId = matchBooking ? matchBooking[1] : window.localStorage?.getItem('setu_active_contractor_booking');
-
-      if (targetDetailId && !selectedContractorForDetail) {
-        const found = contractors.find(
-          (c) => c.id === targetDetailId || (c as any).customId === targetDetailId || (c as any).userId === targetDetailId
-        );
-        if (found) setSelectedContractorForDetail(found);
-      }
-
-      if (targetBookingId && !selectedContractorForBooking) {
-        const found = contractors.find(
-          (c) => c.id === targetBookingId || (c as any).customId === targetBookingId || (c as any).userId === targetBookingId
-        );
-        if (found) setSelectedContractorForBooking(found);
-      }
-    }
-  }, [contractors]);
 
   const handleOpenContractorDetail = (c: Contractor) => {
     setSelectedContractorForDetail(c);
     if (typeof window !== 'undefined') {
-      window.localStorage?.setItem('setu_active_contractor_detail', c.id);
+      safeLocalSet('setu_active_contractor_detail', c.id);
       try {
         window.history?.replaceState(null, '', '#contractor=' + c.id);
-      } catch (e) {}
+      } catch {}
     }
   };
 
   const handleCloseContractorDetail = () => {
     setSelectedContractorForDetail(null);
     if (typeof window !== 'undefined') {
-      window.localStorage?.removeItem('setu_active_contractor_detail');
+      safeLocalRemove('setu_active_contractor_detail');
       try {
         if (window.location?.hash?.includes('contractor=')) {
-          window.history?.replaceState(null, '', window.location.pathname);
+          window.history?.replaceState(null, '', window.location.pathname + (window.location.search || ''));
         }
-      } catch (e) {}
+      } catch {}
     }
   };
 
-  const handleOpenBooking = (c: Contractor) => {
+  const handleOpenBooking = (c: Contractor, prefill?: SetuBookingPrefill) => {
+    setBookingPrefill(prefill || null);
     setSelectedContractorForBooking(c);
     if (typeof window !== 'undefined') {
-      window.localStorage?.setItem('setu_active_contractor_booking', c.id);
+      safeLocalSet('setu_active_contractor_booking', c.id);
       try {
         window.history?.replaceState(null, '', '#booking=' + c.id);
-      } catch (e) {}
+      } catch {}
     }
   };
 
   const handleCloseBooking = () => {
     setSelectedContractorForBooking(null);
+    setBookingPrefill(null);
     if (typeof window !== 'undefined') {
-      window.localStorage?.removeItem('setu_active_contractor_booking');
+      safeLocalRemove('setu_active_contractor_booking');
       try {
         if (window.location?.hash?.includes('booking=')) {
-          window.history?.replaceState(null, '', window.location.pathname);
+          window.history?.replaceState(null, '', window.location.pathname + (window.location.search || ''));
         }
-      } catch (e) {}
+      } catch {}
     }
   };
 
   // Dynamic filter for contractors based on Selected Need, Category, and Rate Type
   const filteredContractors = contractors.filter((c) => {
+    const cat = c.category || 'general';
     // 1. Need filter
     if (selectedNeed === 'QUICK' && !c.isQuickAvailable) return false;
-    if (selectedNeed === 'CONSTRUCTION' && !['carpenter', 'mason', 'plumber', 'electrician', 'painter', 'ac_repair'].includes(c.category)) return false;
-    if (selectedNeed === 'WEDDING' && !['wedding_tent', 'wedding_catering', 'event_dj', 'wedding_photo', 'wedding_makeup'].includes(c.category)) return false;
+    if (selectedNeed === 'CONSTRUCTION' && !['carpenter', 'mason', 'plumber', 'electrician', 'painter', 'welder', 'tiling', 'ac_repair', 'acrepair', 'general'].includes(cat)) return false;
+    if (selectedNeed === 'WEDDING' && !['wedding_tent', 'wedding_catering', 'caterer', 'catering', 'event_dj', 'wedding_photo', 'wedding_makeup', 'mandap', 'photographer', 'makeup'].includes(cat)) return false;
     if (selectedNeed === 'MATERIALS' && (!c.recommendedMaterials || c.recommendedMaterials.length === 0)) return false;
 
-    // 2. Specific Category filter
-    if (selectedCategory !== 'all' && c.category !== selectedCategory) return false;
+    // 2. Specific Category filter (normalize acrepair <-> ac_repair)
+    if (selectedCategory !== 'all') {
+      const catNorm = selectedCategory === 'acrepair' ? 'ac_repair' : selectedCategory;
+      const cCatNorm = cat === 'acrepair' ? 'ac_repair' : cat;
+      if (cCatNorm !== catNorm) return false;
+    }
 
     // 3. Rate Type filter
     if (selectedRateType !== 'ALL') {
@@ -213,12 +250,12 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
       if (selectedRateType !== 'दिहाड़ी' && c.primaryRateType !== selectedRateType) return false;
     }
 
-    // 4. Search query
+    // 4. Search query (null-safe)
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      const matchName = c.name.toLowerCase().includes(q);
-      const matchSpecialty = c.specialtyHindi.toLowerCase().includes(q);
-      const matchSkill = c.skills.some((s) => s.toLowerCase().includes(q));
+      const matchName = (c.name || '').toLowerCase().includes(q);
+      const matchSpecialty = (c.specialtyHindi || '').toLowerCase().includes(q);
+      const matchSkill = Array.isArray(c.skills) && c.skills.some((s) => String(s).toLowerCase().includes(q));
       if (!matchName && !matchSpecialty && !matchSkill) return false;
     }
 
@@ -226,16 +263,18 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   });
 
   const handleCall = (contractor: Contractor) => {
-    const rawDigits = contractor.phone
-      ? contractor.phone.replace(/\D/g, '')
-      : (contractor.phoneMasked?.replace(/\D/g, '') || '');
+    const directDigits = (contractor.phone || '').replace(/\D/g, '');
+    const maskedDigits = (contractor.phoneMasked && !contractor.phoneMasked.includes('XXX'))
+      ? contractor.phoneMasked.replace(/\D/g, '')
+      : '';
+    const rawDigits = directDigits.length >= 10 ? directDigits : maskedDigits;
 
-    if (!rawDigits || rawDigits.length < 10 || rawDigits.includes('9812345678') || contractor.phoneMasked?.includes('XXX')) {
-      Alert.alert(
-        language === 'hi' ? 'सीधा कॉल अनुपलब्ध' : 'Direct Call Unavailable',
-        language === 'hi'
-          ? 'कारीगर का सीधा फोन नंबर उपलब्ध नहीं है। कृपया ऐप के माध्यम से बुकिंग या कोटेशन अनुरोध भेजें।'
-          : 'Contractor phone number not available. Please send a booking or quotation request through the app.'
+    if (!rawDigits || rawDigits.length < 10) {
+      showAppAlert(
+        language === 'en' ? 'Direct Call Unavailable' : 'सीधा कॉल अनुपलब्ध',
+        language === 'en'
+          ? 'Contractor phone number not available. Please send a booking or quotation request through the app.'
+          : 'कारीगर का सीधा फोन नंबर सार्वजनिक नहीं है। कृपया ऐप के माध्यम से बुकिंग या कोटेशन अनुरोध भेजें।'
       );
       return;
     }
@@ -245,10 +284,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
       window.location.href = telUrl;
     } else {
       Linking.openURL(telUrl).catch(() => {
-        Alert.alert(
-          'कॉल डायलर',
-          `कृपया सीधे +91 ${phone} पर डायल करें।`
-        );
+        showAppAlert('कॉल डायलर', `कृपया सीधे +91 ${phone} पर डायल करें।`);
       });
     }
   };
@@ -256,19 +292,23 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   const handleBookingConfirmed = (booking: any) => {
     handleCloseBooking();
     onNewBookingCreated(booking);
-    Alert.alert(
-      language === 'hi' ? '🎉 बुकिंग सफल!' : '🎉 Booking Confirmed!',
-      language === 'hi'
-        ? `आपकी बुकिंग ${booking.contractorName} के पास भेज दी गई है। ₹${booking.escrowAdvanceToken} का टोकन SETU एस्क्रो में सुरक्षित है।`
-        : `Booking sent to ${booking.contractorName}. Token of ₹${booking.escrowAdvanceToken} is safe in SETU Escrow.`,
-      [{ text: language === 'hi' ? 'ठीक है' : 'OK' }]
+    showAppAlert(
+      language === 'en' ? '🎉 Booking Confirmed!' : '🎉 बुकिंग सफल!',
+      language === 'en'
+        ? `Booking sent to ${booking.contractorName}. Token of ₹${booking.escrowAdvanceToken} is safe in SETU Escrow.`
+        : `आपकी बुकिंग ${booking.contractorName} के पास भेज दी गई है। ₹${booking.escrowAdvanceToken} का टोकन SETU एस्क्रो में सुरक्षित है।`,
+      [{ text: language === 'en' ? 'OK' : 'ठीक है' }]
     );
   };
 
   const handleQuickDispatch = (service: QuickServiceItem, problem: string) => {
     setShowQuickModal(false);
+    if (onCloseQuickModalDirectly) onCloseQuickModalDirectly();
     onNewBookingCreated({
+      contractorId: 'c_quick',
+      category: service.category || 'general',
       bookingMode: 'क्विक रिपेयर',
+      workType: `क्विक रिपेयर: ${service.title}`,
       contractorName: `${service.title} (अजय राठौर)`,
       totalLaborAmount: service.startingPrice,
       escrowAdvanceToken: 0,
@@ -276,11 +316,11 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
       description: `इमरजेंसी समस्या: ${problem}`,
       date: 'तत्काल (15 मिनट)',
     });
-    Alert.alert(
-      language === 'hi' ? '⚡ नजदीकी कारीगर रवाना!' : '⚡ Nearby Pro Dispatched!',
-      language === 'hi'
-        ? `${service.title} के लिए पास के कारीगर को अलर्ट भेज दिया गया है। 15-20 मिनट में आपकी लोकेशन पर पहुंचेगा।`
-        : `Nearby pro alerted for ${service.title}. Reaching your location in 15-20 minutes.`
+    showAppAlert(
+      language === 'en' ? '⚡ Nearby Pro Dispatched!' : '⚡ नजदीकी कारीगर रवाना!',
+      language === 'en'
+        ? `Nearby pro alerted for ${service.title}. Reaching your location in 15-20 minutes.`
+        : `${service.title} के लिए पास के कारीगर को अलर्ट भेज दिया गया है। 15-20 मिनट में आपकी लोकेशन पर पहुंचेगा।`
     );
   };
 
@@ -293,29 +333,22 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
       if (SpeechRecognition) {
         try {
           const recognition = new SpeechRecognition();
-          recognition.lang = language === 'hi' ? 'hi-IN' : 'en-IN';
+          recognition.lang = language === 'en' ? 'en-IN' : 'hi-IN';
           recognition.continuous = false;
           recognition.interimResults = true;
 
           recognition.onstart = () => {
             setIsListening(true);
-            setLiveTranscript(
-              language === 'hi'
-                ? '🎙️ सुन रहा हूँ... अपनी जरूरत बोलें (उदा. "बढ़ई चाहिए", "नल टपक रहा है")'
-                : '🎙️ Listening... Speak your need (e.g. "Need carpenter", "Leaking tap")'
-            );
           };
 
           recognition.onresult = (event: any) => {
             const transcript = Array.from(event.results)
               .map((res: any) => res[0].transcript)
               .join('');
-            setLiveTranscript(transcript);
             setSearchQuery(transcript);
           };
 
-          recognition.onerror = (e: any) => {
-            console.log('Voice recognition ended/error:', e);
+          recognition.onerror = () => {
             setIsListening(false);
           };
 
@@ -331,75 +364,93 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
       }
     }
 
-    // Fallback if browser permission is blocked
-    Alert.alert(
-      language === 'hi' ? '🎙️ वॉयस असिस्टेंट' : '🎙️ Voice Assistant',
-      language === 'hi'
-        ? 'कृपया ब्राउज़र में माइक्रोफोन अनुमति दें अथवा नीचे दिए गए तुरंत विकल्पों पर टैप करें।'
-        : 'Please allow microphone access or tap on quick categories below.'
+    showAppAlert(
+      language === 'en' ? '🎙️ Voice Assistant' : '🎙️ वॉयस असिस्टेंट',
+      language === 'en'
+        ? 'Please allow microphone access or tap on quick categories below.'
+        : 'कृपया ब्राउज़र में माइक्रोफोन अनुमति दें अथवा नीचे दिए गए तुरंत विकल्पों पर टैप करें।'
     );
   };
 
   const logoSource = getSetuLogo(language);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, isTabletOrDesktop && { backgroundColor: '#EFF3F8' }]}>
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.mainScrollContent}
+        contentContainerStyle={[
+          styles.mainScrollContent,
+          isTabletOrDesktop && { paddingHorizontal: horizontalPadding, paddingTop: 14, paddingBottom: 48 },
+        ]}
       >
-        {/* 🌟 3D HERO BRAND SPOTLIGHT CARD */}
-        <View style={styles.heroSpotlightCard}>
-          <View style={styles.heroSpotlightContent}>
-            <View style={styles.heroLogo3DContainer}>
-              <Image source={logoSource} style={styles.heroLogo3DImg} resizeMode="cover" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={styles.heroSpotlightTitle}>
-                  {language === 'hi' ? 'सेतु • विश्वसनीय साथी' : 'SETU • Trusted Network'}
-                </Text>
-                <View style={styles.heroLiveBadge}>
-                  <View style={styles.heroLiveDot} />
-                  <Text style={styles.heroLiveText}>15m LIVE</Text>
+        <View style={shellStyle}>
+          {/* Hero Row: 3D Spotlight + Search Card side-by-side on Desktop */}
+          <View style={isSplitDesktop ? styles.heroSplitRow : undefined}>
+            {/* 🌟 3D HERO BRAND SPOTLIGHT CARD */}
+            <View
+              style={[
+                styles.heroSpotlightCard,
+                isTabletOrDesktop && { marginHorizontal: 0, marginTop: 0, marginBottom: isSplitDesktop ? 0 : 12 },
+                isSplitDesktop && { flex: 1.05, justifyContent: 'space-between', padding: 18 },
+              ]}
+            >
+              <View style={styles.heroSpotlightContent}>
+                <View style={styles.heroLogo3DContainer}>
+                  <Image source={logoSource} style={styles.heroLogo3DImg} resizeMode="cover" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <Text style={styles.heroSpotlightTitle}>
+                      {language === 'hi' ? 'सेतु • विश्वसनीय साथी' : 'SETU • Trusted Network'}
+                    </Text>
+                    <View style={styles.heroLiveBadge}>
+                      <View style={styles.heroLiveDot} />
+                      <Text style={styles.heroLiveText}>15m LIVE</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.heroSpotlightSub}>
+                    {language === 'hi'
+                      ? 'भोपाल का 3D स्मार्ट नेटवर्क: 15 मिनट में सत्यापित कारीगर • उचित दरें'
+                      : 'Bhopal’s 3D Smart Network: 15-min verified contractors • Fixed Rates'}
+                  </Text>
                 </View>
               </View>
-              <Text style={styles.heroSpotlightSub}>
-                {language === 'hi'
-                  ? 'भोपाल का 3D स्मार्ट नेटवर्क: 15 मिनट में सत्यापित कारीगर • उचित दरें'
-                  : 'Bhopal’s 3D Smart Network: 15-min verified contractors • Fixed Rates'}
-              </Text>
-            </View>
-          </View>
 
-          {/* Quick Metrics & Trust Badges Strip */}
-          <View style={styles.heroMetricsStrip}>
-            <View style={styles.heroMetricItem}>
-              <Ionicons name="shield-checkmark" size={13} color="#22C55E" />
-              <Text style={styles.heroMetricText}>
-                {language === 'hi' ? '0% धोखाधड़ी' : '0% Fraud Risk'}
-              </Text>
+              {/* Quick Metrics & Trust Badges Strip */}
+              <View style={styles.heroMetricsStrip}>
+                <View style={styles.heroMetricItem}>
+                  <Ionicons name="shield-checkmark" size={13} color="#22C55E" />
+                  <Text style={styles.heroMetricText}>
+                    {language === 'hi' ? '0% धोखाधड़ी' : '0% Fraud Risk'}
+                  </Text>
+                </View>
+                <View style={styles.heroMetricDivider} />
+                <View style={styles.heroMetricItem}>
+                  <Ionicons name="flash" size={13} color="#EA580C" />
+                  <Text style={styles.heroMetricText}>
+                    {language === 'hi' ? '15m एक्सप्रेस' : '15m Express'}
+                  </Text>
+                </View>
+                <View style={styles.heroMetricDivider} />
+                <View style={styles.heroMetricItem}>
+                  <Ionicons name="lock-closed" size={12} color="#0284C7" />
+                  <Text style={styles.heroMetricText}>
+                    {language === 'hi' ? 'एस्क्रो सुरक्षित' : 'Escrow Safe'}
+                  </Text>
+                </View>
+              </View>
             </View>
-            <View style={styles.heroMetricDivider} />
-            <View style={styles.heroMetricItem}>
-              <Ionicons name="flash" size={13} color="#EA580C" />
-              <Text style={styles.heroMetricText}>
-                {language === 'hi' ? '15m एक्सप्रेस' : '15m Express'}
-              </Text>
-            </View>
-            <View style={styles.heroMetricDivider} />
-            <View style={styles.heroMetricItem}>
-              <Ionicons name="lock-closed" size={12} color="#0284C7" />
-              <Text style={styles.heroMetricText}>
-                {language === 'hi' ? 'एस्क्रो सुरक्षित' : 'Escrow Safe'}
-              </Text>
-            </View>
-          </View>
-        </View>
 
-        {/* 1. TOP DISCOVERY & SEARCH CARD */}
-        <View style={styles.topDiscoveryCard}>
+            {/* 1. TOP DISCOVERY & SEARCH CARD */}
+            <View
+              style={[
+                styles.topDiscoveryCard,
+                isTabletOrDesktop && styles.topDiscoveryCardDesktop,
+                isSplitDesktop && { flex: 1, justifyContent: 'center' },
+              ]}
+            >
           {/* "क्या काम करवाना है?" Search Input */}
           <View style={styles.mainSearchRow}>
             <Ionicons name="search" size={20} color="#2563EB" />
@@ -440,7 +491,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
             <TouchableOpacity
               style={styles.findProsBtn}
               onPress={() => {
-                // Focus on pros list
+                scrollViewRef.current?.scrollTo({ y: Math.max(0, prosSectionY - 10), animated: true });
               }}
               activeOpacity={0.85}
             >
@@ -450,94 +501,140 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
             </TouchableOpacity>
           </View>
         </View>
+          </View>
 
         {/* 2. 3D INTERACTIVE CATEGORIES */}
-        <View style={styles.categoriesSection}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryPillsScroll}>
-            {[
-              { id: 'all', icon: 'sparkles', label: language === 'hi' ? '🌟 सभी' : 'All', action: () => { setSelectedCategory('all'); setSelectedNeed('ALL'); } },
-              { id: 'plumber', icon: 'water', label: language === 'hi' ? '🚰 प्लंबर' : 'Plumber', action: () => { setSelectedCategory('plumber'); setSelectedNeed('ALL'); } },
-              { id: 'electrician', icon: 'flash', label: language === 'hi' ? '⚡ बिजली' : 'Electrician', action: () => { setSelectedCategory('electrician'); setSelectedNeed('ALL'); } },
-              { id: 'carpenter', icon: 'hammer', label: language === 'hi' ? '🪚 बढ़ई' : 'Carpenter', action: () => { setSelectedCategory('carpenter'); setSelectedNeed('ALL'); } },
-              { id: 'mason', icon: 'cube', label: language === 'hi' ? '🧱 मिस्त्री' : 'Mason', action: () => { setSelectedCategory('mason'); setSelectedNeed('ALL'); } },
-              { id: 'painter', icon: 'color-palette', label: language === 'hi' ? '🎨 पेंटर' : 'Painter', action: () => { setSelectedCategory('painter'); setSelectedNeed('ALL'); } },
-              { id: 'wedding', icon: 'heart', label: language === 'hi' ? '🎪 इवेंट' : 'Events', action: () => { setSelectedNeed('WEDDING'); setSelectedCategory('all'); } },
-            ].map((cat) => {
-              const isActive = (cat.id === 'all' && selectedCategory === 'all' && selectedNeed === 'ALL') ||
-                (cat.id === selectedCategory) ||
-                (cat.id === 'wedding' && selectedNeed === 'WEDDING');
-              return (
-                <TouchableOpacity
-                  key={cat.id}
-                  style={[styles.categoryPill, isActive && styles.categoryPillActive]}
-                  onPress={cat.action}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
-                    {cat.label}
+        <View style={[styles.categoriesSection, isTabletOrDesktop && styles.categoriesSectionDesktop]}>
+          {isTabletOrDesktop ? (
+            <View style={[styles.categoryPillsScroll, styles.categoryPillsDesktopWrap]}>
+              {[
+                { id: 'all', icon: 'sparkles', label: language === 'hi' ? '🌟 सभी' : 'All', action: () => { setSelectedCategory('all'); setSelectedNeed('ALL'); } },
+                { id: 'plumber', icon: 'water', label: language === 'hi' ? '🚰 प्लंबर' : 'Plumber', action: () => { setSelectedCategory('plumber'); setSelectedNeed('ALL'); } },
+                { id: 'electrician', icon: 'flash', label: language === 'hi' ? '⚡ बिजली' : 'Electrician', action: () => { setSelectedCategory('electrician'); setSelectedNeed('ALL'); } },
+                { id: 'carpenter', icon: 'hammer', label: language === 'hi' ? '🪚 बढ़ई' : 'Carpenter', action: () => { setSelectedCategory('carpenter'); setSelectedNeed('ALL'); } },
+                { id: 'mason', icon: 'cube', label: language === 'hi' ? '🧱 मिस्त्री' : 'Mason', action: () => { setSelectedCategory('mason'); setSelectedNeed('ALL'); } },
+                { id: 'painter', icon: 'color-palette', label: language === 'hi' ? '🎨 पेंटर' : 'Painter', action: () => { setSelectedCategory('painter'); setSelectedNeed('ALL'); } },
+                { id: 'wedding', icon: 'heart', label: language === 'hi' ? '🎪 इवेंट' : 'Events', action: () => { setSelectedNeed('WEDDING'); setSelectedCategory('all'); } },
+              ].map((cat) => {
+                const isActive = (cat.id === 'all' && selectedCategory === 'all' && selectedNeed === 'ALL') ||
+                  (cat.id === selectedCategory) ||
+                  (cat.id === 'wedding' && selectedNeed === 'WEDDING');
+                return (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[styles.categoryPill, isActive && styles.categoryPillActive]}
+                    onPress={cat.action}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
+                      {cat.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryPillsScroll}>
+              {[
+                { id: 'all', icon: 'sparkles', label: language === 'hi' ? '🌟 सभी' : 'All', action: () => { setSelectedCategory('all'); setSelectedNeed('ALL'); } },
+                { id: 'plumber', icon: 'water', label: language === 'hi' ? '🚰 प्लंबर' : 'Plumber', action: () => { setSelectedCategory('plumber'); setSelectedNeed('ALL'); } },
+                { id: 'electrician', icon: 'flash', label: language === 'hi' ? '⚡ बिजली' : 'Electrician', action: () => { setSelectedCategory('electrician'); setSelectedNeed('ALL'); } },
+                { id: 'carpenter', icon: 'hammer', label: language === 'hi' ? '🪚 बढ़ई' : 'Carpenter', action: () => { setSelectedCategory('carpenter'); setSelectedNeed('ALL'); } },
+                { id: 'mason', icon: 'cube', label: language === 'hi' ? '🧱 मिस्त्री' : 'Mason', action: () => { setSelectedCategory('mason'); setSelectedNeed('ALL'); } },
+                { id: 'painter', icon: 'color-palette', label: language === 'hi' ? '🎨 पेंटर' : 'Painter', action: () => { setSelectedCategory('painter'); setSelectedNeed('ALL'); } },
+                { id: 'wedding', icon: 'heart', label: language === 'hi' ? '🎪 इवेंट' : 'Events', action: () => { setSelectedNeed('WEDDING'); setSelectedCategory('all'); } },
+              ].map((cat) => {
+                const isActive = (cat.id === 'all' && selectedCategory === 'all' && selectedNeed === 'ALL') ||
+                  (cat.id === selectedCategory) ||
+                  (cat.id === 'wedding' && selectedNeed === 'WEDDING');
+                return (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[styles.categoryPill, isActive && styles.categoryPillActive]}
+                    onPress={cat.action}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
+                      {cat.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* 3 & 4. UNIFIED AI STUDIO + POST CUSTOM JOB ROW (side-by-side on Desktop) */}
+        <View style={isSplitDesktop ? styles.dualStripRow : undefined}>
+          {/* 3. SINGLE UNIFIED SETU MASTER ARTISAN AI ENTRY */}
+          <View
+            style={[
+              styles.aiAssistStrip,
+              isTabletOrDesktop && { paddingHorizontal: 0, backgroundColor: 'transparent' },
+              isSplitDesktop && { flex: 1, paddingVertical: 0 },
+            ]}
+          >
+            <TouchableOpacity
+              style={[styles.aiAssistBtn, isSplitDesktop && { height: '100%' }]}
+              onPress={() => {
+                setSetuInitialPrompt('');
+                setShowSetuAI(true);
+              }}
+              activeOpacity={0.88}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <View style={styles.aiSparkleBadge}>
+                  <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.aiAssistBtnTitle}>
+                    {language === 'hi' ? '✨ SETU AI से पूछें (डिज़ाइन, रेट & रिपेयर)' : '✨ Ask SETU AI (Design, Rates & Repairs)'}
                   </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        {/* 3. SINGLE UNIFIED SETU MASTER ARTISAN AI ENTRY */}
-        <View style={styles.aiAssistStrip}>
-          <TouchableOpacity
-            style={styles.aiAssistBtn}
-            onPress={() => {
-              setSetuInitialPrompt('');
-              setShowSetuAI(true);
-            }}
-            activeOpacity={0.88}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-              <View style={styles.aiSparkleBadge}>
-                <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.aiAssistBtnTitle}>
-                  {language === 'hi' ? '✨ SETU AI से पूछें (डिज़ाइन, रेट & रिपेयर)' : '✨ Ask SETU AI (Design, Rates & Repairs)'}
-                </Text>
-                <Text style={styles.aiAssistBtnSub} numberOfLines={1}>
-                  {language === 'hi' ? 'फोटो भेजें — SETU आपका पूरा काम, बजट और डिज़ाइन संभालेगा' : 'Send photo — SETU handles estimate, design & booking'}
-                </Text>
-              </View>
-            </View>
-            <Ionicons name="arrow-forward-circle" size={22} color="#4F46E5" />
-          </TouchableOpacity>
-        </View>
-
-        {/* 4. AIRTASKER / THUMBTACK FEATURE: "अपना काम और बजट पोस्ट करें" (Post a Custom Job) */}
-        <View style={styles.postJobBannerStrip}>
-          <TouchableOpacity
-            style={styles.postJobBtn}
-            onPress={() => setShowPostTaskModal(true)}
-            activeOpacity={0.88}
-          >
-            <View style={styles.postJobIconWrap}>
-              <Ionicons name="create-outline" size={16} color="#FFFFFF" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={styles.postJobTitle}>
-                  {language === 'hi' ? '📝 अपना काम और बजट पोस्ट करें' : '📝 Post a Job & Name Budget'}
-                </Text>
-                <View style={styles.postJobFreeTag}>
-                  <Text style={styles.postJobFreeTagText}>फ्री कोटेशन</Text>
+                  <Text style={styles.aiAssistBtnSub} numberOfLines={1}>
+                    {language === 'hi' ? 'फोटो भेजें — SETU आपका पूरा काम, बजट और डिज़ाइन संभालेगा' : 'Send photo — SETU handles estimate, design & booking'}
+                  </Text>
                 </View>
               </View>
-              <Text style={styles.postJobSub}>
-                {language === 'hi' ? 'अपनी जरूरत बताएं, पास के कारीगर आपके बजट में संपर्क करेंगे' : 'Post details, nearby contractors will bid within your budget'}
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color="#059669" />
-          </TouchableOpacity>
+              <Ionicons name="arrow-forward-circle" size={22} color="#4F46E5" />
+            </TouchableOpacity>
+          </View>
+
+          {/* 4. AIRTASKER / THUMBTACK FEATURE: "अपना काम और बजट पोस्ट करें" (Post a Custom Job) */}
+          <View
+            style={[
+              styles.postJobBannerStrip,
+              isTabletOrDesktop && { paddingHorizontal: 0, backgroundColor: 'transparent' },
+              isSplitDesktop && { flex: 1, paddingVertical: 0 },
+            ]}
+          >
+            <TouchableOpacity
+              style={[styles.postJobBtn, isSplitDesktop && { height: '100%' }]}
+              onPress={() => setShowPostTaskModal(true)}
+              activeOpacity={0.88}
+            >
+              <View style={styles.postJobIconWrap}>
+                <Ionicons name="create-outline" size={16} color="#FFFFFF" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <Text style={styles.postJobTitle}>
+                    {language === 'hi' ? '📝 अपना काम और बजट पोस्ट करें' : '📝 Post a Job & Name Budget'}
+                  </Text>
+                  <View style={styles.postJobFreeTag}>
+                    <Text style={styles.postJobFreeTagText}>फ्री कोटेशन</Text>
+                  </View>
+                </View>
+                <Text style={styles.postJobSub} numberOfLines={1}>
+                  {language === 'hi' ? 'अपनी जरूरत बताएं, पास के कारीगर आपके बजट में संपर्क करेंगे' : 'Post details, nearby contractors will bid within your budget'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#059669" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* 5. THUMBTACK / INFRA.MARKET FEATURE: "आज का भोपाल बाजार भाव सूचकांक" (Daily Market Rate Index) */}
-        <View style={styles.marketIndexSection}>
+        <View style={[styles.marketIndexSection, isTabletOrDesktop && styles.marketIndexSectionDesktop]}>
           <View style={styles.marketIndexHeader}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Ionicons name="stats-chart" size={15} color="#D97706" />
@@ -545,34 +642,70 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
                 {language === 'hi' ? '📊 आज का भोपाल बाजार भाव' : '📊 Today’s Bhopal Market Rates'}
               </Text>
             </View>
-            <Text style={styles.marketIndexSub}>
-              {language === 'hi' ? 'थोक मंडी सत्यापित औसत' : 'Verified Wholesale Averages'}
-            </Text>
+            <TouchableOpacity
+              onPress={() => setShowRateSurveyModal(true)}
+              style={{ marginTop: 4 }}
+            >
+              <Text style={[styles.marketIndexSub, { color: '#1D4ED8', fontWeight: '700' }]}>
+                {language === 'en' ? 'Rate Index ➔' : 'सभी राज्यों के भाव देखें ➔'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.marketIndexScroll}>
-            {BHOPAL_MARKET_INDEX.map((item) => (
-              <View key={item.id} style={styles.marketIndexCard}>
-                <View style={styles.marketIndexTop}>
-                  <Text style={styles.marketIndexItemTitle} numberOfLines={1}>{item.title}</Text>
-                  <View style={[styles.marketTrendBadge, item.trend === 'up' ? styles.trendUp : item.trend === 'down' ? styles.trendDown : styles.trendStable]}>
-                    <Text style={[styles.marketTrendText, item.trend === 'up' ? styles.trendUpText : item.trend === 'down' ? styles.trendDownText : styles.trendStableText]}>
-                      {item.trend === 'up' ? '▲' : item.trend === 'down' ? '▼' : '●'} {item.changeText}
-                    </Text>
+          {isTabletOrDesktop ? (
+            <View style={styles.marketIndexGridDesktop}>
+              {BHOPAL_MARKET_INDEX.map((item) => (
+                <View
+                  key={item.id}
+                  style={[
+                    styles.marketIndexCard,
+                    { width: isDesktop ? '23.8%' : '48.8%' },
+                  ]}
+                >
+                  <View style={styles.marketIndexTop}>
+                    <Text style={styles.marketIndexItemTitle} numberOfLines={1}>{item.title}</Text>
+                    <View style={[styles.marketTrendBadge, item.trend === 'up' ? styles.trendUp : item.trend === 'down' ? styles.trendDown : styles.trendStable]}>
+                      <Text style={[styles.marketTrendText, item.trend === 'up' ? styles.trendUpText : item.trend === 'down' ? styles.trendDownText : styles.trendStableText]}>
+                        {item.trend === 'up' ? '▲' : item.trend === 'down' ? '▼' : '●'} {item.changeText}
+                      </Text>
+                    </View>
                   </View>
+                  <View style={styles.marketPriceRow}>
+                    <Text style={styles.marketPriceVal}>{item.price}</Text>
+                    <Text style={styles.marketPriceUnit}>/ {item.unit}</Text>
+                  </View>
+                  <Text style={styles.marketSourceText}>📍 {item.verifiedWholesaleMarket}</Text>
                 </View>
-                <View style={styles.marketPriceRow}>
-                  <Text style={styles.marketPriceVal}>{item.price}</Text>
-                  <Text style={styles.marketPriceUnit}>/ {item.unit}</Text>
+              ))}
+            </View>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.marketIndexScroll}>
+              {BHOPAL_MARKET_INDEX.map((item) => (
+                <View key={item.id} style={styles.marketIndexCard}>
+                  <View style={styles.marketIndexTop}>
+                    <Text style={styles.marketIndexItemTitle} numberOfLines={1}>{item.title}</Text>
+                    <View style={[styles.marketTrendBadge, item.trend === 'up' ? styles.trendUp : item.trend === 'down' ? styles.trendDown : styles.trendStable]}>
+                      <Text style={[styles.marketTrendText, item.trend === 'up' ? styles.trendUpText : item.trend === 'down' ? styles.trendDownText : styles.trendStableText]}>
+                        {item.trend === 'up' ? '▲' : item.trend === 'down' ? '▼' : '●'} {item.changeText}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.marketPriceRow}>
+                    <Text style={styles.marketPriceVal}>{item.price}</Text>
+                    <Text style={styles.marketPriceUnit}>/ {item.unit}</Text>
+                  </View>
+                  <Text style={styles.marketSourceText}>📍 {item.verifiedWholesaleMarket}</Text>
                 </View>
-                <Text style={styles.marketSourceText}>📍 {item.verifiedWholesaleMarket}</Text>
-              </View>
-            ))}
-          </ScrollView>
+              ))}
+            </ScrollView>
+          )}
         </View>
 
         {/* 5. NEARBY PROS LIST */}
-        <View style={styles.prosSection}>
+        <View
+          style={[styles.prosSection, isTabletOrDesktop && { paddingHorizontal: 0, marginTop: 16 }]}
+          onLayout={(e) => setProsSectionY(e.nativeEvent.layout.y)}
+        >
           <View style={styles.areaLiveBanner}>
             <View style={styles.areaLiveLeft}>
               <Ionicons name="location" size={14} color={COLORS.secondary} />
@@ -622,23 +755,37 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
               </TouchableOpacity>
             </View>
           ) : (
-            filteredContractors.map((contractor) => (
-              <ContractorCard
-                key={contractor.id}
-                contractor={contractor}
-                language={language}
-                onViewProfilePress={handleOpenContractorDetail}
-                onBookPress={handleOpenBooking}
-                onCallPress={handleCall}
-              />
-            ))
+            <View style={proCols > 1 ? styles.prosGridContainer : undefined}>
+              {filteredContractors.map((contractor) => (
+                <ContractorCard
+                  key={contractor.id}
+                  contractor={contractor}
+                  language={language}
+                  onViewProfilePress={handleOpenContractorDetail}
+                  onBookPress={handleOpenBooking}
+                  onCallPress={handleCall}
+                  containerStyle={
+                    proCols > 1
+                      ? { width: proCardWidth as any, marginBottom: 0 }
+                      : undefined
+                  }
+                />
+              ))}
+            </View>
           )}
+        </View>
         </View>
       </ScrollView>
 
       {/* ✨ UNIFIED SETU AI FLOATING BUTTON */}
       <TouchableOpacity
-        style={styles.floatingAIFab}
+        style={[
+          styles.floatingAIFab,
+          {
+            bottom: isDesktop ? 24 : 14,
+            right: isTabletOrDesktop ? 24 : 12,
+          },
+        ]}
         onPress={() => {
           setSetuInitialPrompt('');
           setShowSetuAI(true);
@@ -654,7 +801,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
       {/* MODALS */}
       {/* 0. Unified SETU Master Artisan Chat & In-Photo Designer */}
       <SetuAIStudioModal
-        visible={isSetuModalOpen}
+        visible={Boolean(isSetuModalOpen && !isLocationPickerOpen)}
         onClose={() => {
           setShowSetuAI(false);
           setSetuInitialPrompt('');
@@ -667,12 +814,21 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
         contractors={contractors}
         materials={materials}
         initialPrompt={setuInitialPrompt}
-        onBookContractor={(c) => handleOpenBooking(c)}
+        onBookContractor={(c, prefill) => handleOpenBooking(c, prefill)}
         onFilterCategory={(category) => {
           setSelectedCategory(category);
           setSelectedNeed('ALL');
+          setTimeout(() => {
+            scrollViewRef.current?.scrollTo({ y: Math.max(0, prosSectionY - 10), animated: true });
+          }, 180);
         }}
-        onOpenBudgetJobPost={() => setShowPostTaskModal(true)}
+        onOpenBudgetJobPost={(prefill) => {
+          if (prefill?.title) setPostTaskTitle(prefill.title);
+          if (prefill?.budget && prefill.budget > 0) setPostTaskBudget(String(prefill.budget));
+          if (prefill?.category) setPostTaskCategory(prefill.category as any);
+          setShowPostTaskModal(true);
+        }}
+        onOpenLocationPicker={onOpenLocationPicker}
       />
 
       {/* 1. Contractor Detail Profile Modal */}
@@ -692,12 +848,18 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
       {/* 2. Direct Escrow Advance Booking Modal */}
       {selectedContractorForBooking && (
         <BookingModal
+          key={`${selectedContractorForBooking.id}_${bookingPrefill?.mode || 'default'}_${bookingPrefill?.includeMaterials ? 'mat' : 'nomat'}_${bookingPrefill?.initialLaborEstimate || 0}_${bookingPrefill?.initialMaterialEstimate || 0}`}
           visible={!!selectedContractorForBooking}
           contractor={selectedContractorForBooking}
           onClose={handleCloseBooking}
           onConfirmBooking={handleBookingConfirmed}
           language={language}
           currentLocation={currentLocation}
+          initialMode={bookingPrefill?.mode || 'दिहाड़ी'}
+          initialIncludeMaterials={Boolean(bookingPrefill?.includeMaterials)}
+          initialDescription={bookingPrefill?.description || ''}
+          initialLaborEstimate={bookingPrefill?.initialLaborEstimate || 0}
+          initialMaterialEstimate={bookingPrefill?.initialMaterialEstimate || 0}
         />
       )}
 
@@ -709,7 +871,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
 
       {/* 4. Uber/Rapido Quick SOS Service Modal */}
       <QuickServiceModal
-        visible={showQuickModal}
+        visible={isQuickModalOpen}
         onClose={() => {
           setShowQuickModal(false);
           if (onCloseQuickModalDirectly) onCloseQuickModalDirectly();
@@ -725,11 +887,11 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
           onClose={() => setSelectedMegaContract(null)}
           onRequestConsultation={(c: MegaContract) => {
             setSelectedMegaContract(null);
-            Alert.alert(
-              language === 'hi' ? 'कंसल्टेशन बुक हुआ' : 'Consultation Scheduled',
-              language === 'hi'
-                ? `"${c.title}" के लिए SETU इंजीनियर 24 घंटे में संपर्क करेंगे।`
-                : `SETU Chief Engineer will connect within 24 hours.`
+            showAppAlert(
+              language === 'en' ? 'Consultation Scheduled' : 'कंसल्टेशन बुक हुआ',
+              language === 'en'
+                ? `SETU Chief Engineer will connect within 24 hours.`
+                : `"${c.title}" के लिए SETU इंजीनियर 24 घंटे में संपर्क करेंगे।`
             );
           }}
         />
@@ -737,8 +899,9 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
 
       {/* 7. Airtasker / Thumbtack Model: Post Custom Job & Budget Modal */}
       <Modal visible={showPostTaskModal} transparent animationType="slide" onRequestClose={() => setShowPostTaskModal(false)}>
-        <View style={styles.postModalOverlay}>
-          <View style={styles.postModalCard}>
+        <View style={postModalResponsive.overlayStyle}>
+          <View style={[styles.postModalCard, postModalResponsive.containerStyle]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
             <View style={styles.postModalHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Ionicons name="create" size={18} color="#059669" />
@@ -776,6 +939,9 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
                 { id: 'electrician', label: '⚡ बिजली' },
                 { id: 'mason', label: '🧱 मिस्त्री' },
                 { id: 'painter', label: '🎨 पेंटर' },
+                { id: 'tiling', label: '📐 टाइल्स' },
+                { id: 'welder', label: '🔥 वेल्डर' },
+                { id: 'ac_repair', label: '❄️ AC रिपेयर' },
               ].map((c) => (
                 <TouchableOpacity
                   key={c.id}
@@ -825,6 +991,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
                 {language === 'hi' ? 'जॉब पोस्ट करें (कारीगरों को अलर्ट भेजें) ➔' : 'Broadcast Job to Pros ➔'}
               </Text>
             </TouchableOpacity>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -839,6 +1006,56 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  heroSplitRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 16,
+    marginBottom: 14,
+  },
+  topDiscoveryCardDesktop: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 16,
+  },
+  categoriesSectionDesktop: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 14,
+    paddingVertical: 10,
+  },
+  categoryPillsDesktopWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  dualStripRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 14,
+    marginBottom: 14,
+  },
+  marketIndexSectionDesktop: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 14,
+  },
+  marketIndexGridDesktop: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    paddingHorizontal: 10,
+  },
+  prosGridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 14,
+    alignItems: 'stretch',
   },
   searchSection: {
     backgroundColor: COLORS.cardBg,

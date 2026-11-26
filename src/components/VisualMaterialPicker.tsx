@@ -10,61 +10,130 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import {
   SUPPLIER_SHOWROOM,
+  ShowroomGroup,
   ShowroomProduct,
   ShowroomProjectType,
+  PriceTier,
+  normalizeProjectType,
+  PROJECT_TYPE_LABELS,
 } from '../data/supplierShowroom';
 
 interface VisualMaterialPickerProps {
-  projectType: ShowroomProjectType;
+  projectType: ShowroomProjectType | string;
+  customGroups?: ShowroomGroup[] | null;
+  initialSelected?: ShowroomProduct[];
+  budget?: number | null;
   language?: string;
   onGenerateWithSelection: (selected: ShowroomProduct[]) => void;
+  onRequestFinalQuote?: (selected: ShowroomProduct[]) => void;
+  onSelectionChange?: (selected: ShowroomProduct[]) => void;
 }
 
-const TIER_META = {
+const TIER_META: Record<PriceTier, { hi: string; en: string; bg: string; border: string; text: string }> = {
   budget: { hi: 'किफ़ायती', en: 'Budget', bg: '#065F46', border: '#10B981', text: '#6EE7B7' },
   standard: { hi: 'पॉपुलर', en: 'Popular', bg: '#1E3A8A', border: '#3B82F6', text: '#93C5FD' },
-  luxury: { hi: 'प्रीमियम', en: 'Luxury', bg: '#78350F', border: '#F59E0B', text: '#FDE68A' },
+  luxury: { hi: 'लक्ज़री', en: 'Luxury', bg: '#78350F', border: '#F59E0B', text: '#FDE68A' },
 };
 
 export const VisualMaterialPicker: React.FC<VisualMaterialPickerProps> = ({
   projectType,
+  customGroups = null,
+  initialSelected = [],
+  budget = null,
   language = 'hi',
   onGenerateWithSelection,
+  onRequestFinalQuote,
+  onSelectionChange,
 }) => {
   const isEn = language === 'en';
-  const groups = SUPPLIER_SHOWROOM[projectType] || SUPPLIER_SHOWROOM.kitchen;
+  const normalizedType = useMemo(() => normalizeProjectType(projectType), [projectType]);
 
-  // Initialize with middle/popular default item per group
-  const [selectedByGroup, setSelectedByGroup] = useState<Record<string, ShowroomProduct>>(() => {
-    const init: Record<string, ShowroomProduct> = {};
+  const groups = useMemo<ShowroomGroup[]>(() => {
+    if (customGroups && customGroups.length > 0) return customGroups;
+    return SUPPLIER_SHOWROOM[normalizedType] || SUPPLIER_SHOWROOM.custom;
+  }, [customGroups, normalizedType]);
+
+  // Sparse user selection overrides so switching categories/budgets never causes stale state or effect loops
+  const [userOverrides, setUserOverrides] = useState<Record<string, ShowroomProduct>>({});
+  const [failedThumbIds, setFailedThumbIds] = useState<Record<string, boolean>>({});
+
+  const selectedByGroup = useMemo(() => {
+    const preferredTier: PriceTier =
+      budget && budget > 0
+        ? budget < 20000
+          ? 'budget'
+          : budget > 60000
+          ? 'luxury'
+          : 'standard'
+        : 'standard';
+
+    const resolved: Record<string, ShowroomProduct> = {};
     groups.forEach((g) => {
-      const std = g.items.find((i) => i.tier === 'standard') || g.items[0];
-      if (std) init[g.groupId] = std;
+      const override = userOverrides[g.groupId];
+      if (override && g.items.some((i) => i.id === override.id)) {
+        resolved[g.groupId] = override;
+        return;
+      }
+      const persistedMatch = initialSelected.find((sel) => g.items.some((i) => i.id === sel.id));
+      if (persistedMatch) {
+        resolved[g.groupId] = g.items.find((i) => i.id === persistedMatch.id)!;
+        return;
+      }
+      const bestMatch =
+        g.items.find((i) => i.tier === preferredTier) ||
+        g.items.find((i) => i.tier === 'standard') ||
+        g.items[0];
+      if (bestMatch) resolved[g.groupId] = bestMatch;
     });
-    return init;
-  });
+    return resolved;
+  }, [groups, userOverrides, initialSelected, budget]);
 
   const selectedList = useMemo(() => Object.values(selectedByGroup), [selectedByGroup]);
 
-  const approxMaterialEstimate = useMemo(() => {
+  const approxRawMaterialTotal = useMemo(() => {
     return selectedList.reduce((acc, item) => {
       return acc + item.price * (item.approxQtyMultiplier || 1);
     }, 0);
   }, [selectedList]);
 
+  const projectBadgeLabel =
+    PROJECT_TYPE_LABELS[normalizedType]?.[isEn ? 'en' : 'hi'] ||
+    (isEn ? 'Raw Materials' : 'कच्चा माल चुनें');
+
+  const isSafeThumbUrl = (url?: string) =>
+    typeof url === 'string' && /^(https?:\/\/|data:image\/)/i.test(url.trim());
+
   const handleSelectItem = (groupId: string, product: ShowroomProduct) => {
-    setSelectedByGroup((prev) => ({ ...prev, [groupId]: product }));
+    const nextOverrides = { ...userOverrides, [groupId]: product };
+    setUserOverrides(nextOverrides);
+    if (onSelectionChange) {
+      const nextList = groups
+        .map((g) => {
+          const ov = nextOverrides[g.groupId];
+          if (ov && g.items.some((i) => i.id === ov.id)) return ov;
+          return selectedByGroup[g.groupId];
+        })
+        .filter(Boolean);
+      onSelectionChange(nextList);
+    }
   };
 
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <Ionicons name="storefront-outline" size={16} color="#F59E0B" />
-        <Text style={styles.headerTitle}>
-          {isEn
-            ? 'Pick Your Favorite Finish, Hardware & Range'
-            : 'अपनी पसंद का माइका, फिटिंग व रेंज चुनें (असली फोटो + रेट)'}
-        </Text>
+        <Ionicons name="layers-outline" size={16} color="#F59E0B" />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>
+            {isEn
+              ? `Raw Materials Showroom — ${projectBadgeLabel}`
+              : `कच्चा माल प्रयोगशाला — ${projectBadgeLabel}`}
+          </Text>
+          <Text style={styles.headerSub}>
+            {isEn
+              ? 'Compare raw material quality & rates — tap any combination to see live design!'
+              : 'सिर्फ इस काम का शुद्ध कच्चा माल (रेट & क्वालिटी सहित) — बदल-बदलकर नया मॉडल देखें:'}
+          </Text>
+        </View>
       </View>
 
       {groups.map((group) => {
@@ -76,7 +145,8 @@ export const VisualMaterialPicker: React.FC<VisualMaterialPickerProps> = ({
               <View style={styles.cardsRow}>
                 {group.items.map((item) => {
                   const isSelected = activeId === item.id;
-                  const tier = TIER_META[item.tier];
+                  const tier = TIER_META[item.tier] || TIER_META.standard;
+                  const hasSafeThumb = isSafeThumbUrl(item.imageUrl);
                   return (
                     <TouchableOpacity
                       key={item.id}
@@ -85,11 +155,18 @@ export const VisualMaterialPicker: React.FC<VisualMaterialPickerProps> = ({
                       activeOpacity={0.85}
                     >
                       <View style={styles.thumbWrap}>
-                        <Image
-                          source={{ uri: item.imageUrl }}
-                          style={styles.productThumb}
-                          resizeMode="cover"
-                        />
+                        {failedThumbIds[item.id] || !hasSafeThumb ? (
+                          <View style={[styles.productThumb, styles.thumbFallback]}>
+                            <Ionicons name="layers" size={24} color="#F59E0B" />
+                          </View>
+                        ) : (
+                          <Image
+                            source={{ uri: item.imageUrl }}
+                            style={styles.productThumb}
+                            resizeMode="cover"
+                            onError={() => setFailedThumbIds((prev) => ({ ...prev, [item.id]: true }))}
+                          />
+                        )}
                         <View
                           style={[
                             styles.tierBadge,
@@ -111,8 +188,13 @@ export const VisualMaterialPicker: React.FC<VisualMaterialPickerProps> = ({
                         <Text style={styles.itemName} numberOfLines={2}>
                           {item.name}
                         </Text>
+                        {item.qualitySpec ? (
+                          <Text style={styles.itemSpec} numberOfLines={1}>
+                            {item.qualitySpec}
+                          </Text>
+                        ) : null}
                         <Text style={styles.itemPrice}>
-                          ₹{item.price.toLocaleString('en-IN')}{' '}
+                          ₹{Number(item.price || 0).toLocaleString('en-IN')}{' '}
                           <Text style={styles.itemUnit}>/ {item.unit}</Text>
                         </Text>
                         <Text style={styles.itemStore} numberOfLines={1}>
@@ -128,14 +210,16 @@ export const VisualMaterialPicker: React.FC<VisualMaterialPickerProps> = ({
         );
       })}
 
-      {/* Live Selected Budget + Generate Realistic Photo Button */}
+      {/* Interactive Playground Footer */}
       <View style={styles.footerBar}>
         <View style={styles.estimateSummaryRow}>
           <Text style={styles.estimateLabel}>
-            {isEn ? 'Selected Materials Est.:' : 'चुने हुए सामान का अनुमान:'}
+            {isEn
+              ? `Selected Raw Material (${selectedList.length} items):`
+              : `चुने हुए कच्चे माल (${selectedList.length} आइटम):`}
           </Text>
           <Text style={styles.estimateAmount}>
-            ~₹{approxMaterialEstimate.toLocaleString('en-IN')}
+            ~₹{approxRawMaterialTotal.toLocaleString('en-IN')}
           </Text>
         </View>
 
@@ -144,13 +228,28 @@ export const VisualMaterialPicker: React.FC<VisualMaterialPickerProps> = ({
           onPress={() => onGenerateWithSelection(selectedList)}
           activeOpacity={0.88}
         >
-          <Ionicons name="sparkles" size={17} color="#0F172A" />
+          <Ionicons name="sparkles" size={16} color="#0F172A" />
           <Text style={styles.generateRealText}>
             {isEn
-              ? 'Generate Real Photo Design With Selected Items'
-              : 'इन चुने हुए आइटम्स से असली फोटो डिज़ाइन बनाओ'}
+              ? 'Rebuild Design Model From Selected Raw Materials'
+              : 'इन चुने हुए कच्चे माल से नया मॉडल बनाकर दिखाओ'}
           </Text>
         </TouchableOpacity>
+
+        {onRequestFinalQuote ? (
+          <TouchableOpacity
+            style={styles.quoteReadyBtn}
+            onPress={() => onRequestFinalQuote(selectedList)}
+            activeOpacity={0.88}
+          >
+            <Ionicons name="document-text-outline" size={15} color="#A7F3D0" />
+            <Text style={styles.quoteReadyText}>
+              {isEn
+                ? 'Design Finalized? Get 3-Type Quotation Now'
+                : 'डिज़ाइन पसंद है? अब 3-टाइप कोटेशन पाएं (लोकेशन & बजट अनुसार)'}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     </View>
   );
@@ -158,6 +257,9 @@ export const VisualMaterialPicker: React.FC<VisualMaterialPickerProps> = ({
 
 const styles = StyleSheet.create({
   container: {
+    width: '100%',
+    minWidth: 0,
+    overflow: 'hidden',
     backgroundColor: '#020617',
     borderRadius: 14,
     padding: 11,
@@ -167,15 +269,20 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+    alignItems: 'flex-start',
+    gap: 7,
     marginBottom: 10,
   },
   headerTitle: {
     color: '#FBBF24',
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '900',
-    flex: 1,
+  },
+  headerSub: {
+    color: '#94A3B8',
+    fontSize: 10.5,
+    marginTop: 1,
+    lineHeight: 14,
   },
   groupBlock: {
     marginBottom: 12,
@@ -192,7 +299,7 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   productCard: {
-    width: 150,
+    width: 158,
     backgroundColor: '#0F172A',
     borderRadius: 11,
     overflow: 'hidden',
@@ -205,13 +312,18 @@ const styles = StyleSheet.create({
   },
   thumbWrap: {
     width: '100%',
-    height: 82,
+    height: 80,
     position: 'relative',
     backgroundColor: '#1E293B',
   },
   productThumb: {
     width: '100%',
     height: '100%',
+  },
+  thumbFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1E293B',
   },
   tierBadge: {
     position: 'absolute',
@@ -240,8 +352,14 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 11,
     fontWeight: '800',
-    lineHeight: 15,
-    minHeight: 30,
+    lineHeight: 14.5,
+    minHeight: 29,
+  },
+  itemSpec: {
+    color: '#93C5FD',
+    fontSize: 9.5,
+    fontWeight: '600',
+    marginTop: 1,
   },
   itemPrice: {
     color: '#34D399',
@@ -292,7 +410,25 @@ const styles = StyleSheet.create({
   },
   generateRealText: {
     color: '#0F172A',
-    fontSize: 12,
+    fontSize: 11.5,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  quoteReadyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#064E3B',
+    borderWidth: 1,
+    borderColor: '#10B981',
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+  },
+  quoteReadyText: {
+    color: '#A7F3D0',
+    fontSize: 11,
     fontWeight: '900',
     textAlign: 'center',
   },

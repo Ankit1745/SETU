@@ -1,6 +1,34 @@
 const crypto = require('crypto');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'SETU_SECURE_HMAC_KEY_BHOPAL_2026_PRODUCTION';
+// Fail-safe secret resolution: NEVER embed a predictable static production password in source.
+// When JWT_SECRET is omitted in multi-container serverless (e.g. Vercel), deterministically derive via HMAC from
+// an existing server-side secret env var so lambdas agree on tokens without embedding literals.
+const EPHEMERAL_FALLBACK_SECRET = crypto.randomBytes(32).toString('hex');
+function resolveJwtSecret() {
+  const envSecret = (process.env.JWT_SECRET || '').trim();
+  if (envSecret && envSecret.length >= 16) return envSecret;
+
+  if (process.env.ALLOW_LOCAL_FALLBACK === 'true') {
+    // Deterministic local-only test secret when offline test scripts run inside single process
+    return crypto.createHash('sha256').update(`setu-local-test-${process.pid}`).digest('hex');
+  }
+
+  const rootSecretSeed = [
+    process.env.ADMIN_SECRET_KEY,
+  ]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean)
+    .join(':');
+
+  if (rootSecretSeed.length >= 16) {
+    return crypto.createHmac('sha256', rootSecretSeed).update('setu-derived-jwt-key-v1').digest('hex');
+  }
+
+  console.warn('⚠️ SECURITY WARNING: JWT_SECRET / strong ADMIN_SECRET_KEY environment variable is not set! Using ephemeral container secret.');
+  return EPHEMERAL_FALLBACK_SECRET;
+}
+
+const JWT_SECRET = resolveJwtSecret();
 
 /**
  * Creates a cryptographically signed HMAC-SHA256 token (JWT structure)
@@ -21,7 +49,7 @@ function createToken(payload, expiresInSec = 86400 * 7) { // 7 days default
 }
 
 /**
- * Verifies HMAC-SHA256 signed token
+ * Verifies HMAC-SHA256 signed token with constant-time signature comparison
  */
 function verifyToken(token) {
   if (!token || typeof token !== 'string') return null;
@@ -34,7 +62,9 @@ function verifyToken(token) {
     .update(`${headerB64}.${payloadB64}`)
     .digest('base64url');
 
-  if (signature !== expectedSig) {
+  const sigBuf = Buffer.from(signature);
+  const expectedBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
     return null; // Tampered or invalid signature
   }
 
@@ -59,11 +89,25 @@ function requireAuth(req, res, next) {
   }
 
   const user = verifyToken(authHeader);
-  if (!user) {
+  if (!user || user.type === 'OTP_CHALLENGE' || !user.role) {
     return res.status(401).json({ error: 'अमान्य या समाप्त सत्र (Invalid/Expired Session)। कृपया पुनः लॉगिन करें।' });
   }
 
   req.user = user;
+  next();
+}
+
+/**
+ * Optional authentication middleware: sets req.user if a valid session token is provided
+ */
+function optionalAuth(req, _res, next) {
+  const authHeader = req.headers['authorization'] || req.headers['x-auth-token'];
+  if (authHeader) {
+    const user = verifyToken(authHeader);
+    if (user && user.type !== 'OTP_CHALLENGE' && user.role) {
+      req.user = user;
+    }
+  }
   next();
 }
 
@@ -88,6 +132,7 @@ module.exports = {
   createToken,
   verifyToken,
   requireAuth,
+  optionalAuth,
   requireRole,
   JWT_SECRET,
 };

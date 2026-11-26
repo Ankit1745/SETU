@@ -8,9 +8,11 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  TextInput,
 } from 'react-native';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface LocationPickerModalProps {
   visible: boolean;
@@ -18,6 +20,17 @@ interface LocationPickerModalProps {
   onClose: () => void;
   onSelectLocation: (loc: string) => void;
 }
+
+const PAN_INDIA_CITIES = [
+  { name: 'दिल्ली (Delhi / NCR)', pincode: '110001', eta: '15-25 मिनट' },
+  { name: 'मुंबई (Andheri / Bandra)', pincode: '400053', eta: '15-25 मिनट' },
+  { name: 'बेंगलुरु (Indiranagar / Koramangala)', pincode: '560038', eta: '15-25 मिनट' },
+  { name: 'पुणे (Kothrud / Baner)', pincode: '411038', eta: '15-20 मिनट' },
+  { name: 'इंदौर (Vijay Nagar / Palasia)', pincode: '452010', eta: '12-18 मिनट' },
+  { name: 'जयपुर (Vaishali Nagar / Malviya)', pincode: '302021', eta: '12-18 मिनट' },
+  { name: 'लखनऊ (Gomti Nagar)', pincode: '226010', eta: '12-20 मिनट' },
+  { name: 'हैदराबाद (Madhapur / Gachibowli)', pincode: '500081', eta: '15-25 मिनट' },
+];
 
 const POPULAR_LOCALITIES = [
   { name: 'एमपी नगर (ज़ोन 1 & 2), भोपाल', pincode: '462011', eta: '10-15 मिनट' },
@@ -39,6 +52,15 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
   onSelectLocation,
 }) => {
   const [isLocating, setIsLocating] = useState(false);
+  const [customCityQuery, setCustomCityQuery] = useState('');
+
+  const handleApplyCustomLocation = () => {
+    const clean = customCityQuery.trim();
+    if (!clean) return;
+    onSelectLocation(clean);
+    setCustomCityQuery('');
+    onClose();
+  };
 
   const handleDetectGps = () => {
     if (typeof navigator !== 'undefined' && navigator.geolocation) {
@@ -64,7 +86,7 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
             const detected = `${area}, ${city} • ${pincode}`;
             onSelectLocation(detected);
             onClose();
-          } catch (e) {
+          } catch {
             const fallbackLoc = `एमपी नगर (ज़ोन-1), भोपाल • 462011 (मैन्युअल चयनित)`;
             onSelectLocation(fallbackLoc);
             onClose();
@@ -87,15 +109,18 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
     }
   };
 
+  const { getModalStyles } = useResponsive();
+  const { isDialog, overlayStyle, containerStyle } = getModalStyles({ maxWidth: 580 });
+
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.container}>
+    <Modal visible={visible} animationType={isDialog ? 'fade' : 'slide'} transparent={true} onRequestClose={onClose}>
+      <View style={overlayStyle}>
+        <View style={[styles.container, containerStyle]}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.titleRow}>
               <Ionicons name="location" size={22} color={COLORS.secondary} />
-              <Text style={styles.title}>अपनी कार्य स्थल लोकेशन चुनें (भोपाल)</Text>
+              <Text style={styles.title}>अपनी कार्य स्थल लोकेशन चुनें</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <MaterialIcons name="close" size={22} color={COLORS.textPrimary} />
@@ -103,8 +128,44 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
           </View>
 
           <Text style={styles.subtext}>
-            आपके सबसे नजदीकी उपलब्ध कारीगर और सप्लायर दिखाने के लिए आपकी लोकेशन आवश्यक है:
+            आपके शहर के असली लेबर रेट व नजदीकी सप्लायर दिखाने के लिए लोकेशन चुनें या लिखें:
           </Text>
+
+          {/* Custom City / Area Search */}
+          <View style={styles.searchRow}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="अपना शहर या कॉलोनी लिखें (उदा. इंदौर, विजय नगर)..."
+              placeholderTextColor={COLORS.textMuted}
+              value={customCityQuery}
+              onChangeText={setCustomCityQuery}
+              onSubmitEditing={handleApplyCustomLocation}
+              returnKeyType="done"
+            />
+            {customCityQuery.trim() ? (
+              <TouchableOpacity style={styles.applyBtn} onPress={handleApplyCustomLocation}>
+                <Text style={styles.applyBtnText}>सेट करें</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {/* Pan-India City Quick Chips */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {PAN_INDIA_CITIES.map((c, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={styles.cityChip}
+                  onPress={() => {
+                    onSelectLocation(`${c.name} • ${c.pincode}`);
+                    onClose();
+                  }}
+                >
+                  <Text style={styles.cityChipText}>{c.name.split('(')[0].trim()}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
 
           {/* GPS Auto Detect Button */}
           <TouchableOpacity
@@ -278,5 +339,46 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: '#15803D',
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  searchInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 12.5,
+    color: COLORS.textPrimary,
+    backgroundColor: '#F8FAFC',
+  },
+  applyBtn: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+  },
+  applyBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  cityChip: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  cityChipText: {
+    color: COLORS.primary,
+    fontSize: 11.5,
+    fontWeight: '700',
   },
 });

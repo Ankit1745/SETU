@@ -7,10 +7,13 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
-  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
+import { ApiService } from '../services/api';
+import { showAppAlert } from '../utils/appAlert';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface AuthOnboardingModalProps {
   visible: boolean;
@@ -28,58 +31,84 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
   const [step, setStep] = useState<'PHONE' | 'OTP' | 'ROLE_SELECT' | 'DETAILS' | 'SUCCESS'>('PHONE');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
+  const [verificationToken, setVerificationToken] = useState<string | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
   const [selectedRole, setSelectedRole] = useState<OnboardingRole>('CUSTOMER');
-  
+  const [registeredUser, setRegisteredUser] = useState<any>(null);
+
   // Profile Details
   const [fullName, setFullName] = useState('');
   const [tradeOrShop, setTradeOrShop] = useState('');
   const [aadhaarOrGst, setAadhaarOrGst] = useState('');
   const [generatedSetuId, setGeneratedSetuId] = useState('');
 
-  const handleSendOtp = () => {
-    if (phone.length < 10) {
-      Alert.alert('अमान्य फोन नंबर', 'कृपया 10 अंकों का वैध मोबाइल नंबर दर्ज करें।');
+  const handleSendOtp = async () => {
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    if (cleanPhone.length < 10) {
+      showAppAlert('अमान्य फोन नंबर', 'कृपया 10 अंकों का वैध मोबाइल नंबर दर्ज करें।');
       return;
     }
+    setIsBusy(true);
+    const res = await ApiService.sendOtp(cleanPhone);
+    setIsBusy(false);
+    if (!res || !res.success) {
+      showAppAlert('OTP विफल', res?.error || 'OTP भेजने में समस्या आई।');
+      return;
+    }
+    setVerificationToken(res.verificationToken || null);
+    if (res.demoOtp) {
+      setOtp(res.demoOtp);
+    }
     setStep('OTP');
-    Alert.alert('OTP भेजा गया', `आपके मोबाइल नंबर +91 ${phone} पर 4 अंकों का OTP (1234) भेजा गया है।`);
+    showAppAlert('OTP भेजा गया', res.message || `आपके मोबाइल नंबर +91 ${cleanPhone} पर 4 अंकों का OTP भेजा गया है।`);
   };
 
   const handleVerifyOtp = () => {
-    if (!otp) {
-      Alert.alert('OTP आवश्यक', 'कृपया OTP दर्ज करें। (परीक्षण हेतु 1234 डालें)');
+    const cleanOtp = otp.trim();
+    if (!/^\d{4}$/.test(cleanOtp)) {
+      showAppAlert('OTP आवश्यक', 'कृपया 4 अंकों का सही OTP दर्ज करें।');
       return;
     }
     setStep('ROLE_SELECT');
   };
 
-  const handleFinishDetails = () => {
+  const handleFinishDetails = async () => {
     if (!fullName.trim()) {
-      Alert.alert('अधूरी जानकारी', 'कृपया अपना पूरा नाम अवश्य भरें।');
+      showAppAlert('अधूरी जानकारी', 'कृपया अपना पूरा नाम अवश्य भरें।');
       return;
     }
-
-    const prefix = selectedRole === 'CUSTOMER' ? 'CUS' : selectedRole === 'CONTRACTOR' ? 'PRO' : 'VEN';
-    const randomDigits = Math.floor(1000 + Math.random() * 9000);
-    const newSetuId = `SETU-${prefix}-${randomDigits}`;
-
-    setGeneratedSetuId(newSetuId);
-    setStep('SUCCESS');
-
-    onUserRegistered({
-      setuId: newSetuId,
-      name: fullName,
-      phone: phone,
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    setIsBusy(true);
+    const res = await ApiService.verifyOtp({
+      phone: cleanPhone,
+      otp: otp.trim(),
+      verificationToken,
+      fullName: fullName.trim(),
       role: selectedRole,
-      tradeOrShop: tradeOrShop,
-      kycVerified: selectedRole === 'CUSTOMER', // Customers auto-verified, Pros need admin check
+      tradeOrShop: tradeOrShop.trim(),
     });
+    setIsBusy(false);
+
+    if (!res || !res.success || !res.user) {
+      showAppAlert('सत्यापन विफल', res?.error || 'गलत या समाप्त OTP कोड। कृपया पुनः OTP मंगाएं।');
+      return;
+    }
+    if (res.token) {
+      ApiService.setAuthToken(res.token);
+    }
+    setGeneratedSetuId(res.user.setuId);
+    setRegisteredUser(res.user);
+    setStep('SUCCESS');
+    onUserRegistered(res.user);
   };
 
+  const { getModalStyles } = useResponsive();
+  const { isDialog, overlayStyle, containerStyle } = getModalStyles({ maxWidth: 560 });
+
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.container}>
+    <Modal visible={visible} animationType={isDialog ? 'fade' : 'slide'} transparent={true} onRequestClose={onClose}>
+      <View style={overlayStyle}>
+        <View style={[styles.container, containerStyle]}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.logoRow}>
@@ -114,8 +143,8 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
                   />
                 </View>
 
-                <TouchableOpacity style={styles.primaryBtn} onPress={handleSendOtp} activeOpacity={0.8}>
-                  <Text style={styles.primaryBtnText}>OTP प्राप्त करें ➔</Text>
+                <TouchableOpacity style={styles.primaryBtn} onPress={handleSendOtp} activeOpacity={0.8} disabled={isBusy}>
+                  {isBusy ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={styles.primaryBtnText}>OTP प्राप्त करें ➔</Text>}
                 </TouchableOpacity>
               </View>
             )}
@@ -125,7 +154,7 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
               <View>
                 <Text style={styles.stepTitle}>OTP सत्यापन (Verification)</Text>
                 <Text style={styles.stepSub}>
-                  +91 {phone} पर भेजा गया 4 अंकों का कोड दर्ज करें (परीक्षण हेतु '1234' डालें):
+                  +91 {phone} पर भेजा गया 4 अंकों का OTP कोड दर्ज करें:
                 </Text>
 
                 <TextInput
@@ -252,8 +281,8 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
                   </>
                 )}
 
-                <TouchableOpacity style={styles.primaryBtn} onPress={handleFinishDetails} activeOpacity={0.8}>
-                  <Text style={styles.primaryBtnText}>SETU ID कार्ड जारी करें ➔</Text>
+                <TouchableOpacity style={styles.primaryBtn} onPress={handleFinishDetails} activeOpacity={0.8} disabled={isBusy}>
+                  {isBusy ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={styles.primaryBtnText}>SETU ID कार्ड जारी करें ➔</Text>}
                 </TouchableOpacity>
               </View>
             )}
@@ -268,13 +297,15 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
                       <Text style={styles.idCardTitle}>SETU DIGITAL ID</Text>
                     </View>
                     <View style={styles.idCardBadge}>
-                      <Text style={styles.idCardBadgeText}>सत्यापित (VERIFIED)</Text>
+                      <Text style={styles.idCardBadgeText}>
+                        {registeredUser?.kycVerified ? 'सत्यापित (VERIFIED)' : 'सक्रिय (KYC विचाराधीन)'}
+                      </Text>
                     </View>
                   </View>
 
                   <View style={styles.idCardBody}>
                     <View style={styles.idAvatar}>
-                      <Text style={styles.idAvatarText}>{fullName.charAt(0)}</Text>
+                      <Text style={styles.idAvatarText}>{(fullName.trim().charAt(0) || 'S').toUpperCase()}</Text>
                     </View>
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={styles.idName}>{fullName}</Text>
@@ -287,7 +318,7 @@ export const AuthOnboardingModal: React.FC<AuthOnboardingModalProps> = ({
 
                   <View style={styles.idCardFooter}>
                     <Text style={styles.setuIdNumber}>{generatedSetuId}</Text>
-                    <Text style={styles.idIssueText}>जारी दिनांक: 14 नवम्बर 2026</Text>
+                    <Text style={styles.idIssueText}>जारी दिनांक: {new Date().toLocaleDateString('hi-IN')}</Text>
                   </View>
                 </View>
 

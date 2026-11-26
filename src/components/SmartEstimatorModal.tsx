@@ -15,6 +15,7 @@ import {
   calculateCustomerEstimate,
   CustomerEstimateResult,
 } from '../services/constructionAI';
+import { useResponsive } from '../hooks/useResponsive';
 
 interface SmartEstimatorModalProps {
   visible: boolean;
@@ -34,15 +35,23 @@ export const SmartEstimatorModal: React.FC<SmartEstimatorModalProps> = ({
 }) => {
   const [selectedWork, setSelectedWork] = useState<WorkType>('plumbing');
   const [calcMode, setCalcMode] = useState<CalcMode>('day');
-  const [quantityInput, setQuantityInput] = useState<string>('2'); // default 2 days
+  const [dayQuantityInput, setDayQuantityInput] = useState<string>('2');
+  const [unitQuantityInput, setUnitQuantityInput] = useState<string>('350');
   const [includeMaterials, setIncludeMaterials] = useState<boolean>(true);
+  const [includeHelper, setIncludeHelper] = useState<boolean>(false);
 
   // Contractor Selection State
   // Mode 1: Standard Rate Demo Contractor (₹900/day)
   // Mode 2: Quote Requested Contractor (null rate - भाव पूछें)
+  // Mode 3: Custom or Live Contractor Rate
   const [selectedContractorType, setSelectedContractorType] = useState<'standard_900' | 'quote_null' | 'custom'>('standard_900');
   const [customRateInput, setCustomRateInput] = useState<string>('900');
 
+  const quantityInput = calcMode === 'day' ? dayQuantityInput : unitQuantityInput;
+  const setQuantityInput = (val: string) => {
+    if (calcMode === 'day') setDayQuantityInput(val);
+    else setUnitQuantityInput(val);
+  };
   const quantity = Math.max(1, parseFloat(quantityInput) || 1);
 
   // Map Category to Contractor Category String
@@ -122,19 +131,29 @@ export const SmartEstimatorModal: React.FC<SmartEstimatorModalProps> = ({
     electrical: 'स्विचबोर्ड & हाउस वायरिंग',
   };
 
+  // Filter live market contractors matching the selected work category
+  const tradeKey = getCategoryKey(selectedWork);
+  const tradeContractors = contractors.filter(
+    (c) => c.category === tradeKey && c.available !== false && ((calcMode === 'day' ? c.dailyWageRate : c.contractUnitRate) || 0) > 0
+  );
+
   // Run Calculation using SETU Core Engine
   const estimate: CustomerEstimateResult = calculateCustomerEstimate({
     workTitle: workTitles[selectedWork],
     quantity,
     unitType: calcMode === 'day' ? 'day' : 'sqft',
     contractorDailyRate: effectiveDailyRate,
+    helperRate: calcMode === 'day' && includeHelper ? 500 : null,
     materialItemsCatalog: includeMaterials ? MATERIAL_CATALOGS[selectedWork] : [],
   });
 
+  const { getModalStyles } = useResponsive();
+  const { isDialog, overlayStyle, containerStyle } = getModalStyles({ maxWidth: 720 });
+
   return (
-    <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.modalContainer}>
+    <Modal visible={visible} animationType={isDialog ? 'fade' : 'slide'} transparent={true} onRequestClose={onClose}>
+      <View style={overlayStyle}>
+        <View style={[styles.modalContainer, containerStyle]}>
           {/* Header */}
           <View style={styles.modalHeader}>
             <View style={styles.titleRow}>
@@ -231,10 +250,7 @@ export const SmartEstimatorModal: React.FC<SmartEstimatorModalProps> = ({
                 <View style={styles.modeToggleRow}>
                   <TouchableOpacity
                     style={[styles.modeToggleBtn, calcMode === 'day' && styles.modeToggleBtnActive]}
-                    onPress={() => {
-                      setCalcMode('day');
-                      if (quantityInput === '350') setQuantityInput('2');
-                    }}
+                    onPress={() => setCalcMode('day')}
                   >
                     <Text style={[styles.modeToggleText, calcMode === 'day' && styles.modeToggleTextActive]}>
                       दिहाड़ी (दिन)
@@ -242,10 +258,7 @@ export const SmartEstimatorModal: React.FC<SmartEstimatorModalProps> = ({
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.modeToggleBtn, calcMode === 'unit' && styles.modeToggleBtnActive]}
-                    onPress={() => {
-                      setCalcMode('unit');
-                      if (quantityInput === '2') setQuantityInput('350');
-                    }}
+                    onPress={() => setCalcMode('unit')}
                   >
                     <Text style={[styles.modeToggleText, calcMode === 'unit' && styles.modeToggleTextActive]}>
                       ठेका (Sq.Ft)
@@ -260,10 +273,35 @@ export const SmartEstimatorModal: React.FC<SmartEstimatorModalProps> = ({
                   value={quantityInput}
                   onChangeText={setQuantityInput}
                   keyboardType="numeric"
-                  placeholder="2"
+                  placeholder={calcMode === 'day' ? '2' : '350'}
                   placeholderTextColor={COLORS.textMuted}
                 />
                 <Text style={styles.unitTag}>{calcMode === 'day' ? 'दिन (Days)' : 'वर्ग फुट (Sq.Ft)'}</Text>
+              </View>
+
+              {/* Helper & Material Toggles */}
+              <View style={styles.toggleOptionsRow}>
+                <TouchableOpacity
+                  style={[styles.optionToggleChip, includeMaterials && styles.optionToggleChipActive]}
+                  onPress={() => setIncludeMaterials((p) => !p)}
+                >
+                  <Ionicons name={includeMaterials ? 'checkbox' : 'square-outline'} size={15} color={includeMaterials ? '#1D4ED8' : '#64748B'} />
+                  <Text style={[styles.optionToggleText, includeMaterials && styles.optionToggleTextActive]}>
+                    सामग्री (कच्चा माल) शामिल करें
+                  </Text>
+                </TouchableOpacity>
+
+                {calcMode === 'day' ? (
+                  <TouchableOpacity
+                    style={[styles.optionToggleChip, includeHelper && styles.optionToggleChipActive]}
+                    onPress={() => setIncludeHelper((p) => !p)}
+                  >
+                    <Ionicons name={includeHelper ? 'checkbox' : 'square-outline'} size={15} color={includeHelper ? '#1D4ED8' : '#64748B'} />
+                    <Text style={[styles.optionToggleText, includeHelper && styles.optionToggleTextActive]}>
+                      + हेल्पर (₹500/दिन)
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             </View>
 
@@ -271,7 +309,7 @@ export const SmartEstimatorModal: React.FC<SmartEstimatorModalProps> = ({
             <View style={styles.contractorSection}>
               <Text style={styles.sectionLabel}>3. कारीगर की दर (Contractor Rate):</Text>
               <Text style={styles.sectionHelp}>
-                * SETU नियम: कारीगर अपनी दर खुद तय करता है। खाली दर का मतलब 'भाव पूछें' है।
+                * SETU नियम: कारीगर अपनी दर खुद तय करता है। खाली दर का मतलब &apos;भाव पूछें&apos; है।
               </Text>
 
               <View style={styles.contractorOptionsRow}>
@@ -322,7 +360,68 @@ export const SmartEstimatorModal: React.FC<SmartEstimatorModalProps> = ({
                   </Text>
                   <Text style={styles.contractorOptionSub}>कोटेशन अनुरोध</Text>
                 </TouchableOpacity>
+
+                {/* Option 3: Custom or Contractor Rate */}
+                <TouchableOpacity
+                  style={[
+                    styles.contractorOptionCard,
+                    selectedContractorType === 'custom' && styles.contractorOptionCardActive,
+                  ]}
+                  onPress={() => setSelectedContractorType('custom')}
+                >
+                  <Ionicons
+                    name="create-outline"
+                    size={16}
+                    color={selectedContractorType === 'custom' ? '#4F46E5' : '#64748B'}
+                  />
+                  <Text
+                    style={[
+                      styles.contractorOptionTitle,
+                      selectedContractorType === 'custom' && styles.contractorOptionTitleActive,
+                    ]}
+                  >
+                    कस्टम / कारीगर दर
+                  </Text>
+                  <Text style={styles.contractorOptionSub}>खुद रेट चुनें</Text>
+                </TouchableOpacity>
               </View>
+
+              {selectedContractorType === 'custom' ? (
+                <View style={styles.customRateBox}>
+                  <View style={styles.inputRow}>
+                    <TextInput
+                      style={styles.textInput}
+                      value={customRateInput}
+                      onChangeText={setCustomRateInput}
+                      keyboardType="numeric"
+                      placeholder={calcMode === 'day' ? '900' : String(defaultUnitRates[selectedWork])}
+                      placeholderTextColor={COLORS.textMuted}
+                    />
+                    <Text style={styles.unitTag}>{calcMode === 'day' ? '₹ / दिन' : '₹ / Sq.Ft'}</Text>
+                  </View>
+                  {tradeContractors.length > 0 ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        {tradeContractors.slice(0, 4).map((tc) => {
+                          const rate = calcMode === 'day' ? tc.dailyWageRate : tc.contractUnitRate;
+                          if (!rate) return null;
+                          return (
+                            <TouchableOpacity
+                              key={tc.id}
+                              style={styles.liveRateChip}
+                              onPress={() => setCustomRateInput(String(rate))}
+                            >
+                              <Text style={styles.liveRateChipText}>
+                                {tc.name.split(' ')[0]}: ₹{rate}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </ScrollView>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
 
             {/* 4. Calculation Results Display */}
@@ -334,7 +433,7 @@ export const SmartEstimatorModal: React.FC<SmartEstimatorModalProps> = ({
               {/* Labor Cost Row */}
               <View style={styles.costBreakdownItem}>
                 <View style={styles.costItemLeft}>
-                  <Text style={styles.costItemLabel}>👷 कारीगर मजदूरी (Labor Charge):</Text>
+                  <Text style={styles.costItemLabel}>👷 {contractorName}:</Text>
                   <Text style={styles.costItemDetail}>{estimate.laborDetails}</Text>
                 </View>
                 <View style={styles.costItemRight}>
@@ -380,10 +479,10 @@ export const SmartEstimatorModal: React.FC<SmartEstimatorModalProps> = ({
                 <Ionicons name="information-circle" size={16} color="#B45309" />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.disclaimerText, { fontWeight: '800', marginBottom: 2 }]}>
-                    📌 यह "अनुमानित बजट" है:
+                    📌 यह &ldquo;अनुमानित बजट&rdquo; है:
                   </Text>
                   <Text style={styles.disclaimerText}>
-                    ठेकेदार साइट का मुआयना करके "Final quotation" देगा। ग्राहक के स्वीकार करने पर ही दाम लॉक होगा।
+                    ठेकेदार साइट का मुआयना करके &ldquo;Final quotation&rdquo; देगा। ग्राहक के स्वीकार करने पर ही दाम लॉक होगा।
                   </Text>
                 </View>
               </View>
@@ -701,5 +800,56 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 13.5,
     fontWeight: '800',
+  },
+  toggleOptionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  optionToggleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+  },
+  optionToggleChipActive: {
+    borderColor: '#3B82F6',
+    backgroundColor: '#EFF6FF',
+  },
+  optionToggleText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  optionToggleTextActive: {
+    color: '#1D4ED8',
+    fontWeight: '700',
+  },
+  customRateBox: {
+    marginTop: 10,
+    backgroundColor: '#EEF2FF',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  liveRateChip: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#93C5FD',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  liveRateChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1E40AF',
   },
 });

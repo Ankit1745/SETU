@@ -23,9 +23,18 @@ async function normalizePickedImageBase64(uri: string, rawBase64?: string | null
   }
 
   return new Promise((resolve) => {
+    let settled = false;
+    const done = (val: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      resolve(val);
+    };
+    const timeoutId = setTimeout(() => done(fallbackDataUri), 8000);
+
     try {
       const ImgCtor = (window as any).Image;
-      if (!ImgCtor) return resolve(fallbackDataUri);
+      if (!ImgCtor) return done(fallbackDataUri);
       const img = new ImgCtor();
       if (!fallbackDataUri.startsWith('data:') && !fallbackDataUri.startsWith('blob:')) {
         img.crossOrigin = 'anonymous';
@@ -42,24 +51,42 @@ async function normalizePickedImageBase64(uri: string, rawBase64?: string | null
           canvas.width = targetW;
           canvas.height = targetH;
           const ctx = canvas.getContext('2d');
-          if (!ctx) return resolve(fallbackDataUri);
+          if (!ctx) return done(fallbackDataUri);
+          // Fill white background before drawing transparent PNG/WEBP so JPEG conversion doesn't turn black
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, targetW, targetH);
           ctx.drawImage(img, 0, 0, targetW, targetH);
-          const compressed = canvas.toDataURL('image/jpeg', 0.78);
-          resolve(
+          let compressed = canvas.toDataURL('image/jpeg', 0.78);
+          if (compressed.length > 3500000) {
+            compressed = canvas.toDataURL('image/jpeg', 0.58);
+          }
+          done(
             compressed && compressed.startsWith('data:image/') && compressed.length > 200
               ? compressed
               : fallbackDataUri
           );
         } catch {
-          resolve(fallbackDataUri);
+          done(fallbackDataUri);
         }
       };
-      img.onerror = () => resolve(fallbackDataUri);
+      img.onerror = () => done(fallbackDataUri);
       img.src = fallbackDataUri;
     } catch {
-      resolve(fallbackDataUri);
+      done(fallbackDataUri);
     }
   });
+}
+
+function checkNativeMediaSize(base64Data: string, fileSize?: number): boolean {
+  const approxBytes = fileSize || Math.round((base64Data.length * 3) / 4);
+  if (approxBytes > 4.9 * 1024 * 1024) {
+    Alert.alert(
+      'फ़ोटो का आकार बड़ा है',
+      'कृपया 5MB से छोटी या कम रिज़ॉल्यूशन की फ़ोटो चुनें ताकि AI तेजी से जांच कर सके।'
+    );
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -80,7 +107,7 @@ export async function pickImageFromGallery(): Promise<PickedMedia | null> {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: false,
-      quality: 0.65,
+      quality: 0.55,
       base64: true,
     });
 
@@ -91,6 +118,9 @@ export async function pickImageFromGallery(): Promise<PickedMedia | null> {
     const asset = result.assets[0];
     const fileName = asset.fileName || `photo_${Date.now()}.jpg`;
     const base64Data = await normalizePickedImageBase64(asset.uri, asset.base64);
+    if (!checkNativeMediaSize(base64Data, asset.fileSize)) {
+      return null;
+    }
 
     return {
       uri: asset.uri,
@@ -123,7 +153,7 @@ export async function capturePhotoFromCamera(): Promise<PickedMedia | null> {
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ['images'],
       allowsEditing: false,
-      quality: 0.65,
+      quality: 0.55,
       base64: true,
     });
 
@@ -134,6 +164,9 @@ export async function capturePhotoFromCamera(): Promise<PickedMedia | null> {
     const asset = result.assets[0];
     const fileName = asset.fileName || `camera_${Date.now()}.jpg`;
     const base64Data = await normalizePickedImageBase64(asset.uri, asset.base64);
+    if (!checkNativeMediaSize(base64Data, asset.fileSize)) {
+      return null;
+    }
 
     return {
       uri: asset.uri,

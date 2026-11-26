@@ -10,15 +10,22 @@ interface MaterialCardProps {
 }
 
 export const MaterialCard: React.FC<MaterialCardProps> = ({ item, onAddToCart }) => {
-  const discountPercent = Math.round(((item.mrp - item.sellingPrice) / item.mrp) * 100);
+  const safeMrp = Number(item.mrp) || 0;
+  const safePrice = Math.max(0, Number(item.sellingPrice) || 0);
+  const discountPercent =
+    safeMrp > 0 && safeMrp > safePrice
+      ? Math.round(((safeMrp - safePrice) / safeMrp) * 100)
+      : 0;
 
   return (
     <View style={styles.card}>
       <View style={styles.imageContainer}>
         <Image source={{ uri: item.image }} style={styles.image} resizeMode="cover" />
-        <View style={styles.discountBadge}>
-          <Text style={styles.discountText}>{discountPercent}% छूट</Text>
-        </View>
+        {discountPercent > 0 && (
+          <View style={styles.discountBadge}>
+            <Text style={styles.discountText}>{discountPercent}% छूट</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.content}>
