@@ -85,6 +85,11 @@ export interface SetuAssistantPayload {
   isEditingInPhoto?: boolean;
   isTextRenderLoading?: boolean;
   inPhotoEditError?: string | null;
+  activeImageEngine?: string | null;
+  customerFeedback?: 'like' | 'dislike' | null;
+  customerListeningSummary?: string[];
+  customerRejections?: string[];
+  popularMaterialIds?: string[];
   quotation?: SetuQuotation;
   threeWayQuotations?: ThreeWayQuotationData;
   customerBudget?: number | null;
@@ -392,6 +397,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
               payload: {
                 ...m.payload,
                 editedImageBase64: editRes.editedImageBase64,
+                activeImageEngine: editRes.engine || 'SETU In-Photo AI',
                 isEditingInPhoto: false,
                 inPhotoEditError: null,
               },
@@ -462,6 +468,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
               payload: {
                 ...m.payload,
                 renderedImageUrl: renderRes.renderedImageBase64,
+                activeImageEngine: renderRes.engine || 'SETU Studio AI',
                 isEditingInPhoto: false,
                 isTextRenderLoading: false,
                 inPhotoEditError: null,
@@ -1099,6 +1106,27 @@ ${itemsText || '• साइट विज़िट पर तय किया �
 
                     <Text style={styles.assistantText}>{msg.text}</Text>
 
+                    {/* Customer Listening Confirmation Strip ("मैंने आपकी पसंद सुनी") */}
+                    {Array.isArray(p?.customerListeningSummary) && p.customerListeningSummary.length > 0 ? (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 6, marginBottom: 2 }}>
+                        <View style={{ backgroundColor: '#064E3B', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 }}>
+                          <Text style={{ color: '#A7F3D0', fontSize: 10, fontWeight: '800' }}>
+                            👂 {isEn ? 'Heard your taste:' : 'आपकी पसंद समझी:'}
+                          </Text>
+                        </View>
+                        {p.customerListeningSummary.map((chip, cIdx) => (
+                          <View
+                            key={cIdx}
+                            style={{ backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#334155', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 }}
+                          >
+                            <Text style={{ color: '#FDE68A', fontSize: 10, fontWeight: '700' }}>
+                              ✓ {chip}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+
                     {/* Visual Model Canvas */}
                     {p?.visualPreviewReady && p?.visualPlan ? (
                       <SpaceDesignCanvas
@@ -1106,6 +1134,7 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                         renderedImageUri={p.editedImageBase64 || p.renderedImageUrl}
                         isEditingPhoto={Boolean(p.isEditingInPhoto)}
                         isTextRender={Boolean(p.isTextRenderLoading)}
+                        engineBadge={p.activeImageEngine}
                         inPhotoEditError={p.inPhotoEditError}
                         onRetryInPhotoEdit={() => {
                           if (p.inPlaceEditRequired && activeSitePhotoBase64) {
@@ -1130,6 +1159,30 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                         }}
                         visualPlan={p.visualPlan}
                         language={language}
+                        userFeedback={p.customerFeedback || null}
+                        onFeedback={(rating, comment) => {
+                          setMessages((prev) =>
+                            prev.map((m) =>
+                              m.id === msg.id && m.payload
+                                ? { ...m, payload: { ...m.payload, customerFeedback: rating } }
+                                : m
+                            )
+                          );
+                          void ApiService.submitAiFeedback({
+                            rating,
+                            projectType: normalizedType,
+                            locality: currentLocation || cityLabel,
+                            selectedProducts: lastSelectedProducts,
+                            comment,
+                          });
+                        }}
+                        onQuickChangeStyle={(instruction) => {
+                          handleSendMessage(
+                            instruction,
+                            lastSelectedProducts,
+                            Math.floor(Math.random() * 900000) + 100
+                          );
+                        }}
                         onRegenerateAngle={() =>
                           handleSendMessage(
                             isEn
@@ -1149,6 +1202,7 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                         projectType={normalizedType}
                         customGroups={p?.customMaterialGroups}
                         initialSelected={lastSelectedProducts}
+                        popularMaterialIds={p?.popularMaterialIds || []}
                         budget={customerBudget > 0 ? customerBudget : p?.customerBudget}
                         language={language}
                         onSelectionChange={(items) => setLastSelectedProducts(items)}
@@ -1250,6 +1304,13 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                         matchedPro={matchedPro}
                         language={language}
                         onBookMode={(mode: QuoteModeKey, amount: number, summaryText: string) => {
+                          void ApiService.submitAiFeedback({
+                            rating: 'like',
+                            quoteMode: mode,
+                            projectType: normalizedType,
+                            locality: currentLocation || cityLabel,
+                            selectedProducts: lastSelectedProducts,
+                          });
                           if (!matchedPro) {
                             onClose();
                             onFilterCategory(p?.tradeCategory || 'all');

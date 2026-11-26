@@ -860,7 +860,70 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
       }
     }
 
-    // Deterministic Offline Fallback Engine when backend & Gemini are unavailable
+    // Direct Client Multi-Provider Backup (Pollinations Mistral/OpenAI) if Gemini hit limits & no image attached
+    if (!imageBase64) {
+      const promptFallbackText = `You are SETU Master Karigar AI in ${safeLoc}. Strictly respect what customer wants in "${latestMsg}". Reply ONLY with JSON matching: {"intentMode":"build_design"|"repair"|"rate_quote","interactionStage":"explore_design"|"repair"|"quote_ready","tradeCategory":"carpenter"|"plumber"|"electrician"|"mason"|"painter"|"welder"|"tiling","replyText":"conversational Hindi/Hinglish reply acknowledging exact user preferences","showMaterialPicker":true,"productPickerProjectType":"bed"|"kitchen"|"wardrobe"|"tv_unit_living"|"door_window"|"house"|"tiles_flooring"|"false_ceiling"|"bathroom"|"painting"|"electrical"|"iron_gate"|"custom","visualPreviewReady":true,"photorealisticPrompt":"35-word DSLR English photo prompt matching user taste","visualPlan":{"designType":"bed","title":"title in Hindi","finishLabel":"finish in Hindi","dimensionsLabel":"dimensions","afterCaption":"1-line caption"},"upsellPrompt":"tip in Hindi","quickReplies":["chip1","chip2"],"websiteAction":"NONE"}`;
+      for (const pollModel of ['mistral', 'openai']) {
+        try {
+          const pResp = await fetchWithTimeout(
+            'https://text.pollinations.ai/openai',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                model: pollModel,
+                temperature: 0.35,
+                messages: [
+                  { role: 'system', content: 'Output pure RFC-8259 JSON only.' },
+                  { role: 'user', content: promptFallbackText },
+                ],
+              }),
+            },
+            10000
+          );
+          if (pResp.ok) {
+            const pJson = await pResp.json().catch(() => null);
+            const parsed = safeParseClientJson(pJson?.choices?.[0]?.message?.content || '');
+            if (parsed && parsed.replyText) {
+              const normalizedType = normalizeProjectType(parsed.productPickerProjectType || activeProjectType, latestMsg);
+              const effectiveStage = parsed.intentMode === 'repair' && !isQuoteDemand ? 'repair' : isQuoteDemand ? 'quote_ready' : 'explore_design';
+              const hasUploadedPhoto = Boolean(effectiveHasSitePhoto);
+              const seed = regenerateSeed || hashSeed(`${normalizedType}|${latestMsg}`);
+              const pPrompt = String(parsed.photorealisticPrompt || `Real interior DSLR photograph of ${PROJECT_TYPE_LABELS[normalizedType]?.en || 'custom woodwork'}, no text`).slice(0, 340);
+              return {
+                success: true,
+                engine: `SETU Multi-AI (${pollModel})`,
+                data: {
+                  ...parsed,
+                  replyText: sanitizeClientPromptText(parsed.replyText, 1500),
+                  interactionStage: effectiveStage,
+                  productPickerProjectType: normalizedType,
+                  showMaterialPicker: effectiveStage === 'explore_design',
+                  visualPreviewReady: effectiveStage === 'explore_design',
+                  photorealisticPrompt: pPrompt,
+                  renderedImageUrl: null,
+                  textRenderRequired: Boolean(!hasUploadedPhoto && effectiveStage === 'explore_design'),
+                  renderSeed: seed,
+                  inPlaceEditRequired: Boolean(hasUploadedPhoto && effectiveStage === 'explore_design'),
+                  inPlaceEditPrompt: `Keep the exact same room unchanged and build ${parsed.visualPlan?.title || PROJECT_TYPE_LABELS[normalizedType]?.en} cleanly.`,
+                  serverHasPaidImageEditor: false,
+                  threeWayQuotations: effectiveStage === 'quote_ready'
+                    ? buildThreeWayQuotation({ projectType: normalizedType, projectTitle: parsed.visualPlan?.title || PROJECT_TYPE_LABELS[normalizedType].hi, locality: safeLoc, customerBudget: resolvedBudget, selectedProducts })
+                    : { includeQuotation: false },
+                  quotation: { includeQuotation: false },
+                  customerBudget: resolvedBudget,
+                  locality: safeLoc,
+                },
+              };
+            }
+          }
+        } catch {
+          // continue cleanly
+        }
+      }
+    }
+
+    // Deterministic Offline Fallback Engine when backend & LLMs are unavailable
     const offlineProjectType = normalizeProjectType(activeProjectType, latestMsg);
     const meta = PROJECT_TYPE_LABELS[offlineProjectType] || PROJECT_TYPE_LABELS.custom;
     const isRepairOffline = !isQuoteDemand && /टपक|लीक|crack|दरार|चिंगारी|spark|ट्रिप|सीलन|seepage|जाम|broken|खराब|टूटा|रिपेयर|repair/i.test(latestMsg);
@@ -1030,6 +1093,63 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
       return { success: false, error: 'Direct FireRed unavailable' };
     };
 
+    const callDirectAiHordeImg2Img = async () => {
+      try {
+        const strippedB64 = normalizedUri.replace(/^data:[^;]+;base64,/, '');
+        const subResp = await fetchWithTimeout(
+          'https://aihorde.net/api/v2/generate/async',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: '0000000000',
+              'Client-Agent': 'SETU:2.0:https://setu-1-nine.vercel.app',
+            },
+            body: JSON.stringify({
+              prompt: `${safeEditPrompt} ### cartoon, pixel art, bee, text, watermark`,
+              source_image: strippedB64,
+              source_processing: 'img2img',
+              params: { width: 512, height: 512, steps: 20, denoising_strength: 0.48, n: 1 },
+              models: ['Photon', 'Epic Diffusion', 'AbsoluteReality'],
+            }),
+          },
+          10000
+        );
+        const subJson = await subResp.json().catch(() => null);
+        if (!subResp.ok || !subJson?.id) return { success: false };
+        for (let poll = 0; poll < 8; poll += 1) {
+          await new Promise((r) => setTimeout(r, 2600));
+          const chk = await fetchWithTimeout(
+            `https://aihorde.net/api/v2/generate/status/${subJson.id}`,
+            { headers: { 'Client-Agent': 'SETU:2.0:https://setu-1-nine.vercel.app' } },
+            6000
+          );
+          const chkJson = await chk.json().catch(() => null);
+          if (chkJson?.done && chkJson?.generations?.[0]?.img) {
+            const outImg = chkJson.generations[0].img;
+            if (outImg.startsWith('http') && isSafeClientRemoteImageUrl(outImg)) {
+              return {
+                success: true,
+                editedImageBase64: outImg,
+                engine: 'SETU In-Photo Reality (AI Horde Img2Img)',
+              };
+            }
+            if (outImg.length > 500) {
+              return {
+                success: true,
+                editedImageBase64: outImg.startsWith('data:') ? outImg : `data:image/webp;base64,${outImg}`,
+                engine: 'SETU In-Photo Reality (AI Horde Img2Img)',
+              };
+            }
+          }
+          if (chkJson?.faulted || chkJson?.is_possible === false) break;
+        }
+      } catch {
+        // fail cleanly
+      }
+      return { success: false };
+    };
+
     if (preferServer) {
       try {
         const srvRes = await callBackendEditor();
@@ -1037,6 +1157,12 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
         try {
           const directFallback = await callDirectFireRed();
           if (directFallback.success) return directFallback;
+        } catch {
+          // ignore
+        }
+        try {
+          const hordeRes = await callDirectAiHordeImg2Img();
+          if (hordeRes.success) return hordeRes;
         } catch {
           // ignore
         }
@@ -1054,13 +1180,24 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
     }
 
     try {
-      return await callBackendEditor();
-    } catch (fallbackErr: any) {
-      return {
-        success: false,
-        error: fallbackErr?.message || 'इन-फोटो एडिटिंग पूरा नहीं हो सका।',
-      };
+      const srvRes = await callBackendEditor();
+      if (srvRes.success) return srvRes;
+    } catch {
+      // continue to AI Horde
     }
+
+    try {
+      const hordeRes = await callDirectAiHordeImg2Img();
+      if (hordeRes.success) return hordeRes;
+    } catch {
+      // fail cleanly
+    }
+
+    return {
+      success: false,
+      quotaExceeded: true,
+      error: 'इन-फोटो एडिटिंग सर्वर अभी व्यस्त हैं, कृपया पुनः प्रयास करें।',
+    };
   },
 
   // 17. Verified Text-to-Design Rendering (HF FLUX.1-Schnell CORS + Server Proxy — Never renders error bee graphics)
@@ -1157,6 +1294,60 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
       return { success: false, busy: Boolean(json?.busy || res.status === 503 || res.status === 429) };
     };
 
+    const callDirectAiHordeRender = async () => {
+      try {
+        const subResp = await fetchWithTimeout(
+          'https://aihorde.net/api/v2/generate/async',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: '0000000000',
+              'Client-Agent': 'SETU:2.0:https://setu-1-nine.vercel.app',
+            },
+            body: JSON.stringify({
+              prompt: `${safePrompt} ### cartoon, pixel art, bee, robot, text, watermark, blurry`,
+              params: { width: 512, height: 512, steps: 18, n: 1 },
+              models: ['Photon', 'Project Unreal Engine 5', 'Ether Real Mix', 'Deliberate 3.0'],
+            }),
+          },
+          10000
+        );
+        const subJson = await subResp.json().catch(() => null);
+        if (!subResp.ok || !subJson?.id) return { success: false };
+        for (let poll = 0; poll < 8; poll += 1) {
+          await new Promise((r) => setTimeout(r, 2500));
+          const chk = await fetchWithTimeout(
+            `https://aihorde.net/api/v2/generate/status/${subJson.id}`,
+            { headers: { 'Client-Agent': 'SETU:2.0:https://setu-1-nine.vercel.app' } },
+            6000
+          );
+          const chkJson = await chk.json().catch(() => null);
+          if (chkJson?.done && chkJson?.generations?.[0]?.img) {
+            const genImg = chkJson.generations[0].img;
+            if (genImg.startsWith('http') && isSafeClientRemoteImageUrl(genImg)) {
+              return {
+                success: true,
+                renderedImageBase64: genImg,
+                engine: 'SETU Studio Render (AI Horde Photon)',
+              };
+            }
+            if (genImg.length > 500) {
+              return {
+                success: true,
+                renderedImageBase64: genImg.startsWith('data:') ? genImg : `data:image/webp;base64,${genImg}`,
+                engine: 'SETU Studio Render (AI Horde Photon)',
+              };
+            }
+          }
+          if (chkJson?.faulted || !chkJson?.is_possible) break;
+        }
+      } catch {
+        // fail cleanly into next provider
+      }
+      return { success: false };
+    };
+
     if (params.preferServer) {
       const srv = await callBackendRender().catch(() => ({ success: false }));
       if (srv.success) return srv;
@@ -1170,6 +1361,43 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
       if (srvFallback.success) return srvFallback;
     }
 
+    const hordeFallback = await callDirectAiHordeRender().catch(() => ({ success: false }));
+    if (hordeFallback.success) return hordeFallback;
+
     return { success: false, busy: true };
+  },
+
+  // 18. Self-Learning Feedback & Customer Insights Telemetry
+  submitAiFeedback: async (params: {
+    rating: 'like' | 'dislike';
+    projectType?: string;
+    locality?: string;
+    selectedProducts?: any[];
+    comment?: string;
+    quoteMode?: string;
+  }) => {
+    try {
+      const res = await fetchWithTimeout(
+        `${API_BASE_URL}/ai/feedback`,
+        {
+          method: 'POST',
+          headers: ApiService.getHeaders(),
+          body: JSON.stringify(params),
+        },
+        10000
+      );
+      return await res.json().catch(() => ({ success: false }));
+    } catch {
+      return { success: false };
+    }
+  },
+
+  getAiInsights: async () => {
+    try {
+      const res = await fetchWithTimeout(`${API_BASE_URL}/ai/insights`, {}, 8000);
+      return await res.json().catch(() => null);
+    } catch {
+      return null;
+    }
   },
 };

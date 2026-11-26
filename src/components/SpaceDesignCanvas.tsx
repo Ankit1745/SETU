@@ -24,11 +24,15 @@ interface SpaceDesignCanvasProps {
   renderedImageUri?: string | null;
   isEditingPhoto?: boolean;
   isTextRender?: boolean;
+  engineBadge?: string | null;
   inPhotoEditError?: string | null;
   onRetryInPhotoEdit?: () => void;
   visualPlan: SetuVisualPlan;
   language?: string;
   onRegenerateAngle?: () => void;
+  userFeedback?: 'like' | 'dislike' | null;
+  onFeedback?: (rating: 'like' | 'dislike', comment?: string) => void;
+  onQuickChangeStyle?: (instruction: string) => void;
 }
 
 const FALLBACK_REAL_RENDERS: Record<string, string> = {
@@ -66,17 +70,22 @@ export const SpaceDesignCanvas: React.FC<SpaceDesignCanvasProps> = ({
   renderedImageUri,
   isEditingPhoto = false,
   isTextRender = false,
+  engineBadge = null,
   inPhotoEditError = null,
   onRetryInPhotoEdit,
   visualPlan,
   language = 'hi',
   onRegenerateAngle,
+  userFeedback = null,
+  onFeedback,
+  onQuickChangeStyle,
 }) => {
   const [viewMode, setViewMode] = useState<'after' | 'before'>('after');
   const [prevRenderedProp, setPrevRenderedProp] = useState<string | null | undefined>(renderedImageUri);
   const [loadedUri, setLoadedUri] = useState<string | null>(null);
   const [failedUri, setFailedUri] = useState<string | null>(null);
   const [renderRetryNonce, setRenderRetryNonce] = useState<number>(0);
+  const [showChangeOptions, setShowChangeOptions] = useState<boolean>(false);
 
   if (renderedImageUri !== prevRenderedProp) {
     setPrevRenderedProp(renderedImageUri);
@@ -247,6 +256,28 @@ export const SpaceDesignCanvas: React.FC<SpaceDesignCanvasProps> = ({
           </View>
         ) : null}
 
+        {engineBadge && viewMode === 'after' && !isImgLoading ? (
+          <View
+            style={{
+              position: 'absolute',
+              top: 10,
+              left: 10,
+              backgroundColor: 'rgba(15, 23, 42, 0.85)',
+              borderWidth: 1,
+              borderColor: 'rgba(52, 211, 153, 0.45)',
+              paddingHorizontal: 8,
+              paddingVertical: 4,
+              borderRadius: 12,
+              zIndex: 9,
+              maxWidth: '58%',
+            }}
+          >
+            <Text style={{ color: '#6EE7B7', fontSize: 9.5, fontWeight: '800' }} numberOfLines={1}>
+              ⚡ {engineBadge}
+            </Text>
+          </View>
+        ) : null}
+
         {onRegenerateAngle && viewMode === 'after' && !isImgLoading ? (
           <TouchableOpacity
             style={styles.regenBtn}
@@ -271,6 +302,110 @@ export const SpaceDesignCanvas: React.FC<SpaceDesignCanvasProps> = ({
           ) : null}
         </View>
       </View>
+
+      {/* Customer-First Listening & Self-Learning Feedback Bar */}
+      {(onFeedback || onQuickChangeStyle) && !isImgLoading ? (
+        <View
+          style={{
+            backgroundColor: '#0F172A',
+            borderTopWidth: 1,
+            borderTopColor: '#1E293B',
+            paddingHorizontal: 10,
+            paddingVertical: 8,
+            gap: 6,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
+            <Text style={{ color: '#CBD5E1', fontSize: 10.5, fontWeight: '700' }}>
+              {userFeedback === 'like'
+                ? isEn ? '✓ Saved to your preferences!' : '✓ आपकी पसंद AI ने सीख ली है!'
+                : isEn ? 'Like this look or want changes?' : 'क्या यह डिज़ाइन आपकी पसंद के अनुसार है?'}
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              {onFeedback ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowChangeOptions(false);
+                    onFeedback('like');
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    paddingHorizontal: 9,
+                    paddingVertical: 4.5,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: userFeedback === 'like' ? '#22C55E' : '#334155',
+                    backgroundColor: userFeedback === 'like' ? '#064E3B' : '#1E293B',
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="thumbs-up" size={12} color={userFeedback === 'like' ? '#4ADE80' : '#CBD5E1'} />
+                  <Text style={{ color: userFeedback === 'like' ? '#A7F3D0' : '#E2E8F0', fontSize: 10.5, fontWeight: '800' }}>
+                    {isEn ? 'Love It' : 'पसंद आया'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+              {onFeedback || onQuickChangeStyle ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowChangeOptions((v) => !v);
+                    if (onFeedback && userFeedback !== 'dislike') onFeedback('dislike');
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    paddingHorizontal: 9,
+                    paddingVertical: 4.5,
+                    borderRadius: 10,
+                    borderWidth: 1,
+                    borderColor: showChangeOptions || userFeedback === 'dislike' ? '#F59E0B' : '#334155',
+                    backgroundColor: showChangeOptions || userFeedback === 'dislike' ? '#451A03' : '#1E293B',
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="options" size={12} color={showChangeOptions ? '#FBBF24' : '#CBD5E1'} />
+                  <Text style={{ color: showChangeOptions ? '#FDE68A' : '#E2E8F0', fontSize: 10.5, fontWeight: '800' }}>
+                    {isEn ? 'Change Style' : 'बदलाव बताएं'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+
+          {showChangeOptions && onQuickChangeStyle ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+              {[
+                { label: isEn ? '🎨 Lighter / White Color' : '🎨 हल्का / सफ़ेद रंग करें', cmd: 'मुझे डार्क रंग नहीं चाहिए — इसे हल्के सफ़ेद/क्रीम और नेचुरल टीक रंग में दिखाओ' },
+                { label: isEn ? '✨ Simpler & Clean' : '✨ ज़्यादा सिंपल व क्लीन रखें', cmd: 'यह डिज़ाइन थोड़ा भारी लग रहा है — मुझे सिंपल, सादा और मिनिमल लुक चाहिए' },
+                { label: isEn ? '💰 Lower Budget' : '💰 सस्ता / कम बजट में दिखाएं', cmd: 'मेरा बजट कम है — इस डिज़ाइन को सबसे किफ़ायती कच्चे माल और कम खर्च में बनाकर दिखाओ' },
+                { label: isEn ? '💎 Royal / Modern' : '💎 थोड़ा और मॉडर्न / लक्ज़री', cmd: 'इसे थोड़ा और मॉडर्न, लग्ज़री और वार्म LED लाइटिंग के साथ दिखाओ' },
+              ].map((opt, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  onPress={() => {
+                    setShowChangeOptions(false);
+                    onQuickChangeStyle(opt.cmd);
+                  }}
+                  style={{
+                    backgroundColor: '#1E293B',
+                    borderWidth: 1,
+                    borderColor: '#475569',
+                    paddingHorizontal: 8,
+                    paddingVertical: 5,
+                    borderRadius: 8,
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={{ color: '#FDE68A', fontSize: 10, fontWeight: '700' }}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 };

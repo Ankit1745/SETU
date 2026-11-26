@@ -373,6 +373,94 @@ export const AdminDashboard: React.FC<{ language?: Language }> = ({ language: _l
         ))}
       </View>
         </View>
+        {/* SETU Self-Learning AI, Customer Demand & Multi-Provider Health Desk */}
+        {liveMetrics?.aiLearning ? (
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeaderRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="hardware-chip" size={18} color="#7C3AED" />
+                <Text style={styles.sectionTitle}>
+                  🧠 SETU स्व-शिक्षण AI & ग्राहक मांग विश्लेषण (Self-Learning Brain)
+                </Text>
+              </View>
+              <View style={[styles.kycStatusBadge, { backgroundColor: '#EDE9FE' }]}>
+                <Text style={[styles.kycStatusText, { color: '#6D28D9' }]}>
+                  संतुष्टि: {liveMetrics.aiLearning.satisfactionPercent ?? 100}% ({liveMetrics.aiLearning.totalLikes || 0}👍 / {liveMetrics.aiLearning.totalDislikes || 0}👎)
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.sectionSub}>
+              कुल ग्राहक संवाद: {liveMetrics.aiLearning.totalInteractions || 0} • AI अपने आप ग्राहक की पसंद और सबसे तेज़ फ्री इंजन सीखता है:
+            </Text>
+
+            {/* Top Demands */}
+            {Array.isArray(liveMetrics.aiLearning.topDemands) && liveMetrics.aiLearning.topDemands.length > 0 ? (
+              <View style={{ marginBottom: 10 }}>
+                <Text style={[styles.kycTrade, { fontWeight: '700', marginBottom: 4 }]}>
+                  🔥 ग्राहक सबसे ज़्यादा क्या चाहते हैं:
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {liveMetrics.aiLearning.topDemands.map((d: any) => (
+                    <View key={d.projectType} style={[styles.kycStatusBadge, { backgroundColor: '#FEF3C7' }]}>
+                      <Text style={[styles.kycStatusText, { color: '#92400E' }]}>
+                        {d.projectType} ({d.count} बार)
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
+
+            {/* Recent Anonymized Customer Feedback / Changes */}
+            {Array.isArray(liveMetrics.aiLearning.recentFeedbackThemes) && liveMetrics.aiLearning.recentFeedbackThemes.length > 0 ? (
+              <View style={{ marginBottom: 10 }}>
+                <Text style={[styles.kycTrade, { fontWeight: '700', marginBottom: 4 }]}>
+                  💬 हाल के ग्राहक सुझाव व बदलाव अनुरोध:
+                </Text>
+                {liveMetrics.aiLearning.recentFeedbackThemes.slice(0, 4).map((note: any, nIdx: number) => (
+                  <Text key={nIdx} style={[styles.kycDate, { fontSize: 10.5, color: '#334155', marginBottom: 2 }]}>
+                    • {note.text}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+
+            {/* Multi-Provider Live Failover Health */}
+            {Array.isArray(liveMetrics.aiLearning.engineHealth) && liveMetrics.aiLearning.engineHealth.length > 0 ? (
+              <View>
+                <Text style={[styles.kycTrade, { fontWeight: '700', marginBottom: 4 }]}>
+                  ⚡ मल्टी-इंजन ऑटो स्विच स्टेटस (Chat / Image / In-Photo):
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {liveMetrics.aiLearning.engineHealth.map((eh: any) => {
+                    const isHealthy = eh.status === 'HEALTHY' || eh.status === 'READY';
+                    return (
+                      <View
+                        key={eh.key}
+                        style={[
+                          styles.kycStatusBadge,
+                          { backgroundColor: isHealthy ? '#DCFCE7' : '#FEE2E2' },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.kycStatusText,
+                            { color: isHealthy ? '#15803D' : '#B91C1C' },
+                          ]}
+                        >
+                          {isHealthy ? '● ' : '⏳ '}
+                          {eh.providerId} ({eh.successes}✓/{eh.failures}✗
+                          {eh.avgLatencyMs > 0 ? ` • ${Math.round(eh.avgLatencyMs / 100) / 10}s` : ''})
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
       </View>
 
       <View style={{ height: 40 }} />

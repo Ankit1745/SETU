@@ -22,6 +22,7 @@ interface VisualMaterialPickerProps {
   projectType: ShowroomProjectType | string;
   customGroups?: ShowroomGroup[] | null;
   initialSelected?: ShowroomProduct[];
+  popularMaterialIds?: string[];
   budget?: number | null;
   language?: string;
   onGenerateWithSelection: (selected: ShowroomProduct[]) => void;
@@ -39,6 +40,7 @@ export const VisualMaterialPicker: React.FC<VisualMaterialPickerProps> = ({
   projectType,
   customGroups = null,
   initialSelected = [],
+  popularMaterialIds = [],
   budget = null,
   language = 'hi',
   onGenerateWithSelection,
@@ -185,6 +187,13 @@ export const VisualMaterialPicker: React.FC<VisualMaterialPickerProps> = ({
                       </View>
 
                       <View style={styles.cardBody}>
+                        {popularMaterialIds.includes(item.id) ? (
+                          <View style={{ backgroundColor: '#78350F', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1.5, alignSelf: 'flex-start', marginBottom: 3 }}>
+                            <Text style={{ color: '#FDE68A', fontSize: 8.5, fontWeight: '900' }}>
+                              🔥 {isEn ? 'Top Pick' : 'सबसे लोकप्रिय'}
+                            </Text>
+                          </View>
+                        ) : null}
                         <Text style={styles.itemName} numberOfLines={2}>
                           {item.name}
                         </Text>

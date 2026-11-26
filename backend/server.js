@@ -28,6 +28,16 @@ const {
   buildBackendThreeWayQuotation,
   buildFallbackCustomMaterialGroups,
 } = require('./setuMasterEngine');
+const {
+  recordProviderOutcome,
+  getOrderedProviders,
+  extractCustomerListeningProfile,
+  learnFromInteraction,
+  learnFromFeedback,
+  getPopularMaterialIds,
+  getLearnedPromptHints,
+  getLearningInsightsSnapshot,
+} = require('./aiLearningEngine');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -405,7 +415,7 @@ function safeParseAiJson(rawText = '') {
   }
 }
 
-// Standardized Gemini call with AbortSignal.timeout, 429/503 retry, thinking-part extraction & safety checks
+// Multi-Provider AI Chat JSON Cascade with Automatic Health Scoring & Instant Failover
 const STANDARD_GEMINI_MODELS = [
   cleanSecret(process.env.GEMINI_MODEL),
   'gemini-3.5-flash-lite',
@@ -413,72 +423,200 @@ const STANDARD_GEMINI_MODELS = [
   'gemma-4-26b-a4b-it',
 ].filter((m, idx, arr) => Boolean(m) && arr.indexOf(m) === idx);
 
+async function callOpenAiCompatibleJson({ endpointUrl, apiKey, model, promptText, extraHeaders = {}, timeoutMs = 13000 }) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...extraHeaders,
+  };
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  const resp = await fetch(endpointUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model,
+      temperature: 0.35,
+      max_tokens: 1800,
+      messages: [
+        { role: 'system', content: 'You are SETU AI. Always reply strictly with a single valid RFC-8259 JSON object and no markdown wrapping.' },
+        { role: 'user', content: promptText.slice(0, 12000) },
+      ],
+    }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => '');
+    return { ok: false, error: `HTTP ${resp.status} ${errText.slice(0, 120)}` };
+  }
+  const data = await resp.json().catch(() => null);
+  const content = data?.choices?.[0]?.message?.content || '';
+  const parsed = safeParseAiJson(content);
+  if (parsed && typeof parsed === 'object') {
+    return { ok: true, parsed };
+  }
+  return { ok: false, error: 'Malformed or non-JSON OpenAI-compatible response' };
+}
+
 async function fetchGeminiJsonWithCascade({ apiKey, parts, timeoutMs = 12000, label = 'Gemini' }) {
   let lastError = '';
-  for (const modelName of STANDARD_GEMINI_MODELS) {
-    const isGemma = modelName.startsWith('gemma');
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
-    const activeParts = isGemma
-      ? [
-          ...parts,
-          { text: '\nReturn ONLY a single valid RFC-8259 JSON object without markdown prose or comments.' },
-        ]
-      : parts;
-    const reqBody = {
-      contents: [{ parts: activeParts }],
-      generationConfig: isGemma
-        ? { temperature: 0.35, maxOutputTokens: 2048 }
-        : { response_mime_type: 'application/json', temperature: 0.35, maxOutputTokens: 2048 },
-    };
+  const hasImagePart = Array.isArray(parts) && parts.some((pt) => pt && pt.inline_data);
 
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const geminiResp = await fetch(geminiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey,
-          },
-          body: JSON.stringify(reqBody),
-          signal: AbortSignal.timeout(timeoutMs),
-        });
+  // Order Gemini candidates dynamically by live success rate & latency
+  const orderedGemini = getOrderedProviders('chat', STANDARD_GEMINI_MODELS);
+  if (apiKey) {
+    for (const modelName of orderedGemini) {
+      const isGemma = modelName.startsWith('gemma');
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+      const activeParts = isGemma
+        ? [
+            ...parts,
+            { text: '\nReturn ONLY a single valid RFC-8259 JSON object without markdown prose or comments.' },
+          ]
+        : parts;
+      const reqBody = {
+        contents: [{ parts: activeParts }],
+        generationConfig: isGemma
+          ? { temperature: 0.35, maxOutputTokens: 2048 }
+          : { response_mime_type: 'application/json', temperature: 0.35, maxOutputTokens: 2048 },
+      };
 
-        if (geminiResp.ok) {
-          const geminiData = await geminiResp.json().catch(() => null);
-          const candidate = geminiData?.candidates?.[0];
-          const finishReason = candidate?.finishReason;
-          if (finishReason === 'SAFETY' || geminiData?.promptFeedback?.blockReason) {
-            lastError = `${modelName}: blocked (${finishReason || geminiData.promptFeedback.blockReason})`;
+      const started = Date.now();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const geminiResp = await fetch(geminiUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': apiKey,
+            },
+            body: JSON.stringify(reqBody),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+
+          if (geminiResp.ok) {
+            const geminiData = await geminiResp.json().catch(() => null);
+            const candidate = geminiData?.candidates?.[0];
+            const finishReason = candidate?.finishReason;
+            if (finishReason === 'SAFETY' || geminiData?.promptFeedback?.blockReason) {
+              lastError = `${modelName}: blocked (${finishReason || geminiData.promptFeedback.blockReason})`;
+              recordProviderOutcome('chat', modelName, false, Date.now() - started, lastError);
+              break;
+            }
+            const rawText = extractGeminiPartsText(candidate);
+            const parsed = safeParseAiJson(rawText);
+            if (parsed && typeof parsed === 'object') {
+              recordProviderOutcome('chat', modelName, true, Date.now() - started);
+              return { ok: true, modelName, parsed };
+            }
+            lastError = `${modelName}: malformed or empty JSON response`;
+            recordProviderOutcome('chat', modelName, false, Date.now() - started, lastError);
             break;
           }
-          const rawText = extractGeminiPartsText(candidate);
-          const parsed = safeParseAiJson(rawText);
-          if (parsed && typeof parsed === 'object') {
-            return { ok: true, modelName, parsed };
+
+          const errBody = await geminiResp.text().catch(() => '');
+          lastError = `${modelName}: HTTP ${geminiResp.status} ${errBody.substring(0, 160)}`;
+          const retryable = geminiResp.status === 429 || geminiResp.status === 503 || geminiResp.status >= 500;
+          if (retryable && attempt === 0) {
+            await new Promise((r) => setTimeout(r, 300));
+            continue;
           }
-          lastError = `${modelName}: malformed or empty JSON response`;
+          recordProviderOutcome('chat', modelName, false, Date.now() - started, lastError);
+          break;
+        } catch (modelErr) {
+          lastError = `${modelName}: ${modelErr.message}`;
+          if (attempt === 0 && !/AbortError|timeout/i.test(modelErr.name || modelErr.message)) {
+            await new Promise((r) => setTimeout(r, 200));
+            continue;
+          }
+          recordProviderOutcome('chat', modelName, false, Date.now() - started, lastError);
           break;
         }
+      }
+      console.warn(`[${label}] ${lastError}`);
+    }
+  }
 
-        const errBody = await geminiResp.text().catch(() => '');
-        lastError = `${modelName}: HTTP ${geminiResp.status} ${errBody.substring(0, 160)}`;
-        const retryable = geminiResp.status === 429 || geminiResp.status === 503 || geminiResp.status >= 500;
-        if (retryable && attempt === 0) {
-          await new Promise((r) => setTimeout(r, 350));
-          continue;
+  // Automatic Multi-Site Chat LLM Failover (Groq / OpenRouter / Pollinations Text AI) when Gemini hits limits
+  const combinedPrompt = Array.isArray(parts)
+    ? parts.filter((pt) => pt && typeof pt.text === 'string').map((pt) => pt.text).join('\n')
+    : '';
+  const groqKey = cleanSecret(process.env.GROQ_API_KEY);
+  const openRouterKey = cleanSecret(process.env.OPENROUTER_API_KEY);
+  const pollKey = cleanSecret(process.env.POLLINATIONS_API_KEY);
+
+  const backupCandidates = [];
+  if (groqKey) {
+    backupCandidates.push({
+      id: 'groq:llama-3.3-70b-versatile',
+      label: 'Groq Llama-3.3-70B',
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      key: groqKey,
+      model: 'llama-3.3-70b-versatile',
+    });
+  }
+  if (openRouterKey) {
+    backupCandidates.push({
+      id: 'openrouter:llama-3.3-70b',
+      label: 'OpenRouter Llama-3.3',
+      url: 'https://openrouter.ai/api/v1/chat/completions',
+      key: openRouterKey,
+      model: 'meta-llama/llama-3.3-70b-instruct:free',
+    });
+  }
+  if (pollKey) {
+    backupCandidates.push({
+      id: 'pollinations-pro:openai',
+      label: 'Pollinations Text Pro',
+      url: 'https://gen.pollinations.ai/v1/chat/completions',
+      key: pollKey,
+      model: 'openai',
+    });
+  }
+  backupCandidates.push(
+    {
+      id: 'pollinations-free:mistral',
+      label: 'Pollinations Mistral AI',
+      url: 'https://text.pollinations.ai/openai',
+      key: '',
+      model: 'mistral',
+    },
+    {
+      id: 'pollinations-free:openai',
+      label: 'Pollinations Free OpenAI',
+      url: 'https://text.pollinations.ai/openai',
+      key: '',
+      model: 'openai',
+    }
+  );
+
+  if (combinedPrompt && !hasImagePart) {
+    const orderedBackups = getOrderedProviders('chat', backupCandidates.map((b) => b.id));
+    for (const backupId of orderedBackups) {
+      const cfg = backupCandidates.find((b) => b.id === backupId);
+      if (!cfg) continue;
+      const started = Date.now();
+      try {
+        const res = await callOpenAiCompatibleJson({
+          endpointUrl: cfg.url,
+          apiKey: cfg.key,
+          model: cfg.model,
+          promptText: combinedPrompt,
+          timeoutMs: 12000,
+        });
+        if (res.ok && res.parsed) {
+          recordProviderOutcome('chat', cfg.id, true, Date.now() - started);
+          return { ok: true, modelName: cfg.label, parsed: res.parsed };
         }
-        break;
-      } catch (modelErr) {
-        lastError = `${modelName}: ${modelErr.message}`;
-        if (attempt === 0 && !/AbortError|timeout/i.test(modelErr.name || modelErr.message)) {
-          await new Promise((r) => setTimeout(r, 250));
-          continue;
-        }
-        break;
+        lastError = `${cfg.id}: ${res.error}`;
+        recordProviderOutcome('chat', cfg.id, false, Date.now() - started, lastError);
+      } catch (e) {
+        lastError = `${cfg.id}: ${e.message}`;
+        recordProviderOutcome('chat', cfg.id, false, Date.now() - started, lastError);
       }
     }
-    console.warn(`[${label}] ${lastError}`);
   }
+
   return { ok: false, lastError };
 }
 
@@ -2185,6 +2323,76 @@ async function runHfGradioTextToImage(spaceHost, payloadData, timeoutMs = 25000)
   return { ok: false };
 }
 
+async function runAiHordeImageJob({ prompt, sourceImageBase64 = '', seed = 42, timeoutMs = 28000 }) {
+  const cleanPrompt = `${sanitizePromptText(prompt, 360)} ### cartoon, pixel art, bee, robot, text, watermark, blurry`;
+  const payload = {
+    prompt: cleanPrompt,
+    params: {
+      width: 512,
+      height: 512,
+      steps: sourceImageBase64 ? 20 : 18,
+      n: 1,
+      seed: String(seed || 42),
+      ...(sourceImageBase64 ? { denoising_strength: 0.48 } : {}),
+    },
+    models: sourceImageBase64
+      ? ['Photon', 'Epic Diffusion', 'AbsoluteReality', 'Deliberate 3.0']
+      : ['Photon', 'Project Unreal Engine 5', 'Ether Real Mix', 'Deliberate 3.0'],
+  };
+  if (sourceImageBase64) {
+    payload.source_image = sourceImageBase64.replace(/^data:[^;]+;base64,/, '');
+    payload.source_processing = 'img2img';
+  }
+  const subResp = await fetch('https://aihorde.net/api/v2/generate/async', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: cleanSecret(process.env.AI_HORDE_API_KEY) || '0000000000',
+      'Client-Agent': 'SETU:2.0:https://setu-1-nine.vercel.app',
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(10000),
+  });
+  const subJson = await subResp.json().catch(() => null);
+  if (!subResp.ok || !subJson?.id) {
+    return { ok: false, error: `AI Horde HTTP ${subResp.status}` };
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2600));
+    const chkResp = await fetch(`https://aihorde.net/api/v2/generate/status/${subJson.id}`, {
+      headers: { 'Client-Agent': 'SETU:2.0:https://setu-1-nine.vercel.app' },
+      signal: AbortSignal.timeout(6000),
+    });
+    const chkJson = await chkResp.json().catch(() => null);
+    if (chkJson?.done && chkJson?.generations?.[0]?.img) {
+      const genImg = chkJson.generations[0].img;
+      if (genImg.startsWith('http') && isSafeExternalUrl(genImg)) {
+        const imgResp = await fetch(genImg, { signal: AbortSignal.timeout(12000) });
+        const ct = (imgResp.headers.get('content-type') || '').toLowerCase();
+        if (imgResp.ok && ct.startsWith('image/')) {
+          const buf = Buffer.from(await imgResp.arrayBuffer());
+          if (!isBlockedErrorGraphicBuffer(buf) && buf.length <= 8 * 1024 * 1024) {
+            return { ok: true, dataUri: `data:${ct};base64,${buf.toString('base64')}`, model: chkJson.generations[0].model || 'Photon' };
+          }
+        }
+      } else if (genImg.length > 500) {
+        const rawB64 = genImg.replace(/^data:[^;]+;base64,/, '');
+        const buf = Buffer.from(rawB64, 'base64');
+        if (!isBlockedErrorGraphicBuffer(buf)) {
+          return { ok: true, dataUri: genImg.startsWith('data:') ? genImg : `data:image/webp;base64,${rawB64}`, model: chkJson.generations[0].model || 'Photon' };
+        }
+      }
+      return { ok: false, error: 'AI Horde returned invalid image' };
+    }
+    if (chkJson?.faulted || chkJson?.is_possible === false) {
+      return { ok: false, error: 'AI Horde worker unavailable for model' };
+    }
+  }
+  return { ok: false, error: 'AI Horde timeout' };
+}
+
 function hasConfiguredServerPhotoEditor() {
   const hf = cleanSecret(process.env.HF_TOKEN);
   const validHf = hf.length >= 10 && !/your_/i.test(hf);
@@ -2432,12 +2640,6 @@ app.post('/api/ai/setu-chat', aiRateLimiter('chat', 25), async (req, res) => {
     }
 
     const apiKey = cleanSecret(process.env.GEMINI_API_KEY);
-    if (!apiKey) {
-      return res.status(500).json({
-        success: false,
-        error: 'AI सर्वर कॉन्फ़िगरेशन त्रुटि: Gemini API कुंजी सेट नहीं है।',
-      });
-    }
 
     const priorUserTexts = boundedMessages
       .slice(0, -1)
@@ -2450,6 +2652,25 @@ app.post('/api/ai/setu-chat', aiRateLimiter('chat', 25), async (req, res) => {
     const heuristicRepair = isRepairIntentText(latestUserMsg) && !isQuoteDemand && cleanSelectedProducts.length === 0;
     const secondaryWorkList = detectSecondaryIntents(latestUserMsg, heuristicProjectType);
     const dimInfo = extractDimensionsAndBhkFromText([latestUserMsg, ...priorUserTexts].join(' '), heuristicProjectType);
+    const listeningProfile = extractCustomerListeningProfile(latestUserMsg, priorUserTexts);
+
+    learnFromInteraction({
+      projectType: heuristicProjectType,
+      locality: safeLocality,
+      selectedProducts: cleanSelectedProducts,
+      budget: detectedBudget,
+      listeningProfile,
+    });
+
+    const learnedHints = getLearnedPromptHints(heuristicProjectType, safeLocality);
+    const listeningInstructionBlock =
+      listeningProfile.summaryChips.length > 0 || listeningProfile.rejections.length > 0
+        ? `\nCRITICAL CUSTOMER LISTENING PROFILE (OBEY THIS FIRST BEFORE GENERIC DEFAULTS!):
+- Customer explicitly prefers: ${listeningProfile.summaryChips.join(', ') || 'clean balanced finish'}
+- Strictly AVOID / REJECTED by customer: ${listeningProfile.rejections.join(', ') || 'none'}
+- Priority: ${listeningProfile.urgency}
+Always start your replyText by explicitly confirming you heard these exact preferences, and bake them directly into photorealisticPrompt & inPlaceEditPrompt!\n`
+        : '';
 
     // Check short-TTL cache ONLY for deterministic queries without regenerateSeed / fresh photo
     const canUseCache = !imageBase64 && (!regenerateSeed || Number(regenerateSeed) === 0);
@@ -2584,7 +2805,7 @@ YOUR CORE RULES:
 4. LIVE PLATFORM DATA:
 Contractors available: ${JSON.stringify(contractorSummary)}
 Vendor Materials available: ${JSON.stringify(materialSummary)}
-${selectedProductsSummary}${sceneMemoryNote}${budgetContextNote}${multiIntentNote}
+${selectedProductsSummary}${sceneMemoryNote}${budgetContextNote}${multiIntentNote}${listeningInstructionBlock}${learnedHints ? `\n${learnedHints}\n` : ''}
 ACTIVE PROJECT TYPE SO FAR: "${sanitizePromptText(activeProjectType || heuristicProjectType, 40)}"
 <CONVERSATION>
 ${historyTranscript}
@@ -2776,6 +2997,9 @@ Return ONLY valid JSON:
         threeWayQuotations,
         customerBudget: detectedBudget,
         locality: safeLocality,
+        customerListeningSummary: listeningProfile.summaryChips,
+        customerRejections: listeningProfile.rejections,
+        popularMaterialIds: getPopularMaterialIds(8),
       };
 
       const engineLabel = `SETU Master Artisan (${aiRes.modelName})`;
@@ -2896,8 +3120,13 @@ Return ONLY valid JSON:
       : cfg.baseSceneEn;
 
     const sceneBase = safeSceneContext || cfg.baseSceneEn;
-    const fluxPrompt = `Real interior architectural DSLR photograph: ${sceneBase}, crafted strictly from ${selectedDesc}, 35mm lens, crisp natural wood/stone/metal textures, soft daylight shadows, ultra photorealistic, no text`.slice(0, 340);
-    const inPlaceEditPrompt = `Keep the exact same room walls, ceiling, floor, doors, windows, existing surrounding objects, camera perspective and natural lighting completely unchanged. Seamlessly install and build ONLY this exact requested design made from (${selectedDesc}) into the target space with realistic shadows and proportions, raw camera photo, no text.`.slice(0, 600);
+    const customerStyleEn = [
+      listeningProfile.colors.length > 0 ? `preferred colors: ${listeningProfile.colors.join(', ')}` : '',
+      listeningProfile.styles.length > 0 ? `style: ${listeningProfile.styles.join(', ')}` : '',
+      listeningProfile.rejections.length > 0 ? `strictly avoid: ${listeningProfile.rejections.join(', ')}` : '',
+    ].filter(Boolean).join('; ');
+    const fluxPrompt = `Real interior architectural DSLR photograph: ${sceneBase}, crafted strictly from ${selectedDesc}${customerStyleEn ? `, ${customerStyleEn}` : ''}, 35mm lens, crisp natural wood/stone/metal textures, soft daylight shadows, ultra photorealistic, no text`.slice(0, 360);
+    const inPlaceEditPrompt = `Keep the exact same room walls, ceiling, floor, doors, windows, existing surrounding objects, camera perspective and natural lighting completely unchanged. Seamlessly install and build ONLY this exact requested design made from (${selectedDesc}${customerStyleEn ? `; ${customerStyleEn}` : ''}) into the target space with realistic shadows and proportions, raw camera photo, no text.`.slice(0, 620);
     const joinedNames = cleanSelectedProducts.length > 0
       ? cleanSelectedProducts.map((p) => p.name).join(' + ')
       : 'स्टैंडर्ड कच्चा माल मॉडल';
@@ -2938,6 +3167,9 @@ Return ONLY valid JSON:
           quotation: { includeQuotation: false },
           customerBudget: detectedBudget,
           locality: safeLocality,
+          customerListeningSummary: listeningProfile.summaryChips,
+          customerRejections: listeningProfile.rejections,
+          popularMaterialIds: getPopularMaterialIds(8),
           upsellPrompt: 'क्या आप किसी और बजट रेंज या कच्चे माल की क्वालिटी के साथ नया कोटेशन देखना चाहेंगे?',
           quickReplies: ['🎨 अलग कच्चा माल ट्राई करके देखूं', '📝 नया बजट पोस्ट करें'],
           websiteAction: 'BOOK_PRO',
@@ -2947,6 +3179,9 @@ Return ONLY valid JSON:
 
     const extraWorkNote = secondaryWorkList.length > 0
       ? `\n\n📌 नोट: आपने ${secondaryWorkList.join(', ')} का भी ज़िक्र किया है — इस मॉडल के बाद हम उसका भी अलग कच्चा माल और मॉडल देख सकते हैं!`
+      : '';
+    const heardSummaryPrefix = listeningProfile.summaryChips.length > 0
+      ? `आपकी बात बिल्कुल ध्यान से सुनी (${listeningProfile.summaryChips.join(' • ')})! `
       : '';
 
     return res.json({
@@ -2958,8 +3193,8 @@ Return ONLY valid JSON:
         interactionStage: 'explore_design',
         tradeCategory: cfg.tradeCategory,
         replyText: cleanSelectedProducts.length > 0
-          ? `वाह! आपके चुने हुए कच्चे माल (${joinedNames}) से तैयार ${cfg.titleHi} का नया मॉडल ऊपर देखें। आप चाहें तो और भी अलग क्वालिटी/रेट का कच्चा माल बदलकर मॉडल देख सकते हैं — और जब डिज़ाइन एकदम पसंद आ जाए तो बस नीचे **"अब 3-टाइप कोटेशन दो"** दबाएं!${extraWorkNote}`
-          : `समझ गया! मैं आपका अनुभवी SETU मास्टर कारीगर हूँ। आपके "${latestUserMsg.slice(0, 60)}" के लिए शुरुआती असली मॉडल ऊपर तैयार है। अब नीचे अलग-अलग क्वालिटी और रेट वाले **कच्चे माल (लकड़ी, प्लाई, माइका, हार्डवेयर/सामग्री)** चुनकर देखें कि कौन-से माल में मॉडल सबसे बेहतरीन लगता है — पसंद आने पर ही कोटेशन मांगें!${extraWorkNote}`,
+          ? `${heardSummaryPrefix}आपके चुने हुए कच्चे माल (${joinedNames}) से तैयार ${cfg.titleHi} का नया मॉडल ऊपर देखें। आप चाहें तो और भी अलग क्वालिटी/रेट का कच्चा माल बदलकर या "बदलाव बताएं" दबाकर अपने मन के हिसाब से डिज़ाइन बदलवा सकते हैं!${extraWorkNote}`
+          : `${heardSummaryPrefix}मैं आपका अनुभवी SETU मास्टर कारीगर हूँ। आपके "${latestUserMsg.slice(0, 60)}" के लिए शुरुआती असली मॉडल ऊपर तैयार है। अब नीचे अलग-अलग क्वालिटी और रेट वाले **कच्चे माल** चुनें या अपनी पसंद बताकर मॉडल बदलें — पसंद आने पर ही कोटेशन मांगें!${extraWorkNote}`,
         showMaterialPicker: true,
         productPickerProjectType: heuristicProjectType,
         customMaterialGroups: customGroupsFallback,
@@ -2984,7 +3219,10 @@ Return ONLY valid JSON:
         quotation: { includeQuotation: false },
         customerBudget: detectedBudget,
         locality: safeLocality,
-        upsellPrompt: 'अलग-अलग क्वालिटी के कच्चे माल (कम बजट से लक्ज़री तक) चुनकर डिज़ाइन बदलें — फिर अपनी लोकेशन के हिसाब से 3-टाइप कोटेशन पाएं!',
+        customerListeningSummary: listeningProfile.summaryChips,
+        customerRejections: listeningProfile.rejections,
+        popularMaterialIds: getPopularMaterialIds(8),
+        upsellPrompt: 'अलग-अलग क्वालिटी के कच्चे माल चुनकर डिज़ाइन बदलें या "बदलाव बताएं" से अपनी खास पसंद बताएं!',
         quickReplies: [
           '📋 डिज़ाइन पसंद है — अब 3-टाइप कोटेशन दो',
           ...(secondaryWorkList.length > 0 ? [`🔨 अब ${secondaryWorkList[0]} दिखाओ`] : ['✨ थोड़ा और मॉडर्न/लक्ज़री स्टाइल दिखाओ']),
@@ -3104,130 +3342,175 @@ app.post('/api/ai/edit-photo', aiRateLimiter('edit', 10), async (req, res) => {
       }
     }
 
-    // Engine 2: Pollinations AI v1/images/edits
+    // Dynamic Circuit-Breaker Ordered In-Photo Editors (Pollinations Edits / HF FireRed / AI Horde Img2Img)
     const pollKey = cleanSecret(process.env.POLLINATIONS_API_KEY);
-    if (pollKey) {
-      for (const pModel of [
-        'microsoft/mai-image-2.7-flash',
-        'black-forest-labs/flux.2-klein-4b',
-        'black-forest-labs/flux.1-kontext-pro',
-        'black-forest-labs/flux.2-flex',
-        'qwen/qwen-image-2.1-turbo',
-      ]) {
-        try {
-          const pRes = await fetch('https://gen.pollinations.ai/v1/images/edits', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${pollKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: pModel,
-              prompt: safeEditPrompt,
-              image: [{ image_url: normalizedUri }],
-              seed: Number(seed) || 42,
-              response_format: 'b64_json',
-            }),
-            signal: AbortSignal.timeout(45000),
-          });
-          if (pRes.ok) {
-            const pJson = await pRes.json().catch(() => null);
-            const b64Out = pJson?.data?.[0]?.b64_json;
-            const urlOut = pJson?.data?.[0]?.url;
-            if (b64Out) {
-              const rawPart = b64Out.replace(/^data:[^;]+;base64,/, '');
-              const outBuf = Buffer.from(rawPart, 'base64');
-              if (!isBlockedErrorGraphicBuffer(outBuf)) {
-                return res.json({
-                  success: true,
-                  engine: `SETU In-Photo (${pModel})`,
-                  editedImageBase64: b64Out.startsWith('data:') ? b64Out : `data:image/png;base64,${b64Out}`,
-                });
-              }
-            }
-            if (urlOut && isSafeExternalUrl(urlOut)) {
-              const imgResp = await fetch(urlOut, { signal: AbortSignal.timeout(15000) });
-              const imgContentType = (imgResp.headers.get('content-type') || '').toLowerCase();
-              const imgLen = Number(imgResp.headers.get('content-length') || 0);
-              if (imgResp.ok && imgContentType.startsWith('image/') && imgLen <= 10 * 1024 * 1024) {
-                const imgBuf = Buffer.from(await imgResp.arrayBuffer());
-                if (!isBlockedErrorGraphicBuffer(imgBuf) && imgBuf.length <= 10 * 1024 * 1024) {
+    const editCandidates = [
+      ...(pollKey ? ['pollinations-edits'] : []),
+      'hf-firered-1-0-fast',
+      'ai-horde-img2img',
+    ];
+    const orderedEditors = getOrderedProviders('edit', editCandidates);
+    let anyQuotaExceeded = false;
+
+    for (const editorId of orderedEditors) {
+      if (editorId === 'pollinations-edits' && pollKey) {
+        const started = Date.now();
+        let succeeded = false;
+        let lastPollErr = '';
+        for (const pModel of [
+          'microsoft/mai-image-2.7-flash',
+          'black-forest-labs/flux.2-klein-4b',
+          'black-forest-labs/flux.1-kontext-pro',
+          'black-forest-labs/flux.2-flex',
+          'qwen/qwen-image-2.1-turbo',
+        ]) {
+          try {
+            const pRes = await fetch('https://gen.pollinations.ai/v1/images/edits', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${pollKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: pModel,
+                prompt: safeEditPrompt,
+                image: [{ image_url: normalizedUri }],
+                seed: Number(seed) || 42,
+                response_format: 'b64_json',
+              }),
+              signal: AbortSignal.timeout(35000),
+            });
+            if (pRes.ok) {
+              const pJson = await pRes.json().catch(() => null);
+              const b64Out = pJson?.data?.[0]?.b64_json;
+              const urlOut = pJson?.data?.[0]?.url;
+              if (b64Out) {
+                const rawPart = b64Out.replace(/^data:[^;]+;base64,/, '');
+                const outBuf = Buffer.from(rawPart, 'base64');
+                if (!isBlockedErrorGraphicBuffer(outBuf)) {
+                  recordProviderOutcome('edit', 'pollinations-edits', true, Date.now() - started);
+                  succeeded = true;
                   return res.json({
                     success: true,
                     engine: `SETU In-Photo (${pModel})`,
-                    editedImageBase64: `data:${imgContentType};base64,${imgBuf.toString('base64')}`,
+                    editedImageBase64: b64Out.startsWith('data:') ? b64Out : `data:image/png;base64,${b64Out}`,
                   });
                 }
               }
+              if (urlOut && isSafeExternalUrl(urlOut)) {
+                const imgResp = await fetch(urlOut, { signal: AbortSignal.timeout(15000) });
+                const imgContentType = (imgResp.headers.get('content-type') || '').toLowerCase();
+                const imgLen = Number(imgResp.headers.get('content-length') || 0);
+                if (imgResp.ok && imgContentType.startsWith('image/') && imgLen <= 10 * 1024 * 1024) {
+                  const imgBuf = Buffer.from(await imgResp.arrayBuffer());
+                  if (!isBlockedErrorGraphicBuffer(imgBuf) && imgBuf.length <= 10 * 1024 * 1024) {
+                    recordProviderOutcome('edit', 'pollinations-edits', true, Date.now() - started);
+                    succeeded = true;
+                    return res.json({
+                      success: true,
+                      engine: `SETU In-Photo (${pModel})`,
+                      editedImageBase64: `data:${imgContentType};base64,${imgBuf.toString('base64')}`,
+                    });
+                  }
+                }
+              }
+            } else {
+              lastPollErr = `HTTP ${pRes.status}`;
             }
+          } catch (pErr) {
+            lastPollErr = pErr.message;
+            console.warn(`Pollinations in-photo (${pModel}) skipped:`, pErr.message);
           }
-        } catch (pErr) {
-          console.warn(`Pollinations in-photo (${pModel}) skipped:`, pErr.message);
+        }
+        if (!succeeded) {
+          recordProviderOutcome('edit', 'pollinations-edits', false, Date.now() - started, lastPollErr || 'Pollinations edit unavailable');
+        }
+      }
+
+      if (editorId === 'hf-firered-1-0-fast') {
+        const started = Date.now();
+        try {
+          const hfToken = cleanSecret(process.env.HF_TOKEN);
+          const hasValidHfToken = hfToken.length >= 10 && !/your_/i.test(hfToken);
+          const hfHeaders = { 'Content-Type': 'application/json' };
+          if (hasValidHfToken) hfHeaders.Authorization = `Bearer ${hfToken}`;
+
+          const hfBaseUrl = 'https://prithivmlmods-firered-image-edit-1-0-fast.hf.space/gradio_api/call/edit_image';
+          const submitResp = await fetch(hfBaseUrl, {
+            method: 'POST',
+            headers: hfHeaders,
+            body: JSON.stringify({
+              data: [JSON.stringify([normalizedUri]), safeEditPrompt, Number(seed) || 42, true, 1.0, 4],
+            }),
+            signal: AbortSignal.timeout(12000),
+          });
+          const submitJson = await submitResp.json().catch(() => null);
+          if (!submitResp.ok || !submitJson?.event_id) {
+            recordProviderOutcome('edit', 'hf-firered-1-0-fast', false, Date.now() - started, `HTTP ${submitResp.status}`);
+            continue;
+          }
+
+          const authHeadersOnly = hasValidHfToken ? { Authorization: `Bearer ${hfToken}` } : {};
+          const sseResp = await fetch(`${hfBaseUrl}/${submitJson.event_id}`, {
+            headers: authHeadersOnly,
+            signal: AbortSignal.timeout(45000),
+          });
+          if (!sseResp.ok) {
+            if (sseResp.status === 429) anyQuotaExceeded = true;
+            recordProviderOutcome('edit', 'hf-firered-1-0-fast', false, Date.now() - started, `HTTP ${sseResp.status}`);
+            continue;
+          }
+          const sseText = await sseResp.text();
+          const parsedFireRed = await extractFireRedImageResult(sseText, hfBaseUrl, authHeadersOnly);
+          if (parsedFireRed.quotaExceeded) {
+            anyQuotaExceeded = true;
+            recordProviderOutcome('edit', 'hf-firered-1-0-fast', false, Date.now() - started, 'ZeroGPU quota exceeded');
+            continue;
+          }
+          if (parsedFireRed.ok && parsedFireRed.dataUri) {
+            recordProviderOutcome('edit', 'hf-firered-1-0-fast', true, Date.now() - started);
+            return res.json({
+              success: true,
+              engine: 'SETU In-Photo Reality (FireRed-1.0-Fast)',
+              editedImageBase64: parsedFireRed.dataUri,
+            });
+          }
+          recordProviderOutcome('edit', 'hf-firered-1-0-fast', false, Date.now() - started, 'No FireRed output');
+        } catch (frErr) {
+          recordProviderOutcome('edit', 'hf-firered-1-0-fast', false, Date.now() - started, frErr.message);
+        }
+      }
+
+      if (editorId === 'ai-horde-img2img') {
+        const started = Date.now();
+        try {
+          const hordeRes = await runAiHordeImageJob({
+            prompt: safeEditPrompt,
+            sourceImageBase64: imgCheck.cleanBase64,
+            seed: Number(seed) || 42,
+            timeoutMs: 28000,
+          });
+          if (hordeRes.ok && hordeRes.dataUri) {
+            recordProviderOutcome('edit', 'ai-horde-img2img', true, Date.now() - started);
+            return res.json({
+              success: true,
+              engine: `SETU In-Photo Reality (AI Horde ${hordeRes.model})`,
+              editedImageBase64: hordeRes.dataUri,
+            });
+          }
+          recordProviderOutcome('edit', 'ai-horde-img2img', false, Date.now() - started, hordeRes.error || 'AI Horde edit failed');
+        } catch (hErr) {
+          recordProviderOutcome('edit', 'ai-horde-img2img', false, Date.now() - started, hErr.message);
         }
       }
     }
 
-    // Engine 3: Open FireRed-Image-Edit-1.0-Fast (preserves surrounding room pixels)
-    const hfToken = cleanSecret(process.env.HF_TOKEN);
-    const hasValidHfToken = hfToken.length >= 10 && !/your_/i.test(hfToken);
-    const hfHeaders = { 'Content-Type': 'application/json' };
-    if (hasValidHfToken) {
-      hfHeaders.Authorization = `Bearer ${hfToken}`;
-    }
-
-    const hfBaseUrl = 'https://prithivmlmods-firered-image-edit-1-0-fast.hf.space/gradio_api/call/edit_image';
-    const submitResp = await fetch(hfBaseUrl, {
-      method: 'POST',
-      headers: hfHeaders,
-      body: JSON.stringify({
-        data: [JSON.stringify([normalizedUri]), safeEditPrompt, Number(seed) || 42, true, 1.0, 4],
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-
-    const submitJson = await submitResp.json().catch(() => null);
-    if (!submitResp.ok || !submitJson?.event_id) {
-      return res.status(502).json({
-        success: false,
-        error: 'इन-फोटो एडिट इंजन अभी उपलब्ध नहीं है।',
-      });
-    }
-
-    const authHeadersOnly = hasValidHfToken ? { Authorization: `Bearer ${hfToken}` } : {};
-    const sseResp = await fetch(`${hfBaseUrl}/${submitJson.event_id}`, {
-      headers: authHeadersOnly,
-      signal: AbortSignal.timeout(55000),
-    });
-    if (!sseResp.ok) {
-      return res.status(sseResp.status === 429 ? 429 : 502).json({
-        success: false,
-        quotaExceeded: sseResp.status === 429,
-        error: sseResp.status === 429
-          ? 'असली फोटो एडिट का GPU कोटा अस्थायी रूप से पूरा हो गया है।'
-          : 'इन-फोटो एडिट इंजन अभी अनुपलब्ध है।',
-      });
-    }
-    const sseText = await sseResp.text();
-
-    const parsedFireRed = await extractFireRedImageResult(sseText, hfBaseUrl, authHeadersOnly);
-    if (parsedFireRed.quotaExceeded) {
-      return res.status(429).json({
-        success: false,
-        quotaExceeded: true,
-        error: 'असली फोटो के अंदर एडिटिंग का आज का फ़्री GPU कोटा पूरा हो गया है (अधिक कोटे के लिए HF_TOKEN जोड़ें)।',
-      });
-    }
-    if (parsedFireRed.ok && parsedFireRed.dataUri) {
-      return res.json({
-        success: true,
-        engine: 'SETU In-Photo Reality (FireRed-1.0-Fast)',
-        editedImageBase64: parsedFireRed.dataUri,
-      });
-    }
-
-    return res.status(502).json({
+    return res.status(anyQuotaExceeded ? 429 : 502).json({
       success: false,
-      error: 'इन-फोटो एडिट पूरा नहीं हो सका — कृपया पुनः प्रयास करें।',
+      quotaExceeded: anyQuotaExceeded,
+      error: anyQuotaExceeded
+        ? 'असली फोटो के अंदर एडिटिंग का आज का फ़्री GPU कोटा पूरा हो गया है — कृपया थोड़ी देर बाद प्रयास करें।'
+        : 'इन-फोटो एडिट पूरा नहीं हो सका — कृपया पुनः प्रयास करें।',
     });
   } catch (err) {
     console.error('[EditPhoto] Error:', err.message);
@@ -3238,7 +3521,7 @@ app.post('/api/ai/edit-photo', aiRateLimiter('edit', 10), async (req, res) => {
   }
 });
 
-// 16D. Verified Text-to-Design Image Rendering Endpoint (Cascades Pollinations key/200-check + HF Flux.1-Schnell + SD3.5)
+// 16D. Multi-Engine Circuit-Breaker Text-to-Design Rendering Endpoint
 app.post('/api/ai/render-design', aiRateLimiter('render', 15), async (req, res) => {
   try {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
@@ -3248,87 +3531,130 @@ app.post('/api/ai/render-design', aiRateLimiter('render', 15), async (req, res) 
       return res.status(400).json({ success: false, error: 'डिज़ाइन प्रॉम्प्ट आवश्यक है।' });
     }
 
-    // 1. Try Pollinations server-side with strict HTTP 200 + SHA-256 banner check (rejects 402/503 Bee graphic)
     const pollKey = cleanSecret(process.env.POLLINATIONS_API_KEY);
-    if (pollKey) {
-      try {
-        const pUrl = `https://gen.pollinations.ai/image/${encodeURIComponent(safePrompt)}?width=800&height=540&model=flux&nologo=true&seed=${seed}`;
-        const pResp = await fetch(pUrl, {
-          headers: { Authorization: `Bearer ${pollKey}`, 'User-Agent': 'SETU-Backend/2.0' },
-          signal: AbortSignal.timeout(18000),
-        });
-        const ct = (pResp.headers.get('content-type') || '').toLowerCase();
-        if (pResp.ok && pResp.status === 200 && ct.startsWith('image/')) {
-          const buf = Buffer.from(await pResp.arrayBuffer());
-          if (!isBlockedErrorGraphicBuffer(buf) && buf.length <= 8 * 1024 * 1024) {
+    const renderCandidates = [
+      ...(pollKey ? ['pollinations-pro-flux'] : []),
+      'hf-flux-1-schnell',
+      'ai-horde-photon',
+      'pollinations-anon-verified',
+      'hf-sd35-turbo',
+    ];
+    const orderedRenderers = getOrderedProviders('render', renderCandidates);
+
+    for (const renderId of orderedRenderers) {
+      const started = Date.now();
+      if (renderId === 'pollinations-pro-flux' && pollKey) {
+        try {
+          const pUrl = `https://gen.pollinations.ai/image/${encodeURIComponent(safePrompt)}?width=800&height=540&model=flux&nologo=true&seed=${seed}`;
+          const pResp = await fetch(pUrl, {
+            headers: { Authorization: `Bearer ${pollKey}`, 'User-Agent': 'SETU-Backend/2.0' },
+            signal: AbortSignal.timeout(18000),
+          });
+          const ct = (pResp.headers.get('content-type') || '').toLowerCase();
+          if (pResp.ok && pResp.status === 200 && ct.startsWith('image/')) {
+            const buf = Buffer.from(await pResp.arrayBuffer());
+            if (!isBlockedErrorGraphicBuffer(buf) && buf.length <= 8 * 1024 * 1024) {
+              recordProviderOutcome('render', 'pollinations-pro-flux', true, Date.now() - started);
+              return res.json({
+                success: true,
+                engine: 'SETU Studio Render (Pollinations Pro)',
+                renderedImageBase64: `data:${ct};base64,${buf.toString('base64')}`,
+              });
+            }
+          }
+          recordProviderOutcome('render', 'pollinations-pro-flux', false, Date.now() - started, `HTTP ${pResp.status}`);
+        } catch (e) {
+          recordProviderOutcome('render', 'pollinations-pro-flux', false, Date.now() - started, e.message);
+        }
+      }
+
+      if (renderId === 'hf-flux-1-schnell') {
+        try {
+          const fluxRes = await runHfGradioTextToImage(
+            'black-forest-labs-flux-1-schnell.hf.space',
+            [safePrompt, seed, false, 800, 512, 4],
+            22000
+          );
+          if (fluxRes.ok && fluxRes.dataUri) {
+            recordProviderOutcome('render', 'hf-flux-1-schnell', true, Date.now() - started);
             return res.json({
               success: true,
-              engine: 'SETU Studio Render (Pollinations Pro)',
-              renderedImageBase64: `data:${ct};base64,${buf.toString('base64')}`,
+              engine: 'SETU Studio Render (FLUX.1-Schnell)',
+              renderedImageBase64: fluxRes.dataUri,
             });
           }
+          recordProviderOutcome('render', 'hf-flux-1-schnell', false, Date.now() - started, fluxRes.quotaExceeded ? 'ZeroGPU quota' : 'Flux unavailable');
+        } catch (e) {
+          recordProviderOutcome('render', 'hf-flux-1-schnell', false, Date.now() - started, e.message);
         }
-      } catch (e) {
-        console.warn('Pollinations Pro text render skipped:', e.message);
       }
-    }
 
-    // 2. Try Free HF FLUX.1-Schnell
-    try {
-      const fluxRes = await runHfGradioTextToImage(
-        'black-forest-labs-flux-1-schnell.hf.space',
-        [safePrompt, seed, false, 800, 512, 4],
-        25000
-      );
-      if (fluxRes.ok && fluxRes.dataUri) {
-        return res.json({
-          success: true,
-          engine: 'SETU Studio Render (FLUX.1-Schnell)',
-          renderedImageBase64: fluxRes.dataUri,
-        });
-      }
-    } catch (e) {
-      console.warn('HF Flux.1-Schnell skipped:', e.message);
-    }
-
-    // 3. Try Anonymous Pollinations ONLY when HTTP 200 & verified NOT Bee error image
-    try {
-      const anonUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(safePrompt)}?width=800&height=540&model=flux&nologo=true&seed=${seed}`;
-      const aResp = await fetch(anonUrl, {
-        headers: { 'User-Agent': 'SETU-Backend/2.0', Accept: 'image/jpeg,image/webp,image/png' },
-        signal: AbortSignal.timeout(15000),
-      });
-      const ct = (aResp.headers.get('content-type') || '').toLowerCase();
-      if (aResp.ok && aResp.status === 200 && ct.startsWith('image/')) {
-        const buf = Buffer.from(await aResp.arrayBuffer());
-        if (!isBlockedErrorGraphicBuffer(buf) && buf.length <= 8 * 1024 * 1024) {
-          return res.json({
-            success: true,
-            engine: 'SETU Studio Render (Flux)',
-            renderedImageBase64: `data:${ct};base64,${buf.toString('base64')}`,
+      if (renderId === 'ai-horde-photon') {
+        try {
+          const hordeRes = await runAiHordeImageJob({
+            prompt: safePrompt,
+            seed,
+            timeoutMs: 25000,
           });
+          if (hordeRes.ok && hordeRes.dataUri) {
+            recordProviderOutcome('render', 'ai-horde-photon', true, Date.now() - started);
+            return res.json({
+              success: true,
+              engine: `SETU Studio Render (AI Horde ${hordeRes.model})`,
+              renderedImageBase64: hordeRes.dataUri,
+            });
+          }
+          recordProviderOutcome('render', 'ai-horde-photon', false, Date.now() - started, hordeRes.error || 'Horde unavailable');
+        } catch (e) {
+          recordProviderOutcome('render', 'ai-horde-photon', false, Date.now() - started, e.message);
         }
       }
-    } catch (e) {
-      console.warn('Anon Pollinations skipped:', e.message);
-    }
 
-    // 4. Try Free HF Stable Diffusion 3.5 Large Turbo
-    try {
-      const sdRes = await runHfGradioTextToImage(
-        'stabilityai-stable-diffusion-3-5-large-turbo.hf.space',
-        [safePrompt, 'cartoon, pixel art, anime, text, watermark, blurry, bee, robot', seed, false, 800, 512, 1.0, 4],
-        25000
-      );
-      if (sdRes.ok && sdRes.dataUri) {
-        return res.json({
-          success: true,
-          engine: 'SETU Studio Render (SD3.5-Turbo)',
-          renderedImageBase64: sdRes.dataUri,
-        });
+      if (renderId === 'pollinations-anon-verified') {
+        try {
+          const anonUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(safePrompt)}?width=800&height=540&model=flux&nologo=true&seed=${seed}`;
+          const aResp = await fetch(anonUrl, {
+            headers: { 'User-Agent': 'SETU-Backend/2.0', Accept: 'image/jpeg,image/webp,image/png' },
+            signal: AbortSignal.timeout(14000),
+          });
+          const ct = (aResp.headers.get('content-type') || '').toLowerCase();
+          if (aResp.ok && aResp.status === 200 && ct.startsWith('image/')) {
+            const buf = Buffer.from(await aResp.arrayBuffer());
+            if (!isBlockedErrorGraphicBuffer(buf) && buf.length <= 8 * 1024 * 1024) {
+              recordProviderOutcome('render', 'pollinations-anon-verified', true, Date.now() - started);
+              return res.json({
+                success: true,
+                engine: 'SETU Studio Render (Flux)',
+                renderedImageBase64: `data:${ct};base64,${buf.toString('base64')}`,
+              });
+            }
+          }
+          recordProviderOutcome('render', 'pollinations-anon-verified', false, Date.now() - started, `HTTP ${aResp.status}`);
+        } catch (e) {
+          recordProviderOutcome('render', 'pollinations-anon-verified', false, Date.now() - started, e.message);
+        }
       }
-    } catch (e) {
-      console.warn('HF SD3.5 skipped:', e.message);
+
+      if (renderId === 'hf-sd35-turbo') {
+        try {
+          const sdRes = await runHfGradioTextToImage(
+            'stabilityai-stable-diffusion-3-5-large-turbo.hf.space',
+            [safePrompt, 'cartoon, pixel art, anime, text, watermark, blurry, bee, robot', seed, false, 800, 512, 1.0, 4],
+            22000
+          );
+          if (sdRes.ok && sdRes.dataUri) {
+            recordProviderOutcome('render', 'hf-sd35-turbo', true, Date.now() - started);
+            return res.json({
+              success: true,
+              engine: 'SETU Studio Render (SD3.5-Turbo)',
+              renderedImageBase64: sdRes.dataUri,
+            });
+          }
+          recordProviderOutcome('render', 'hf-sd35-turbo', false, Date.now() - started, sdRes.quotaExceeded ? 'ZeroGPU quota' : 'SD3.5 unavailable');
+        } catch (e) {
+          recordProviderOutcome('render', 'hf-sd35-turbo', false, Date.now() - started, e.message);
+        }
+      }
     }
 
     return res.status(503).json({
@@ -3537,6 +3863,7 @@ app.get('/api/admin/metrics', requireAuth, requireRole('ADMIN'), async (req, res
         platformFeeCash: 35,
         platformFeeOnlinePercent: 5,
         aiTelemetry: { ...aiTelemetry },
+        aiLearning: getLearningInsightsSnapshot(),
       },
       kycApplications,
       disputes,
@@ -3544,6 +3871,38 @@ app.get('/api/admin/metrics', requireAuth, requireRole('ADMIN'), async (req, res
   } catch (err) {
     res.status(500).json({ error: 'एडमिन मेट्रिक्स लोड करने में त्रुटि: ' + err.message });
   }
+});
+
+// 18B. SETU Self-Learning AI Customer Feedback & Live Engine Health Endpoints
+app.post('/api/ai/feedback', aiRateLimiter('feedback', 40), (req, res) => {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const rating = body.rating === 'like' ? 'like' : body.rating === 'dislike' ? 'dislike' : '';
+    const projectType = sanitizePromptText(asStr(body.projectType || 'custom', 40), 40);
+    const locality = sanitizePromptText(asStr(body.locality || 'भोपाल', 80), 80);
+    const comment = sanitizePromptText(asStr(body.comment || '', 240), 240);
+    const quoteMode = asStr(body.quoteMode || '', 40);
+    const selectedProducts = sanitizeSelectedProducts(Array.isArray(body.selectedProducts) ? body.selectedProducts : []);
+
+    const snapshot = learnFromFeedback({
+      rating,
+      projectType,
+      locality,
+      selectedProducts,
+      comment,
+      quoteMode,
+    });
+    return res.json({ success: true, insights: snapshot });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/ai/insights', (req, res) => {
+  return res.json({
+    success: true,
+    insights: getLearningInsightsSnapshot(),
+  });
 });
 
 // 19. Admin KYC Action (Approve / Reject — MongoDB + Local DB + Synthesized Partner Fallback)
