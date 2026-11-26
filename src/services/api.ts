@@ -596,6 +596,7 @@ Otherwise return PURE JSON:
   setuChat: async (params: {
     messages: { role: 'user' | 'assistant'; text: string; hasImage?: boolean }[];
     imageBase64?: string;
+    hasActiveSitePhoto?: boolean;
     locality?: string;
     language?: string;
     budget?: number | null;
@@ -610,6 +611,7 @@ Otherwise return PURE JSON:
     const {
       messages,
       imageBase64 = '',
+      hasActiveSitePhoto = false,
       locality = 'भोपाल',
       language = 'hi',
       budget = null,
@@ -622,6 +624,8 @@ Otherwise return PURE JSON:
       regenerateSeed = 0,
     } = params;
 
+    const effectiveHasSitePhoto = Boolean(imageBase64 || hasActiveSitePhoto);
+
     try {
       const res = await fetchWithTimeout(
         `${API_BASE_URL}/ai/setu-chat`,
@@ -631,6 +635,7 @@ Otherwise return PURE JSON:
           body: JSON.stringify({
             messages,
             imageBase64,
+            hasActiveSitePhoto: effectiveHasSitePhoto,
             locality,
             language,
             budget: budget || 0,
@@ -715,7 +720,7 @@ ${selectedNote}${sceneNote}${budgetNote}Active Project: "${sanitizeClientPromptT
 <CONVERSATION>
 ${historyStr}
 </CONVERSATION>
-<USER_INPUT>${latestMsg || (imageBase64 ? '[Customer uploaded photo without text — inspect photo and proactively respond!]' : '')}</USER_INPUT>
+<USER_INPUT>${latestMsg || (effectiveHasSitePhoto ? '[Customer uploaded photo without text — inspect photo and proactively respond!]' : '')}</USER_INPUT>
 Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"rate_quote"), interactionStage("repair"|"explore_design"|"quote_ready"), tradeCategory, replyText, showMaterialPicker(boolean), productPickerProjectType, customMaterialGroups(optional array if custom), sceneContextPrompt, isSafetyHazard, safetyMessage, visualPreviewReady, photorealisticPrompt, inPlaceEditPrompt, visualPlan({designType,title,finishLabel,dimensionsLabel,afterCaption}), includeThreeWayQuotation, quotation, upsellPrompt, quickReplies, recommendedMaterialIds, websiteAction.`;
 
         const parts: any[] = [{ text: promptText }];
@@ -771,17 +776,13 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
                   : isQuoteDemand
                   ? 'quote_ready'
                   : 'explore_design';
-                const hasUploadedPhoto = Boolean(imageBase64);
+                const hasUploadedPhoto = Boolean(imageBase64 || hasActiveSitePhoto);
                 const seed = regenerateSeed || hashSeed(`${normalizedType}|${latestMsg}|${selectedProducts.map((p) => p?.id).join(',')}`);
                 const showPreviewNow = effectiveStage === 'explore_design' ? parsed.visualPreviewReady !== false : Boolean(parsed.visualPreviewReady);
                 const pPrompt = (parsed.photorealisticPrompt || (parsed.visualPlan ? `Real architectural interior photograph of ${parsed.visualPlan.title}, ${parsed.visualPlan.finishLabel}, DSLR photography, no text` : '')).slice(0, 340);
                 const inPlaceEditPrompt = (parsed.inPlaceEditPrompt || (parsed.visualPlan
                   ? `Keep the exact same room walls, ceiling, floor, doors, windows, existing furniture, perspective and lighting completely unchanged. Seamlessly install ONLY ${parsed.visualPlan.title} (${parsed.visualPlan.finishLabel}) into the space, realistic shadows, raw camera photo.`
                   : '')).slice(0, 600);
-                const renderedImageUrl =
-                  !hasUploadedPhoto && showPreviewNow && pPrompt
-                    ? `https://image.pollinations.ai/prompt/${encodeURIComponent(pPrompt)}?width=800&height=540&model=flux&nologo=true&seed=${seed}`
-                    : null;
 
                 const finalCustomGroups =
                   normalizedType === 'custom' && (!Array.isArray(parsed.customMaterialGroups) || parsed.customMaterialGroups.length === 0)
@@ -828,7 +829,10 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
                     customMaterialGroups: finalCustomGroups,
                     showMaterialPicker: effectiveStage === 'explore_design',
                     visualPreviewReady: showPreviewNow,
-                    renderedImageUrl,
+                    photorealisticPrompt: pPrompt,
+                    renderedImageUrl: null,
+                    textRenderRequired: Boolean(!hasUploadedPhoto && showPreviewNow && pPrompt),
+                    renderSeed: seed,
                     inPlaceEditRequired: Boolean(hasUploadedPhoto && showPreviewNow),
                     inPlaceEditPrompt,
                     serverHasPaidImageEditor: false,
@@ -900,12 +904,12 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
         safetyMessage: /चिंगारी|spark|करंट|shock|short circuit|धुआं/i.test(latestMsg)
           ? '⚠️ सुरक्षा चेतावनी: तुरंत मुख्य MCB स्विच बंद करें और किसी खुले तार को हाथ न लगाएं!'
           : undefined,
-        visualPreviewReady: offlineStage === 'explore_design' && !imageBase64,
-        renderedImageUrl:
-          offlineStage === 'explore_design' && !imageBase64
-            ? `https://image.pollinations.ai/prompt/${encodeURIComponent(offlinePrompt)}?width=800&height=540&model=flux&nologo=true&seed=${offlineSeed}`
-            : null,
-        inPlaceEditRequired: Boolean(imageBase64 && offlineStage === 'explore_design'),
+        visualPreviewReady: offlineStage === 'explore_design',
+        photorealisticPrompt: offlinePrompt,
+        renderedImageUrl: null,
+        textRenderRequired: Boolean(!effectiveHasSitePhoto && offlineStage === 'explore_design'),
+        renderSeed: offlineSeed,
+        inPlaceEditRequired: Boolean(effectiveHasSitePhoto && offlineStage === 'explore_design'),
         inPlaceEditPrompt: `Keep the existing room structure untouched. Seamlessly install ${meta.en} in the selected grade finish.`,
         serverHasPaidImageEditor: false,
         visualPlan: {
@@ -1057,5 +1061,115 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
         error: fallbackErr?.message || 'इन-फोटो एडिटिंग पूरा नहीं हो सका।',
       };
     }
+  },
+
+  // 17. Verified Text-to-Design Rendering (HF FLUX.1-Schnell CORS + Server Proxy — Never renders error bee graphics)
+  renderDesignInBackground: async (params: {
+    prompt: string;
+    seed?: number;
+    projectType?: string;
+    preferServer?: boolean;
+  }): Promise<{
+    success: boolean;
+    renderedImageBase64?: string;
+    engine?: string;
+    busy?: boolean;
+  }> => {
+    const safePrompt = sanitizeClientPromptText(params.prompt || '', 380);
+    if (!safePrompt) return { success: false };
+    const safeSeed = Number(params.seed) || 42;
+
+    const callDirectFluxSpace = async () => {
+      const hfBase = 'https://black-forest-labs-flux-1-schnell.hf.space/gradio_api/call/infer';
+      const subResp = await fetchWithTimeout(
+        hfBase,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: [safePrompt, safeSeed, false, 800, 512, 4] }),
+        },
+        10000
+      );
+      const subJson = await subResp.json().catch(() => null);
+      if (!subResp.ok || !subJson?.event_id) return { success: false };
+      const sseResp = await fetchWithTimeout(`${hfBase}/${subJson.event_id}`, {}, 28000);
+      if (!sseResp.ok) return { success: false };
+      const sseText = await sseResp.text();
+      if (/ZeroGPU|quota|exceeded|too many requests|rate limit|no gpu/i.test(sseText)) {
+        return { success: false, busy: true };
+      }
+      const matchB64 = sseText.match(/data:image\/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+/);
+      if (matchB64 && matchB64[0] && matchB64[0].length > 2000) {
+        return { success: true, renderedImageBase64: matchB64[0], engine: 'SETU Studio Render (FLUX.1-Schnell)' };
+      }
+      const dataLines = sseText.split(/\r?\n/).filter((l) => l.startsWith('data:'));
+      for (let i = dataLines.length - 1; i >= 0; i -= 1) {
+        const parsedLine = safeParseClientJson(dataLines[i].replace(/^data:\s*/, ''));
+        const candidateUrl = parsedLine?.[0]?.url || (Array.isArray(parsedLine?.data) ? parsedLine.data?.[0]?.url : null);
+        if (candidateUrl && isSafeClientRemoteImageUrl(candidateUrl)) {
+          try {
+            const imgResp = await fetchWithTimeout(candidateUrl, {}, 12000);
+            const ct = (imgResp.headers.get('content-type') || '').toLowerCase();
+            if (imgResp.ok && ct.startsWith('image/')) {
+              const blob = await imgResp.blob();
+              if (blob.size > 2000) {
+                const readerResult = await new Promise<string | null>((resolve) => {
+                  if (typeof FileReader !== 'undefined') {
+                    const fr = new FileReader();
+                    fr.onloadend = () => resolve(typeof fr.result === 'string' ? fr.result : null);
+                    fr.onerror = () => resolve(null);
+                    fr.readAsDataURL(blob);
+                  } else {
+                    resolve(candidateUrl);
+                  }
+                });
+                if (readerResult) {
+                  return { success: true, renderedImageBase64: readerResult, engine: 'SETU Studio Render (FLUX.1-Schnell)' };
+                }
+              }
+            }
+          } catch {
+            return { success: true, renderedImageBase64: candidateUrl, engine: 'SETU Studio Render (FLUX.1-Schnell)' };
+          }
+        }
+      }
+      return { success: false };
+    };
+
+    const callBackendRender = async () => {
+      const res = await fetchWithTimeout(
+        `${API_BASE_URL}/ai/render-design`,
+        {
+          method: 'POST',
+          headers: ApiService.getHeaders(),
+          body: JSON.stringify({ prompt: safePrompt, seed: safeSeed, projectType: params.projectType || 'custom' }),
+        },
+        32000
+      );
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.success && json?.renderedImageBase64) {
+        return {
+          success: true,
+          renderedImageBase64: json.renderedImageBase64,
+          engine: json.engine || 'SETU Backend Render',
+        };
+      }
+      return { success: false, busy: Boolean(json?.busy || res.status === 503 || res.status === 429) };
+    };
+
+    if (params.preferServer) {
+      const srv = await callBackendRender().catch(() => ({ success: false }));
+      if (srv.success) return srv;
+    }
+
+    const fluxDirect = await callDirectFluxSpace().catch(() => ({ success: false }));
+    if (fluxDirect.success) return fluxDirect;
+
+    if (!params.preferServer) {
+      const srvFallback = await callBackendRender().catch(() => ({ success: false, busy: true }));
+      if (srvFallback.success) return srvFallback;
+    }
+
+    return { success: false, busy: true };
   },
 };

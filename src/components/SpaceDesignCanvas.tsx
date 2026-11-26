@@ -23,6 +23,7 @@ interface SpaceDesignCanvasProps {
   userPhotoUri?: string;
   renderedImageUri?: string | null;
   isEditingPhoto?: boolean;
+  isTextRender?: boolean;
   inPhotoEditError?: string | null;
   onRetryInPhotoEdit?: () => void;
   visualPlan: SetuVisualPlan;
@@ -64,6 +65,7 @@ export const SpaceDesignCanvas: React.FC<SpaceDesignCanvasProps> = ({
   userPhotoUri,
   renderedImageUri,
   isEditingPhoto = false,
+  isTextRender = false,
   inPhotoEditError = null,
   onRetryInPhotoEdit,
   visualPlan,
@@ -95,6 +97,8 @@ export const SpaceDesignCanvas: React.FC<SpaceDesignCanvasProps> = ({
 
   const hasImgError = !!(safeRenderedUri && failedUri === safeRenderedUri);
   const isInPlaceDataImg = !!(safeRenderedUri && safeRenderedUri.startsWith('data:image/'));
+  const isWatermarkSource = !!(safeRenderedUri && safeRenderedUri.toLowerCase().includes('pollinations.ai'));
+  const isBusyFallback = inPhotoEditError === 'RENDER_BUSY_FALLBACK';
   const isImgLoading = !!(
     isEditingPhoto ||
     (safeRenderedUri &&
@@ -153,7 +157,7 @@ export const SpaceDesignCanvas: React.FC<SpaceDesignCanvasProps> = ({
           source={{ uri: activeImageUri }}
           style={[
             styles.realPhoto,
-            viewMode === 'after' && safeRenderedUri && !isInPlaceDataImg && !hasImgError
+            viewMode === 'after' && isWatermarkSource && !isInPlaceDataImg && !hasImgError
               ? styles.cropWatermarkEdge
               : null,
           ]}
@@ -191,9 +195,13 @@ export const SpaceDesignCanvas: React.FC<SpaceDesignCanvasProps> = ({
             <ActivityIndicator size="large" color="#F59E0B" />
             <Text style={styles.loadingRenderText}>
               {isEditingPhoto
-                ? isEn
-                  ? 'Building your design right inside your photo (15-25s)...'
-                  : 'आपके चुने हुए कच्चे माल से आपकी असली फोटो में मॉडल बन रहा है (15-25s)...'
+                ? isTextRender || !safeUserPhotoUri
+                  ? isEn
+                    ? 'Creating HD interior render from your selected raw materials (8-12s)...'
+                    : 'आपके चुने हुए कच्चे माल से HD डिज़ाइन मॉडल तैयार हो रहा है (8-12s)...'
+                  : isEn
+                    ? 'Building your design right inside your photo (15-25s)...'
+                    : 'आपके चुने हुए कच्चे माल से आपकी असली फोटो में मॉडल बन रहा है (15-25s)...'
                 : isEn
                   ? 'Rendering photorealistic design...'
                   : 'SETU बिल्कुल असली मॉडल तैयार कर रहा है...'}
@@ -201,7 +209,20 @@ export const SpaceDesignCanvas: React.FC<SpaceDesignCanvasProps> = ({
           </View>
         )}
 
-        {!isImgLoading && inPhotoEditError && !safeRenderedUri && viewMode === 'after' ? (
+        {!isImgLoading && isBusyFallback && !safeRenderedUri && viewMode === 'after' ? (
+          <TouchableOpacity
+            style={styles.retryRenderPill}
+            onPress={onRegenerateAngle || onRetryInPhotoEdit}
+            activeOpacity={0.88}
+          >
+            <Ionicons name="refresh" size={12} color="#0F172A" />
+            <Text style={styles.retryRenderPillText}>
+              {isEn ? 'Sample Preview • Tap to Render HD' : 'सैंपल प्रीव्यू • AI HD बनाने के लिए दबाएं'}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {!isImgLoading && inPhotoEditError && !isBusyFallback && !safeRenderedUri && viewMode === 'after' ? (
           <View style={styles.quotaBannerOverlay}>
             <Ionicons name="alert-circle" size={20} color="#FBBF24" />
             <Text style={styles.quotaBannerText}>

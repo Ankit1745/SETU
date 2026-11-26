@@ -72,13 +72,18 @@ export interface SetuAssistantPayload {
   isSafetyHazard?: boolean;
   safetyMessage?: string;
   visualPreviewReady?: boolean;
+  photorealisticPrompt?: string;
   visualPlan?: SetuVisualPlan;
   renderedImageUrl?: string | null;
   editedImageBase64?: string | null;
   inPlaceEditRequired?: boolean;
   inPlaceEditPrompt?: string;
+  textRenderRequired?: boolean;
+  renderSeed?: number;
+  sitePhotoUri?: string;
   serverHasPaidImageEditor?: boolean;
   isEditingInPhoto?: boolean;
+  isTextRenderLoading?: boolean;
   inPhotoEditError?: string | null;
   quotation?: SetuQuotation;
   threeWayQuotations?: ThreeWayQuotationData;
@@ -408,6 +413,77 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
     []
   );
 
+  const triggerTextDesignRender = useCallback(
+    async (
+      targetMsgId: string,
+      prompt: string,
+      seed = 42,
+      projectType = 'custom',
+      preferServer = false
+    ) => {
+      if (!prompt) return;
+      const seqAtStart = sessionSeqRef.current;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === targetMsgId && m.payload
+            ? {
+                ...m,
+                payload: {
+                  ...m.payload,
+                  isEditingInPhoto: true,
+                  isTextRenderLoading: true,
+                  inPhotoEditError: null,
+                },
+              }
+            : m
+        )
+      );
+
+      let renderRes: any = null;
+      try {
+        renderRes = await ApiService.renderDesignInBackground({
+          prompt,
+          seed,
+          projectType,
+          preferServer,
+        });
+      } catch {
+        renderRes = { success: false, busy: true };
+      }
+
+      if (seqAtStart !== sessionSeqRef.current) return;
+
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== targetMsgId || !m.payload) return m;
+          if (renderRes?.success && renderRes?.renderedImageBase64) {
+            return {
+              ...m,
+              payload: {
+                ...m.payload,
+                renderedImageUrl: renderRes.renderedImageBase64,
+                isEditingInPhoto: false,
+                isTextRenderLoading: false,
+                inPhotoEditError: null,
+              },
+            };
+          }
+          return {
+            ...m,
+            payload: {
+              ...m.payload,
+              renderedImageUrl: null,
+              isEditingInPhoto: false,
+              isTextRenderLoading: false,
+              inPhotoEditError: 'RENDER_BUSY_FALLBACK',
+            },
+          };
+        })
+      );
+    },
+    []
+  );
+
   const handleSendMessage = useCallback(
     async (
       overrideText?: string,
@@ -420,6 +496,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
       const textToSend = (overrideText !== undefined ? overrideText : inputText).trim();
       const photoToSendUri = pendingPhotoUri;
       const photoToSendB64 = pendingPhotoBase64 || activeSitePhotoBase64;
+      const hasActivePhotoFlag = Boolean(photoToSendB64);
       const activeBudget = budgetOverride !== undefined ? budgetOverride : customerBudget;
 
       if (!textToSend && !photoToSendUri) return;
@@ -502,6 +579,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
           ApiService.setuChat({
             messages: apiHistory,
             imageBase64: shouldSendImageToChat ? photoToSendB64 : '',
+            hasActiveSitePhoto: hasActivePhotoFlag,
             locality: currentLocation || cityLabel,
             language,
             budget: activeBudget > 0 ? activeBudget : null,
@@ -544,16 +622,29 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
 
         const needsInPlaceEdit = Boolean(
           payload.visualPreviewReady &&
-            payload.inPlaceEditRequired &&
+            (payload.inPlaceEditRequired || hasActivePhotoFlag) &&
             !payload.editedImageBase64 &&
             photoToSendB64
         );
+        const needsTextRender = Boolean(
+          payload.visualPreviewReady &&
+            !needsInPlaceEdit &&
+            !hasActivePhotoFlag &&
+            !payload.editedImageBase64 &&
+            !payload.renderedImageUrl &&
+            (payload.textRenderRequired || payload.photorealisticPrompt)
+        );
+        const turnSiteUri = needsInPlaceEdit ? (photoToSendUri || activeSitePhotoUri || undefined) : undefined;
         const assistantId = 'a_' + Date.now();
         const assistantMsg: ChatMessage = {
           id: assistantId,
           role: 'assistant',
           text: sanitizeAiDisplayText(payload.replyText),
-          payload: needsInPlaceEdit ? { ...payload, isEditingInPhoto: true } : payload,
+          payload: needsInPlaceEdit
+            ? { ...payload, inPlaceEditRequired: true, sitePhotoUri: turnSiteUri, isEditingInPhoto: true }
+            : needsTextRender
+            ? { ...payload, isEditingInPhoto: true, isTextRenderLoading: true }
+            : payload,
         };
         setMessages((prev) => {
           const combined = [...prev, assistantMsg].slice(-25);
@@ -585,6 +676,17 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
             regenerateSeed,
             Boolean(payload.serverHasPaidImageEditor)
           );
+        } else if (needsTextRender) {
+          const renderPromptText =
+            payload.photorealisticPrompt ||
+            `Real architectural interior DSLR photograph of ${payload.visualPlan?.title || 'modern home woodwork'}, crafted with ${payload.visualPlan?.finishLabel || 'natural wood and matte laminate'}, warm lighting, no text`;
+          triggerTextDesignRender(
+            assistantId,
+            renderPromptText,
+            regenerateSeed || payload.renderSeed || Math.floor(Math.random() * 900000) + 100,
+            String(payload.productPickerProjectType || 'custom'),
+            Boolean(payload.serverHasPaidImageEditor)
+          );
         }
       } else {
         const errText =
@@ -606,6 +708,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
       inputText,
       pendingPhotoUri,
       pendingPhotoBase64,
+      activeSitePhotoUri,
       activeSitePhotoBase64,
       customerBudget,
       isEn,
@@ -621,6 +724,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
       lastSelectedProducts,
       sceneContextPrompt,
       triggerInPlaceEdit,
+      triggerTextDesignRender,
     ]
   );
 
@@ -998,20 +1102,32 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                     {/* Visual Model Canvas */}
                     {p?.visualPreviewReady && p?.visualPlan ? (
                       <SpaceDesignCanvas
-                        userPhotoUri={activeSitePhotoUri}
+                        userPhotoUri={p.sitePhotoUri || (p.inPlaceEditRequired ? activeSitePhotoUri : undefined)}
                         renderedImageUri={p.editedImageBase64 || p.renderedImageUrl}
                         isEditingPhoto={Boolean(p.isEditingInPhoto)}
+                        isTextRender={Boolean(p.isTextRenderLoading)}
                         inPhotoEditError={p.inPhotoEditError}
-                        onRetryInPhotoEdit={() =>
-                          triggerInPlaceEdit(
-                            msg.id,
-                            activeSitePhotoBase64,
-                            p.inPlaceEditPrompt ||
-                              `Keep the exact same room unchanged and install ${p.visualPlan?.title || 'requested finish'} cleanly in place.`,
-                            Math.floor(Math.random() * 900000) + 100,
-                            Boolean(p.serverHasPaidImageEditor)
-                          )
-                        }
+                        onRetryInPhotoEdit={() => {
+                          if (p.inPlaceEditRequired && activeSitePhotoBase64) {
+                            triggerInPlaceEdit(
+                              msg.id,
+                              activeSitePhotoBase64,
+                              p.inPlaceEditPrompt ||
+                                `Keep the exact same room unchanged and install ${p.visualPlan?.title || 'requested finish'} cleanly in place.`,
+                              Math.floor(Math.random() * 900000) + 100,
+                              Boolean(p.serverHasPaidImageEditor)
+                            );
+                          } else {
+                            triggerTextDesignRender(
+                              msg.id,
+                              p.photorealisticPrompt ||
+                                `Real architectural interior DSLR photograph of ${p.visualPlan?.title || 'modern home woodwork'}, crafted with ${p.visualPlan?.finishLabel || 'natural wood and matte laminate'}, warm lighting, no text`,
+                              Math.floor(Math.random() * 900000) + 100,
+                              normalizedType,
+                              Boolean(p.serverHasPaidImageEditor)
+                            );
+                          }
+                        }}
                         visualPlan={p.visualPlan}
                         language={language}
                         onRegenerateAngle={() =>

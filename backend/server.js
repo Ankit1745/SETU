@@ -2118,6 +2118,73 @@ Otherwise return PURE JSON matching this unified schema:
   }
 });
 
+const BLOCKED_ERROR_IMAGE_HASHES = new Set([
+  // Pollinations.ai HTTP 503/402 "Busy right now - The free service is full" cartoon bee/robot graphic
+  '0ecc9afd78f5ef5fba11dbace43eae9c1c493afd2f5f9b4cb655519ed22ed34d',
+]);
+
+function isBlockedErrorGraphicBuffer(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 1500) return true;
+  const sha = crypto.createHash('sha256').update(buf).digest('hex');
+  return BLOCKED_ERROR_IMAGE_HASHES.has(sha);
+}
+
+async function runHfGradioTextToImage(spaceHost, payloadData, timeoutMs = 25000) {
+  const endpoint = `https://${spaceHost}/gradio_api/call/infer`;
+  const submitResp = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: payloadData }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!submitResp.ok) return { ok: false };
+  const submitJson = await submitResp.json().catch(() => null);
+  if (!submitJson?.event_id) return { ok: false };
+
+  const sseResp = await fetch(`${endpoint}/${submitJson.event_id}`, {
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!sseResp.ok) return { ok: false };
+  const sseText = await sseResp.text();
+  if (/ZeroGPU|quota|exceeded|too many requests|rate limit|no gpu/i.test(sseText)) {
+    return { ok: false, quotaExceeded: true };
+  }
+
+  const b64Match = sseText.match(/data:image\/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+/);
+  if (b64Match && b64Match[0]) {
+    const raw = b64Match[0].split(',')[1] || '';
+    const buf = Buffer.from(raw, 'base64');
+    if (!isBlockedErrorGraphicBuffer(buf)) {
+      return { ok: true, dataUri: b64Match[0] };
+    }
+  }
+
+  const dataLines = sseText
+    .split(/\r?\n/)
+    .filter((ln) => ln.startsWith('data:'))
+    .map((ln) => ln.slice(5).trim());
+  for (let i = dataLines.length - 1; i >= 0; i -= 1) {
+    try {
+      const parsed = JSON.parse(dataLines[i]);
+      const flat = JSON.stringify(parsed);
+      const urlMatch = flat.match(/"url"\s*:\s*"(https:\/\/[^"]+)"/i);
+      if (urlMatch && urlMatch[1] && isSafeExternalUrl(urlMatch[1], ['hf.space', 'huggingface.co'])) {
+        const imgResp = await fetch(urlMatch[1], { signal: AbortSignal.timeout(12000) });
+        const ct = (imgResp.headers.get('content-type') || '').toLowerCase();
+        if (imgResp.ok && ct.startsWith('image/')) {
+          const buf = Buffer.from(await imgResp.arrayBuffer());
+          if (!isBlockedErrorGraphicBuffer(buf) && buf.length <= 8 * 1024 * 1024) {
+            return { ok: true, dataUri: `data:${ct};base64,${buf.toString('base64')}` };
+          }
+        }
+      }
+    } catch {
+      // ignore non-JSON heartbeat lines
+    }
+  }
+  return { ok: false };
+}
+
 function hasConfiguredServerPhotoEditor() {
   const hf = cleanSecret(process.env.HF_TOKEN);
   const validHf = hf.length >= 10 && !/your_/i.test(hf);
@@ -2248,6 +2315,7 @@ app.post('/api/ai/setu-chat', aiRateLimiter('chat', 25), async (req, res) => {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const messages = Array.isArray(body.messages) ? body.messages : [];
     const imageBase64 = asStr(body.imageBase64);
+    const hasActiveSitePhoto = Boolean(body.hasActiveSitePhoto || imageBase64);
     const locality = asStr(body.locality, 120) || 'भोपाल';
     const language = asStr(body.language, 16) || 'hi';
     const budget = Number(body.budget) || 0;
@@ -2610,7 +2678,7 @@ Return ONLY valid JSON:
 
       const fallbackRegion = getRegionalRateProfileBackend(safeLocality);
       const parsed = sanitizeSetuChatAiOutput(aiRes.parsed, fallbackRegion.defaultStore);
-      const hasUploadedPhoto = Boolean(imageBase64);
+      const hasUploadedPhoto = Boolean(imageBase64 || hasActiveSitePhoto);
       const serverHasPaidImageEditor = hasConfiguredServerPhotoEditor();
 
       // Enforce strict project & stage boundaries
@@ -2656,10 +2724,8 @@ Return ONLY valid JSON:
         ? parsed.visualPreviewReady !== false
         : Boolean(parsed.visualPreviewReady);
 
-      const renderedImageUrl =
-        !hasUploadedPhoto && showPreviewNow && rawRenderPrompt
-          ? `https://image.pollinations.ai/prompt/${encodeURIComponent(rawRenderPrompt)}?width=800&height=540&model=flux&nologo=true&seed=${renderSeed}`
-          : null;
+      const renderedImageUrl = null;
+      const textRenderRequired = Boolean(!hasUploadedPhoto && showPreviewNow && rawRenderPrompt);
 
       const reconciledAiQuotation = reconcileQuotationTotals(parsed.quotation);
       let threeWayQuotations = { includeQuotation: false };
@@ -2700,6 +2766,8 @@ Return ONLY valid JSON:
         visualPlan: finalVisualPlan,
         photorealisticPrompt: rawRenderPrompt,
         renderedImageUrl,
+        textRenderRequired,
+        renderSeed,
         editedImageBase64: null,
         inPlaceEditRequired: Boolean(hasUploadedPhoto && showPreviewNow),
         inPlaceEditPrompt,
@@ -2726,7 +2794,7 @@ Return ONLY valid JSON:
     // Deterministic Master Fallback (Expanded Repair + Regional + BHK/SqFt + 3-Way Quotes!)
     // -----------------------------------------------------------------------
     aiTelemetry.chatFallbacks += 1;
-    const hasUploadedPhoto = Boolean(imageBase64);
+    const hasUploadedPhoto = Boolean(imageBase64 || hasActiveSitePhoto);
     const serverHasPaidImageEditor = hasConfiguredServerPhotoEditor();
     const cfg = RAW_PROJECT_CONFIGS[heuristicProjectType] || RAW_PROJECT_CONFIGS.custom;
 
@@ -2902,9 +2970,9 @@ Return ONLY valid JSON:
         inPlaceEditRequired: hasUploadedPhoto,
         inPlaceEditPrompt,
         serverHasPaidImageEditor,
-        renderedImageUrl: hasUploadedPhoto
-          ? null
-          : `https://image.pollinations.ai/prompt/${encodeURIComponent(fluxPrompt)}?width=800&height=540&model=flux&nologo=true&seed=${renderSeed}`,
+        renderedImageUrl: null,
+        textRenderRequired: Boolean(!hasUploadedPhoto),
+        renderSeed,
         visualPlan: {
           designType: heuristicProjectType,
           title: cfg.titleHi,
@@ -3067,11 +3135,15 @@ app.post('/api/ai/edit-photo', aiRateLimiter('edit', 10), async (req, res) => {
             const b64Out = pJson?.data?.[0]?.b64_json;
             const urlOut = pJson?.data?.[0]?.url;
             if (b64Out) {
-              return res.json({
-                success: true,
-                engine: `SETU In-Photo (${pModel})`,
-                editedImageBase64: b64Out.startsWith('data:') ? b64Out : `data:image/png;base64,${b64Out}`,
-              });
+              const rawPart = b64Out.replace(/^data:[^;]+;base64,/, '');
+              const outBuf = Buffer.from(rawPart, 'base64');
+              if (!isBlockedErrorGraphicBuffer(outBuf)) {
+                return res.json({
+                  success: true,
+                  engine: `SETU In-Photo (${pModel})`,
+                  editedImageBase64: b64Out.startsWith('data:') ? b64Out : `data:image/png;base64,${b64Out}`,
+                });
+              }
             }
             if (urlOut && isSafeExternalUrl(urlOut)) {
               const imgResp = await fetch(urlOut, { signal: AbortSignal.timeout(15000) });
@@ -3079,7 +3151,7 @@ app.post('/api/ai/edit-photo', aiRateLimiter('edit', 10), async (req, res) => {
               const imgLen = Number(imgResp.headers.get('content-length') || 0);
               if (imgResp.ok && imgContentType.startsWith('image/') && imgLen <= 10 * 1024 * 1024) {
                 const imgBuf = Buffer.from(await imgResp.arrayBuffer());
-                if (imgBuf.length > 1000 && imgBuf.length <= 10 * 1024 * 1024) {
+                if (!isBlockedErrorGraphicBuffer(imgBuf) && imgBuf.length <= 10 * 1024 * 1024) {
                   return res.json({
                     success: true,
                     engine: `SETU In-Photo (${pModel})`,
@@ -3163,6 +3235,110 @@ app.post('/api/ai/edit-photo', aiRateLimiter('edit', 10), async (req, res) => {
       success: false,
       error: 'इन-फोटो एडिट सर्वर अस्थायी रूप से व्यस्त है। कृपया पुनः प्रयास करें।',
     });
+  }
+});
+
+// 16D. Verified Text-to-Design Image Rendering Endpoint (Cascades Pollinations key/200-check + HF Flux.1-Schnell + SD3.5)
+app.post('/api/ai/render-design', aiRateLimiter('render', 15), async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const safePrompt = sanitizePromptText(asStr(body.prompt, 800), 420);
+    const seed = Number(body.seed) || 42;
+    if (!safePrompt) {
+      return res.status(400).json({ success: false, error: 'डिज़ाइन प्रॉम्प्ट आवश्यक है।' });
+    }
+
+    // 1. Try Pollinations server-side with strict HTTP 200 + SHA-256 banner check (rejects 402/503 Bee graphic)
+    const pollKey = cleanSecret(process.env.POLLINATIONS_API_KEY);
+    if (pollKey) {
+      try {
+        const pUrl = `https://gen.pollinations.ai/image/${encodeURIComponent(safePrompt)}?width=800&height=540&model=flux&nologo=true&seed=${seed}`;
+        const pResp = await fetch(pUrl, {
+          headers: { Authorization: `Bearer ${pollKey}`, 'User-Agent': 'SETU-Backend/2.0' },
+          signal: AbortSignal.timeout(18000),
+        });
+        const ct = (pResp.headers.get('content-type') || '').toLowerCase();
+        if (pResp.ok && pResp.status === 200 && ct.startsWith('image/')) {
+          const buf = Buffer.from(await pResp.arrayBuffer());
+          if (!isBlockedErrorGraphicBuffer(buf) && buf.length <= 8 * 1024 * 1024) {
+            return res.json({
+              success: true,
+              engine: 'SETU Studio Render (Pollinations Pro)',
+              renderedImageBase64: `data:${ct};base64,${buf.toString('base64')}`,
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Pollinations Pro text render skipped:', e.message);
+      }
+    }
+
+    // 2. Try Free HF FLUX.1-Schnell
+    try {
+      const fluxRes = await runHfGradioTextToImage(
+        'black-forest-labs-flux-1-schnell.hf.space',
+        [safePrompt, seed, false, 800, 512, 4],
+        25000
+      );
+      if (fluxRes.ok && fluxRes.dataUri) {
+        return res.json({
+          success: true,
+          engine: 'SETU Studio Render (FLUX.1-Schnell)',
+          renderedImageBase64: fluxRes.dataUri,
+        });
+      }
+    } catch (e) {
+      console.warn('HF Flux.1-Schnell skipped:', e.message);
+    }
+
+    // 3. Try Anonymous Pollinations ONLY when HTTP 200 & verified NOT Bee error image
+    try {
+      const anonUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(safePrompt)}?width=800&height=540&model=flux&nologo=true&seed=${seed}`;
+      const aResp = await fetch(anonUrl, {
+        headers: { 'User-Agent': 'SETU-Backend/2.0', Accept: 'image/jpeg,image/webp,image/png' },
+        signal: AbortSignal.timeout(15000),
+      });
+      const ct = (aResp.headers.get('content-type') || '').toLowerCase();
+      if (aResp.ok && aResp.status === 200 && ct.startsWith('image/')) {
+        const buf = Buffer.from(await aResp.arrayBuffer());
+        if (!isBlockedErrorGraphicBuffer(buf) && buf.length <= 8 * 1024 * 1024) {
+          return res.json({
+            success: true,
+            engine: 'SETU Studio Render (Flux)',
+            renderedImageBase64: `data:${ct};base64,${buf.toString('base64')}`,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Anon Pollinations skipped:', e.message);
+    }
+
+    // 4. Try Free HF Stable Diffusion 3.5 Large Turbo
+    try {
+      const sdRes = await runHfGradioTextToImage(
+        'stabilityai-stable-diffusion-3-5-large-turbo.hf.space',
+        [safePrompt, 'cartoon, pixel art, anime, text, watermark, blurry, bee, robot', seed, false, 800, 512, 1.0, 4],
+        25000
+      );
+      if (sdRes.ok && sdRes.dataUri) {
+        return res.json({
+          success: true,
+          engine: 'SETU Studio Render (SD3.5-Turbo)',
+          renderedImageBase64: sdRes.dataUri,
+        });
+      }
+    } catch (e) {
+      console.warn('HF SD3.5 skipped:', e.message);
+    }
+
+    return res.status(503).json({
+      success: false,
+      busy: true,
+      error: 'AI इमेज रेंडर सर्वर अभी व्यस्त है।',
+    });
+  } catch (err) {
+    console.error('[RenderDesign] Error:', err.message);
+    return res.status(500).json({ success: false, busy: true, error: 'रेंडर त्रुटि।' });
   }
 });
 
