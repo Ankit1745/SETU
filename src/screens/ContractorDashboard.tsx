@@ -16,6 +16,7 @@ import { ApiService } from '../services/api';
 import { Language } from '../i18n/translations';
 import { showAppAlert } from '../utils/appAlert';
 import { useResponsive } from '../hooks/useResponsive';
+import { getTradeRateProfile } from '../data/tradeRateConfig';
 
 interface ContractorDashboardProps {
   contractor: Contractor;
@@ -32,6 +33,33 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
   onUpdateJobRequestStatus,
   language: _language = 'hi',
 }) => {
+  const tradeProfile = getTradeRateProfile(contractor.category);
+  const initialModeObj =
+    tradeProfile.rateModes.find((m) => m.primaryRateTypeLabel === contractor.primaryRateType) ||
+    tradeProfile.rateModes[0];
+
+  const [selectedModeId, setSelectedModeId] = useState<string>(
+    (contractor.tradeRateSpec?.primaryModeId as string) || initialModeObj.id
+  );
+  const [tradeFieldValues, setTradeFieldValues] = useState<Record<string, string>>(() => {
+    const base: Record<string, string> = {};
+    const spec = contractor.tradeRateSpec || {};
+    for (const f of tradeProfile.contractorFields) {
+      if (spec[f.key] !== undefined && spec[f.key] !== null) {
+        base[f.key] = String(spec[f.key]);
+      } else if (f.mapsToColumn === 'dailyWageRate' && contractor.dailyWageRate) {
+        base[f.key] = String(contractor.dailyWageRate);
+      } else if (f.mapsToColumn === 'helperRate' && contractor.helperRate) {
+        base[f.key] = String(contractor.helperRate);
+      } else if (f.mapsToColumn === 'contractUnitRate' && contractor.contractUnitRate) {
+        base[f.key] = String(contractor.contractUnitRate);
+      } else {
+        base[f.key] = '';
+      }
+    }
+    return base;
+  });
+
   const [dailyRate, setDailyRate] = useState(
     contractor.dailyWageRate !== null && contractor.dailyWageRate !== undefined
       ? contractor.dailyWageRate.toString()
@@ -57,6 +85,13 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
   const [newPhotoDesc, setNewPhotoDesc] = useState('');
   const [newPhotoUrl, setNewPhotoUrl] = useState('');
 
+  const handleFieldUpdate = (key: string, val: string, mapsTo?: string) => {
+    setTradeFieldValues((prev) => ({ ...prev, [key]: val }));
+    if (mapsTo === 'dailyWageRate' || key === 'dailyWageRate') setDailyRate(val);
+    if (mapsTo === 'helperRate' || key === 'helperRate') setHelperRate(val);
+    if (mapsTo === 'contractUnitRate' || key === 'contractUnitRate') setThekaRate(val);
+  };
+
   const parseRateField = (raw: string): number | null | 'INVALID' => {
     const trimmed = raw.trim();
     if (!trimmed) return null;
@@ -66,21 +101,70 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
   };
 
   const handleSaveRates = async () => {
+    for (const f of tradeProfile.contractorFields) {
+      const isMandatory =
+        Boolean(f.alwaysMandatory) ||
+        Boolean(f.mandatoryWhenModes && f.mandatoryWhenModes.includes(selectedModeId));
+      const rawVal = (tradeFieldValues[f.key] || '').trim();
+      if (isMandatory && !rawVal) {
+        showAppAlert('अनिवार्य दर (*)', `कृपया "${f.labelHi.replace(' *', '')}" अवश्य भरें।`);
+        return;
+      }
+      if (rawVal && f.isNumeric) {
+        const n = Number(rawVal);
+        if (!Number.isFinite(n) || n <= 0) {
+          showAppAlert('अमान्य दर', `"${f.labelHi.replace(' *', '')}" केवल धनात्मक संख्या (> 0) होनी चाहिए।`);
+          return;
+        }
+        if (f.min !== undefined && n < f.min) {
+          showAppAlert('दर सीमा जाँच', `"${f.labelHi.replace(' *', '')}" कम से कम ${f.min} होनी चाहिए।`);
+          return;
+        }
+        if (f.max !== undefined && n > f.max) {
+          showAppAlert('दर सीमा जाँच', `"${f.labelHi.replace(' *', '')}" अधिकतम ${f.max} हो सकती है।`);
+          return;
+        }
+      }
+    }
+
     const parsedDaily = parseRateField(dailyRate);
     const parsedHelper = parseRateField(helperRate);
     const parsedTheka = parseRateField(thekaRate);
 
     if (parsedDaily === 'INVALID' || parsedHelper === 'INVALID' || parsedTheka === 'INVALID') {
-      showAppAlert('अमान्य दर', 'दर केवल धनात्मक संख्या (> 0) होनी चाहिए या "भाव पूछें" हेतु खाली छोड़ें।');
+      showAppAlert('अमान्य दर', 'दर केवल धनात्मक संख्या (> 0) होनी चाहिए।');
       return;
+    }
+
+    const selMode = tradeProfile.rateModes.find((m) => m.id === selectedModeId) || tradeProfile.rateModes[0];
+    const updatedCards: { title: string; rate: string }[] = [];
+    for (const f of tradeProfile.contractorFields) {
+      const val = (tradeFieldValues[f.key] || '').trim();
+      if (!val || !f.cardTitleHi) continue;
+      if (f.key === 'materialBillPercent') {
+        updatedCards.push({ title: f.cardTitleHi, rate: `${val}% (बिल अनुसार)` });
+      } else if (f.isNumeric && !f.unitHi.includes('₹')) {
+        updatedCards.push({ title: f.cardTitleHi, rate: `${val} ${f.unitHi}` });
+      } else if (f.isNumeric) {
+        updatedCards.push({ title: f.cardTitleHi, rate: `₹${val} ${f.unitHi.replace('₹ ', '')}` });
+      } else {
+        updatedCards.push({ title: f.cardTitleHi, rate: val });
+      }
     }
 
     const updates = {
       dailyWageRate: parsedDaily,
       helperRate: parsedHelper,
       contractUnitRate: parsedTheka,
-      primaryRateType,
+      primaryRateType: selMode.primaryRateTypeLabel || primaryRateType,
+      unitLabel: selMode.unitHi,
+      tradeRateSpec: {
+        primaryModeId: selectedModeId,
+        ...tradeFieldValues,
+      },
+      additionalRateCards: updatedCards.length > 0 ? updatedCards : contractor.additionalRateCards,
       available: isAvailable,
+      strictValidation: true,
     };
 
     const res = await ApiService.updateContractorProfile(contractor.id, updates);
@@ -94,9 +178,7 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
 
     showAppAlert(
       '✅ रेट-कार्ड अपडेट हुआ',
-      parsedDaily === null && parsedTheka === null
-        ? 'आपके द्वारा रेट खाली छोड़े गए हैं। ग्राहकों को "भाव पूछें" दिखाई देगा।'
-        : 'ग्राहकों को अब आपकी प्रोफाइल पर ये नए रेट्स दिखाई देंगे।'
+      `ग्राहकों को अब ${tradeProfile.nameHindi} के नए मानक दर कार्ड दिखाई देंगे।`
     );
   };
 
@@ -332,91 +414,86 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
         </Text>
 
         <View style={styles.ratesBox}>
-          {/* Rate Type Selector */}
-          {isEditingRate && (
-            <View style={{ marginBottom: 10 }}>
-              <Text style={styles.fieldLabel}>अपनी फील्ड का प्राइमरी रेट टाइप चुनें:</Text>
-              <View style={styles.rateTypeChipsRow}>
-                {['शीट/रनिंग फुट', 'स्क्वायर फुट', 'प्रति पॉइंट', 'पैकेज ठेका', 'दिहाड़ी'].map(
-                  (type) => (
-                    <TouchableOpacity
-                      key={type}
+          {/* Trade Market Research Hint */}
+          <View style={styles.tradeResearchBanner}>
+            <Ionicons name="stats-chart" size={14} color="#0369A1" />
+            <Text style={styles.tradeResearchText}>{tradeProfile.researchSummaryHi}</Text>
+          </View>
+
+          {/* Trade-Specific Priority Rate Mode Selector */}
+          <View style={{ marginBottom: 8 }}>
+            <Text style={styles.fieldLabel}>
+              आपकी श्रेणी ({tradeProfile.nameHindi}) का मुख्य दर तरीका <Text style={styles.reqStar}>*</Text>
+            </Text>
+            <View style={styles.rateTypeChipsRow}>
+              {tradeProfile.rateModes.map((mode) => {
+                const isSelected = selectedModeId === mode.id;
+                return (
+                  <TouchableOpacity
+                    key={mode.id}
+                    disabled={!isEditingRate}
+                    style={[
+                      styles.rateTypeChip,
+                      isSelected && styles.rateTypeChipActive,
+                      !isEditingRate && { opacity: 0.9 },
+                    ]}
+                    onPress={() => {
+                      setSelectedModeId(mode.id);
+                      setPrimaryRateType(mode.primaryRateTypeLabel);
+                    }}
+                  >
+                    <Text
                       style={[
-                        styles.rateTypeChip,
-                        primaryRateType === type && styles.rateTypeChipActive,
+                        styles.rateTypeChipText,
+                        isSelected && styles.rateTypeChipTextActive,
                       ]}
-                      onPress={() => setPrimaryRateType(type as any)}
                     >
-                      <Text
-                        style={[
-                          styles.rateTypeChipText,
-                          primaryRateType === type && styles.rateTypeChipTextActive,
-                        ]}
-                      >
-                        {type}
-                      </Text>
-                    </TouchableOpacity>
-                  )
-                )}
+                      {mode.labelHi}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Dynamic Trade-Specific Rate Fields */}
+          {tradeProfile.contractorFields.map((field) => {
+            const isMandatory =
+              Boolean(field.alwaysMandatory) ||
+              Boolean(field.mandatoryWhenModes && field.mandatoryWhenModes.includes(selectedModeId));
+            const val = tradeFieldValues[field.key] || '';
+            return (
+              <View key={field.key} style={styles.rateFieldRow}>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={styles.fieldLabel}>
+                    {field.labelHi.replace(' *', '')}
+                    {isMandatory && <Text style={styles.reqStar}> *</Text>}
+                  </Text>
+                  <Text style={styles.fieldSub}>{field.subLabelHi}</Text>
+                </View>
+                <View style={[styles.fieldInputWrapper, !field.isNumeric && { minWidth: 150 }]}>
+                  {field.isNumeric && field.unitHi.includes('₹') && (
+                    <Text style={styles.currencySymbol}>₹</Text>
+                  )}
+                  <TextInput
+                    style={[
+                      styles.rateInput,
+                      !field.isNumeric && { minWidth: 130, textAlign: 'left', fontSize: 11.5 },
+                      !isEditingRate && styles.rateInputDisabled,
+                    ]}
+                    value={val}
+                    placeholder={field.placeholder}
+                    onChangeText={(txt) => handleFieldUpdate(field.key, txt, field.mapsToColumn)}
+                    keyboardType={field.isNumeric ? 'numeric' : 'default'}
+                    editable={isEditingRate}
+                  />
+                  {field.isNumeric && (
+                    <Text style={styles.inputUnit}>{field.unitHi.replace('₹ ', '')}</Text>
+                  )}
+                </View>
               </View>
-            </View>
-          )}
-
-          {/* Daily Wage */}
-          <View style={styles.rateFieldRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.fieldLabel}>आपकी 1 दिन की दिहाड़ी (8 घंटे):</Text>
-              <Text style={styles.fieldSub}>मास्टर कारीगर शिफ्ट चार्ज</Text>
-            </View>
-            <View style={styles.fieldInputWrapper}>
-              <Text style={styles.currencySymbol}>₹</Text>
-              <TextInput
-                style={[styles.rateInput, !isEditingRate && styles.rateInputDisabled]}
-                value={dailyRate}
-                onChangeText={setDailyRate}
-                keyboardType="numeric"
-                editable={isEditingRate}
-              />
-              <Text style={styles.inputUnit}>/दिन</Text>
-            </View>
-          </View>
-
-          {/* Helper Daily Wage */}
-          <View style={styles.rateFieldRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.fieldLabel}>सहायक / हेल्पर की दिहाड़ी:</Text>
-              <Text style={styles.fieldSub}>साथ आने वाले मजदूर का रेट</Text>
-            </View>
-            <View style={styles.fieldInputWrapper}>
-              <Text style={styles.currencySymbol}>₹</Text>
-              <TextInput
-                style={[styles.rateInput, !isEditingRate && styles.rateInputDisabled]}
-                value={helperRate}
-                onChangeText={setHelperRate}
-                keyboardType="numeric"
-                editable={isEditingRate}
-              />
-              <Text style={styles.inputUnit}>/दिन</Text>
-            </View>
-          </View>
-
-          {/* Theka / Unit Rate */}
-          <View style={styles.rateFieldRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.fieldLabel}>ठेका यूनिट दर ({primaryRateType}):</Text>
-              <Text style={styles.fieldSub}>{contractor.unitLabel}</Text>
-            </View>
-            <View style={styles.fieldInputWrapper}>
-              <Text style={styles.currencySymbol}>₹</Text>
-              <TextInput
-                style={[styles.rateInput, !isEditingRate && styles.rateInputDisabled]}
-                value={thekaRate}
-                onChangeText={setThekaRate}
-                keyboardType="numeric"
-                editable={isEditingRate}
-              />
-            </View>
-          </View>
+            );
+          })}
         </View>
       </View>
         </View>
@@ -985,5 +1062,26 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '800',
     color: '#4F46E5',
+  },
+  reqStar: {
+    color: '#DC2626',
+    fontWeight: '900',
+  },
+  tradeResearchBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#E0F2FE',
+    borderRadius: 6,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+  },
+  tradeResearchText: {
+    flex: 1,
+    fontSize: 10.5,
+    color: '#0C4A6E',
+    lineHeight: 15,
+    fontWeight: '600',
   },
 });

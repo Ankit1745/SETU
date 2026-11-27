@@ -178,6 +178,29 @@ export const ContractorCard: React.FC<ContractorCardProps> = ({
                 </View>
               ) : null}
             </View>
+
+            {/* Trade-specific additional rate pills (e.g. कॉपर पाइप, किचन rft, सरिया vs ग्रिल, अतिरिक्त प्लेट) */}
+            {contractor.additionalRateCards && contractor.additionalRateCards.length > 0 && (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                {contractor.additionalRateCards.slice(0, 2).map((rc, idx) => (
+                  <View
+                    key={idx}
+                    style={{
+                      backgroundColor: '#F8FAFC',
+                      borderWidth: 1,
+                      borderColor: '#E2E8F0',
+                      borderRadius: 5,
+                      paddingHorizontal: 6,
+                      paddingVertical: 2,
+                    }}
+                  >
+                    <Text style={{ fontSize: 9.5, color: '#334155', fontWeight: '700' }} numberOfLines={1}>
+                      {rc.title}: {rc.rate}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
 
           {/* 4. ACTION BUTTONS: PROFILES & BOOK */}

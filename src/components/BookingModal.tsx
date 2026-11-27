@@ -19,6 +19,11 @@ import { ApiService } from '../services/api';
 import { pickImageFromGallery } from '../utils/mediaPicker';
 import { showAppAlert } from '../utils/appAlert';
 import { useResponsive } from '../hooks/useResponsive';
+import {
+  getTradeRateProfile,
+  calculateTradeBookingTotal,
+  TradeSubFieldDef,
+} from '../data/tradeRateConfig';
 
 interface BookingModalProps {
   visible: boolean;
@@ -54,21 +59,58 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   initialLaborEstimate = 0,
   initialMaterialEstimate = 0,
 }) => {
-  const hasDailyRate = Boolean(contractor?.dailyWageRate && contractor.dailyWageRate > 0);
-  const hasThekaRate = Boolean(contractor?.contractUnitRate && contractor.contractUnitRate > 0);
-  const resolvedInitialMode: 'दिहाड़ी' | 'ठेका' | 'भाव_पूछें' =
-    initialMode === 'ठेका' && !hasThekaRate && !(initialLaborEstimate > 0)
-      ? hasDailyRate
-        ? 'दिहाड़ी'
-        : 'भाव_पूछें'
-      : initialMode;
-
   const isHindi = language !== 'en';
 
-  const [bookingMode, setBookingMode] = useState<'दिहाड़ी' | 'ठेका' | 'भाव_पूछें'>(resolvedInitialMode);
+  const tradeProfile = contractor ? getTradeRateProfile(contractor.category) : null;
+  const resolveInitialModeId = (): string => {
+    if (!tradeProfile) return '';
+    if (initialMode === 'दिहाड़ी') {
+      const dailyOpt = tradeProfile.rateModes.find((m) => m.isDailyLike);
+      if (dailyOpt) return dailyOpt.id;
+    }
+    const matchedByType = tradeProfile.rateModes.find(
+      (m) => contractor && m.primaryRateTypeLabel === contractor.primaryRateType
+    );
+    return matchedByType ? matchedByType.id : tradeProfile.rateModes[0].id;
+  };
+
+  const initialModeId = resolveInitialModeId();
+  const initialModeObj = tradeProfile?.rateModes.find((m) => m.id === initialModeId) || tradeProfile?.rateModes[0];
+
+  const [selectedModeId, setSelectedModeId] = useState<string>(initialModeId);
+  const [isQuoteInquiryMode, setIsQuoteInquiryMode] = useState<boolean>(initialMode === 'भाव_पूछें');
+  const [bookingMode, setBookingMode] = useState<'दिहाड़ी' | 'ठेका' | 'भाव_पूछें'>(
+    initialMode === 'भाव_पूछें'
+      ? 'भाव_पूछें'
+      : initialModeObj?.backendBookingMode === 'दिहाड़ी'
+      ? 'दिहाड़ी'
+      : 'ठेका'
+  );
+  const [subValues, setSubValues] = useState<Record<string, string>>(() => {
+    const defaults: Record<string, string> = {};
+    if (tradeProfile) {
+      for (const f of tradeProfile.bookingFields) {
+        if (f.type === 'select' && f.options && f.options.length > 0) {
+          defaults[f.id] = f.options[0].value;
+        }
+      }
+      if (contractor?.tradeRateSpec) {
+        const s = contractor.tradeRateSpec;
+        if (s.minGuaranteePlates) defaults.minPlatesGuaranteed = String(s.minGuaranteePlates);
+        if (s.extraPlateRate) defaults.extraPlatePrice = String(s.extraPlateRate);
+        if (s.hoursPerFunction) defaults.functionHours = String(s.hoursPerFunction);
+        if (s.includedServicesSummary) defaults.includedServicesText = String(s.includedServicesSummary);
+        if (s.trolleyCapacitySpec) defaults.trolleyCapacity = String(s.trolleyCapacitySpec);
+      }
+    }
+    return defaults;
+  });
+
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'ONLINE_ESCROW'>('CASH');
   const [daysCount, setDaysCount] = useState<string>('1'); // Default: 1 day
-  const [thekaUnits, setThekaUnits] = useState<string>('150');
+  const [thekaUnits, setThekaUnits] = useState<string>(
+    String(initialModeObj?.defaultUnits || 150)
+  );
   const [includeHelper, setIncludeHelper] = useState<boolean>(false); // Default: false (0 helpers)
   const [includeMaterialsCombo, setIncludeMaterialsCombo] = useState<boolean>(initialIncludeMaterials); // Default: false (0 materials)
   const [hasPriorityVisitPass, setHasPriorityVisitPass] = useState<boolean>(false); // Urban Company style ₹99 Visit Pass
@@ -81,36 +123,96 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   const { getModalStyles } = useResponsive();
   const { isDialog, overlayStyle, containerStyle } = getModalStyles({ maxWidth: 680 });
 
-  if (!contractor) return null;
+  if (!contractor || !tradeProfile) return null;
 
-  const days = Math.max(1, parseInt(daysCount, 10) || 1);
-  const units = Math.max(1, parseFloat(thekaUnits) || 1);
+  const activeMode =
+    tradeProfile.rateModes.find((m) => m.id === selectedModeId) || tradeProfile.rateModes[0];
+  const visibleSubFields: TradeSubFieldDef[] = tradeProfile.bookingFields.filter(
+    (f) => !f.visibleInModes || f.visibleInModes.includes(activeMode.id)
+  );
 
-  // Labor calculation based on contractor's rates or AI 3-Way quotation estimate fallback
-  let totalLaborAmount = 0;
-
-  if (bookingMode === 'दिहाड़ी') {
-    if (hasDailyRate) {
-      const helperCost = includeHelper && contractor.helperRate ? contractor.helperRate : 0;
-      const dailyRate = (contractor.dailyWageRate || 0) + helperCost;
-      totalLaborAmount = days * dailyRate;
-    } else if (initialLaborEstimate > 0) {
-      totalLaborAmount = Math.round(initialLaborEstimate);
-    } else {
-      totalLaborAmount = 0; // भाव पूछें (Quote on site)
+  // Resolve primary quantity across trade-specific sub-fields vs standalone counter
+  const resolvePrimaryQty = (): number => {
+    if (activeMode.isDailyLike) {
+      if (subValues.helpersOrHoursCount) return Math.max(1, parseFloat(subValues.helpersOrHoursCount) || 1);
+      return Math.max(1, parseInt(daysCount, 10) || 1);
     }
-  } else if (bookingMode === 'ठेका') {
-    if (hasThekaRate) {
-      totalLaborAmount = Math.round(units * (contractor.contractUnitRate || 0));
-    } else if (initialLaborEstimate > 0) {
-      totalLaborAmount = Math.round(initialLaborEstimate);
-    } else {
-      totalLaborAmount = 0; // भाव पूछें (Quote on site)
-    }
-  } else {
-    // भाव_पूछें: छोटा काम (जैसे नल का वाशर बदलना) -> यदि ₹99 विज़िट पास चुना है
-    totalLaborAmount = hasPriorityVisitPass ? 99 : 0;
-  }
+    const fieldQtyPriority = [
+      subValues.builtUpAreaSqft,
+      subValues.masonryCubicMeters,
+      subValues.wiringPoints,
+      subValues.fansOrFixtures,
+      subValues.mainCableMeters,
+      subValues.plumbingCount,
+      subValues.floorTileSqft,
+      subValues.mainCeilingSqft,
+      subValues.steelWeightUnits,
+      subValues.treatmentAreaSqft,
+      subValues.helpersOrHoursCount,
+      subValues.pandalAreaSqft,
+      subValues.expectedTotalPlates,
+      subValues.areaOrLength,
+      subValues.hardwarePiecesCount,
+    ].find((v) => v !== undefined && String(v).trim() !== '');
+    if (fieldQtyPriority) return Math.max(1, parseFloat(fieldQtyPriority) || 1);
+    return Math.max(1, parseFloat(thekaUnits) || 1);
+  };
+
+  const units = resolvePrimaryQty();
+
+  // Compute transparent labor breakdown from centralized 15-trade rate engine
+  const tradeCalc = isQuoteInquiryMode
+    ? {
+        totalLaborAmount: hasPriorityVisitPass ? 99 : 0,
+        appliedRateLabel: hasPriorityVisitPass ? '₹99 प्रायोरिटी विज़िट पास' : 'भाव पूछें (साइट मुआयना)',
+        breakdownLineHi: hasPriorityVisitPass ? '₹99 प्रायोरिटी विज़िट पास' : 'निःशुल्क साइट विज़िट',
+        extraAddonsAmount: 0,
+      }
+    : calculateTradeBookingTotal({
+        category: contractor.category,
+        modeId: activeMode.id,
+        units,
+        contractorDailyRate: contractor.dailyWageRate,
+        contractorHelperRate: contractor.helperRate,
+        contractorUnitRate: contractor.contractUnitRate,
+        contractorAdditionalCards: contractor.additionalRateCards,
+        includeHelper,
+        subValues,
+        fallbackLaborEstimate: initialLaborEstimate,
+      });
+
+  const totalLaborAmount = tradeCalc.totalLaborAmount;
+
+  // Check whether a standalone quantity field should be shown (avoid duplicate numeric box when subFields handle it)
+  const subFieldsOwnQuantity = [
+    'carpenter_material_pct',
+    'carpenter_hardware_piece',
+    'carpenter_sqft',
+    'carpenter_kitchen_rft',
+    'mason_full_contract',
+    'mason_cubic_meter',
+    'painter_full_contract',
+    'electrician_point',
+    'electrician_fitting',
+    'electrician_cable_meter',
+    'tiling_sqft',
+    'pop_sqft',
+    'welder_kg',
+    'welder_ton',
+    'wp_sqft',
+    'wp_full_quote',
+    'labor_helper_day',
+    'labor_jcb_hour',
+    'tent_sqft',
+    'tent_per_item_day',
+    'tent_full_function',
+    'caterer_per_plate',
+    'caterer_full_function',
+    'event_per_function',
+    'event_full_package',
+    'makeup_per_function',
+    'makeup_full_package',
+  ].includes(activeMode.id);
 
   // Materials combo calculation (prefers AI 3-Way BOM raw material total when present)
   const comboPrice = contractor.recommendedMaterials?.reduce((acc, m) => acc + m.sellingPrice, 0) || 0;
@@ -170,18 +272,91 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   };
 
   const handleBookingSubmit = () => {
-    if (!workAddress.trim()) {
+    if (!workAddress.trim() || workAddress.trim().length < 5) {
       showAppAlert(
-        isHindi ? 'पता आवश्यक है' : 'Site Address Required',
-        isHindi ? 'कृपया कार्य स्थल का पूरा पता दर्ज करें।' : 'Please enter complete work site address.'
+        isHindi ? 'पता अनिवार्य है (*)' : 'Site Address Required (*)',
+        isHindi ? 'कृपया कार्य स्थल का पूरा पता (कम से कम 5 अक्षर) दर्ज करें।' : 'Please enter complete work site address.'
       );
       return;
     }
 
+    if (isQuoteInquiryMode && !description.trim()) {
+      showAppAlert(
+        isHindi ? 'काम का विवरण अनिवार्य (*)' : 'Work Description Required (*)',
+        isHindi
+          ? 'कोटेशन मंगाने (भाव पूछें) के लिए नीचे 4 नंबर में संक्षेप में लिखें कि क्या काम करवाना है।'
+          : 'Please describe the repair/job needed so contractor can quote accurately.'
+      );
+      return;
+    }
+
+    if (!isQuoteInquiryMode) {
+      for (const f of visibleSubFields) {
+        if (!f.mandatory) continue;
+        const val = (subValues[f.id] || '').trim();
+        if (!val) {
+          showAppAlert(
+            isHindi ? 'अनिवार्य जानकारी (*)' : 'Mandatory Field Missing (*)',
+            isHindi
+              ? `कृपया "${f.labelHi}" भरना अनिवार्य है।`
+              : `Please provide mandatory field: ${f.labelEn}.`
+          );
+          return;
+        }
+        if (f.type === 'number') {
+          const n = Number(val);
+          const minAllowed = f.min !== undefined ? f.min : 1;
+          if (!Number.isFinite(n) || n < minAllowed) {
+            showAppAlert(
+              isHindi ? 'अमान्य संख्या (*)' : 'Invalid Measurement (*)',
+              isHindi
+                ? `"${f.labelHi}" कम से कम ${minAllowed} (${f.unitHi || ''}) होनी चाहिए।`
+                : `${f.labelEn} must be at least ${minAllowed}.`
+            );
+            return;
+          }
+          if (f.max !== undefined && n > f.max) {
+            showAppAlert(
+              isHindi ? 'अधिकतम सीमा जाँच' : 'Limit Exceeded',
+              isHindi ? `"${f.labelHi}" अधिकतम ${f.max} हो सकती है।` : `${f.labelEn} cannot exceed ${f.max}.`
+            );
+            return;
+          }
+        }
+      }
+
+      // Cross-field check: caterer expected plates >= min guarantee
+      if (tradeProfile.id === 'caterer' && activeMode.id === 'caterer_per_plate') {
+        const minP = Number(subValues.minPlatesGuaranteed) || 0;
+        const expP = Number(subValues.expectedTotalPlates) || 0;
+        if (expP < minP) {
+          showAppAlert(
+            isHindi ? 'प्लेट गिनती जाँच (*)' : 'Plate Count Check (*)',
+            isHindi
+              ? `अनुमानित कुल प्लेट (${expP}) न्यूनतम प्लेट गारंटी (${minP}) से कम नहीं होनी चाहिए।`
+              : `Expected plates (${expP}) cannot be less than minimum guaranteed plates (${minP}).`
+          );
+          return;
+        }
+      }
+    }
+
+    const specsSummary = visibleSubFields
+      .map((f) => (subValues[f.id] ? `${f.labelHi}: ${subValues[f.id]}` : ''))
+      .filter(Boolean)
+      .join(' | ');
+    const fullDescription = [description.trim(), specsSummary ? `माप/विवरण: ${specsSummary}` : '']
+      .filter(Boolean)
+      .join('\n');
+
     onConfirmBooking({
       contractorId: contractor.id,
       contractorName: contractor.name,
-      bookingMode,
+      category: contractor.category,
+      bookingMode: isQuoteInquiryMode ? 'भाव_पूछें' : activeMode.backendBookingMode,
+      workType: isQuoteInquiryMode
+        ? `भाव पूछें (${tradeProfile.nameHindi})`
+        : `${tradeProfile.nameHindi} — ${activeMode.labelHi}`,
       paymentMethod,
       totalLaborAmount,
       finalMaterialAmount,
@@ -191,9 +366,18 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       escrowInsuranceFee: 0,
       contractorPlatformFee: platformFee,
       workAddress: workAddress.trim(),
-      description: description.trim(),
+      description: fullDescription,
       attachedMedia,
       includeMaterialsCombo,
+      strictValidation: true,
+      workMeasurementSpec: {
+        tradeId: tradeProfile.id,
+        modeId: activeMode.id,
+        modeLabel: activeMode.labelHi,
+        units,
+        subValues,
+        breakdownLineHi: tradeCalc.breakdownLineHi,
+      },
       date: new Date().toLocaleDateString('hi-IN'),
     });
   };
@@ -216,71 +400,77 @@ export const BookingModal: React.FC<BookingModalProps> = ({
           </View>
 
           <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
-            {/* Mode selection tabs */}
+            {/* 1. First-visible Trade-Priority Hiring Modes */}
             <Text style={styles.sectionLabel}>
-              {isHindi ? '1. हायरिंग मॉडल चुनें:' : '1. Choose Hiring Model:'}
+              {isHindi
+                ? `1. ${tradeProfile.nameHindi} — दर विकल्प चुनें`
+                : `1. Select Rate Model (${tradeProfile.nameEng})`}{' '}
+              <Text style={styles.reqStar}>*</Text>
             </Text>
-            <View style={styles.modeTabs}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.tradeModesScroll}
+            >
+              {tradeProfile.rateModes.map((mode) => {
+                const isSel = !isQuoteInquiryMode && activeMode.id === mode.id;
+                return (
+                  <TouchableOpacity
+                    key={mode.id}
+                    style={[styles.tradeModeChip, isSel && styles.tradeModeChipActive]}
+                    onPress={() => {
+                      setIsQuoteInquiryMode(false);
+                      setSelectedModeId(mode.id);
+                      setBookingMode(mode.backendBookingMode === 'दिहाड़ी' ? 'दिहाड़ी' : 'ठेका');
+                      setThekaUnits(String(mode.defaultUnits));
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.tradeModeChipText,
+                        isSel && styles.tradeModeChipTextActive,
+                      ]}
+                    >
+                      {isHindi ? mode.labelHi : mode.labelEn}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+
+              {/* Universal Quick Minor Repair / Ask Quote Tab */}
               <TouchableOpacity
-                style={[styles.modeTab, bookingMode === 'दिहाड़ी' && styles.modeTabActive]}
-                onPress={() => setBookingMode('दिहाड़ी')}
+                style={[styles.tradeModeChip, isQuoteInquiryMode && styles.tradeModeChipQuoteActive]}
+                onPress={() => {
+                  setIsQuoteInquiryMode(true);
+                  setBookingMode('भाव_पूछें');
+                }}
               >
-                <FontAwesome5
-                  name="calendar-day"
-                  size={13}
-                  color={bookingMode === 'दिहाड़ी' ? COLORS.primary : COLORS.textSecondary}
-                />
                 <Text
                   style={[
-                    styles.modeTabText,
-                    bookingMode === 'दिहाड़ी' && styles.modeTabTextActive,
+                    styles.tradeModeChipText,
+                    isQuoteInquiryMode && styles.tradeModeChipTextActive,
                   ]}
                 >
-                  {isHindi ? 'एक दिन के लिए बुक करें' : 'Book for a Day'}
+                  💬 {isHindi ? 'छोटा काम / भाव पूछें' : 'Ask Quote'}
                 </Text>
               </TouchableOpacity>
+            </ScrollView>
 
-              <TouchableOpacity
-                style={[styles.modeTab, bookingMode === 'भाव_पूछें' && styles.modeTabActive]}
-                onPress={() => setBookingMode('भाव_पूछें')}
-              >
-                <FontAwesome5
-                  name="comments"
-                  size={13}
-                  color={bookingMode === 'भाव_पूछें' ? COLORS.primary : COLORS.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.modeTabText,
-                    bookingMode === 'भाव_पूछें' && styles.modeTabTextActive,
-                  ]}
-                >
-                  {isHindi ? 'छोटा काम / भाव पूछें' : 'Minor / Ask Quote'}
-                </Text>
-              </TouchableOpacity>
+            {/* Research Benchmark Notice */}
+            {!isQuoteInquiryMode && (
+              <View style={styles.benchmarkHintCard}>
+                <Ionicons name="analytics-outline" size={14} color="#0369A1" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.benchmarkHintTitle}>
+                    {activeMode.fairRangeHi}
+                  </Text>
+                  <Text style={styles.benchmarkHintSub}>{activeMode.researchNoteHi}</Text>
+                </View>
+              </View>
+            )}
 
-              <TouchableOpacity
-                style={[styles.modeTab, bookingMode === 'ठेका' && styles.modeTabActive]}
-                onPress={() => setBookingMode('ठेका')}
-              >
-                <FontAwesome5
-                  name="file-contract"
-                  size={13}
-                  color={bookingMode === 'ठेका' ? COLORS.primary : COLORS.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.modeTabText,
-                    bookingMode === 'ठेका' && styles.modeTabTextActive,
-                  ]}
-                >
-                  {isHindi ? 'ठेका मॉडल' : 'Theka Unit'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Inputs based on Mode */}
-            {bookingMode === 'भाव_पूछें' ? (
+            {/* Inputs based on Selected Mode */}
+            {isQuoteInquiryMode ? (
               <View style={styles.cardBox}>
                 <Text style={styles.boxLabel}>
                   {isHindi ? 'छोटा काम / मरम्मत (जैसे नल वाशर, स्विच, छोटा फॉल्ट):' : 'Minor Work or Inspection:'}
@@ -326,78 +516,156 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                     : '💡 Pro visits your site and quotes fairly. Rate locks upon your acceptance.'}
                 </Text>
               </View>
-            ) : bookingMode === 'दिहाड़ी' ? (
-              <View style={styles.cardBox}>
-                <Text style={styles.boxLabel}>
-                  {isHindi ? 'कितने दिनों के लिए चाहिए?' : 'How many work days needed?'}
-                </Text>
-                <View style={styles.counterRow}>
-                  {['1', '2', '3', '5', '7'].map((d) => (
-                    <TouchableOpacity
-                      key={d}
-                      style={[styles.counterPill, daysCount === d && styles.counterPillActive]}
-                      onPress={() => setDaysCount(d)}
-                    >
-                      <Text
-                        style={[
-                          styles.counterText,
-                          daysCount === d && styles.counterTextActive,
-                        ]}
-                      >
-                        {d} {isHindi ? 'दिन' : 'Days'}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {/* Helper checkbox toggle */}
-                <TouchableOpacity
-                  style={styles.toggleRow}
-                  onPress={() => setIncludeHelper(!includeHelper)}
-                  activeOpacity={0.7}
-                >
-                  <MaterialIcons
-                    name={includeHelper ? 'check-box' : 'check-box-outline-blank'}
-                    size={22}
-                    color={COLORS.primary}
-                  />
-                  <View style={{ flex: 1, marginLeft: 8 }}>
-                    <Text style={styles.toggleTitle}>
-                      {isHindi
-                        ? `सहायक हेल्पर कारीगर जोड़ें (${contractor.helperRate ? `+₹${contractor.helperRate}/दिन` : 'भाव पूछें'})`
-                        : `Add Assistant Helper (${contractor.helperRate ? `+₹${contractor.helperRate}/day` : 'Ask Quote'})`}
-                    </Text>
-                    <Text style={styles.toggleSub}>
-                      {isHindi 
-                        ? 'भारी सामान उठाने व काम तेज़ी से पूरा करने के लिए'
-                        : 'For heavy lifting and 2x faster project completion'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              </View>
             ) : (
               <View style={styles.cardBox}>
-                <Text style={styles.boxLabel}>
-                  {isHindi 
-                    ? `अनुमानित कार्य दायरा (${contractor.unitLabel}):`
-                    : `Estimated Work Scope (${contractor.unitLabel}):`}
-                </Text>
-                <View style={styles.inputRow}>
-                  <TextInput
-                    style={styles.textInput}
-                    value={thekaUnits}
-                    onChangeText={setThekaUnits}
-                    keyboardType="numeric"
-                    placeholder="उदा. 150"
-                  />
-                  <Text style={styles.unitText}>{contractor.unitLabel}</Text>
+                {/* Daily Wage counter & Helper option if daily-like */}
+                {activeMode.isDailyLike && (
+                  <>
+                    <Text style={styles.boxLabel}>
+                      {isHindi ? 'कितने दिनों की दिहाड़ी चाहिए?' : 'How many work days needed?'}{' '}
+                      <Text style={styles.reqStar}>*</Text>
+                    </Text>
+                    <View style={styles.counterRow}>
+                      {['1', '2', '3', '5', '7'].map((d) => (
+                        <TouchableOpacity
+                          key={d}
+                          style={[styles.counterPill, daysCount === d && styles.counterPillActive]}
+                          onPress={() => setDaysCount(d)}
+                        >
+                          <Text
+                            style={[
+                              styles.counterText,
+                              daysCount === d && styles.counterTextActive,
+                            ]}
+                          >
+                            {d} {isHindi ? 'दिन' : 'Days'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    {tradeProfile.id !== 'labor' && (
+                      <TouchableOpacity
+                        style={styles.toggleRow}
+                        onPress={() => setIncludeHelper(!includeHelper)}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialIcons
+                          name={includeHelper ? 'check-box' : 'check-box-outline-blank'}
+                          size={22}
+                          color={COLORS.primary}
+                        />
+                        <View style={{ flex: 1, marginLeft: 8 }}>
+                          <Text style={styles.toggleTitle}>
+                            {isHindi
+                              ? `सहायक हेल्पर कारीगर जोड़ें (${contractor.helperRate ? `+₹${contractor.helperRate}/दिन` : '+₹550/दिन मानक'})`
+                              : `Add Assistant Helper (${contractor.helperRate ? `+₹${contractor.helperRate}/day` : '+₹550/day'})`}
+                          </Text>
+                          <Text style={styles.toggleSub}>
+                            {isHindi
+                              ? 'भारी सामान उठाने व काम तेज़ी से पूरा करने के लिए'
+                              : 'For heavy lifting and 2x faster project completion'}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                )}
+
+                {/* Standalone Quantity Input when mode isn't covered directly inside trade sub-fields */}
+                {!activeMode.isDailyLike && !subFieldsOwnQuantity && (
+                  <View style={{ marginBottom: 10 }}>
+                    <Text style={styles.boxLabel}>
+                      {isHindi
+                        ? `अनुमानित मात्रा (${activeMode.unitHi})`
+                        : `Estimated Quantity (${activeMode.unitEn})`}{' '}
+                      <Text style={styles.reqStar}>*</Text>
+                    </Text>
+                    <View style={styles.inputRow}>
+                      <TextInput
+                        style={styles.textInput}
+                        value={thekaUnits}
+                        onChangeText={setThekaUnits}
+                        keyboardType="numeric"
+                        placeholder={String(activeMode.defaultUnits)}
+                      />
+                      <Text style={styles.unitText}>{activeMode.unitHi}</Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* Conditional Trade-Specific Mandatory & Optional Fields */}
+                {visibleSubFields.map((field) => {
+                  const val = subValues[field.id] || '';
+                  return (
+                    <View key={field.id} style={styles.subFieldBlock}>
+                      <Text style={styles.subFieldLabel}>
+                        {isHindi ? field.labelHi : field.labelEn}
+                        {field.mandatory && <Text style={styles.reqStar}> * अनिवार्य</Text>}
+                      </Text>
+
+                      {field.type === 'select' && field.options ? (
+                        <View style={styles.selectPillsWrap}>
+                          {field.options.map((opt) => {
+                            const selected = val === opt.value;
+                            return (
+                              <TouchableOpacity
+                                key={opt.value}
+                                style={[
+                                  styles.selectOptPill,
+                                  selected && styles.selectOptPillActive,
+                                ]}
+                                onPress={() =>
+                                  setSubValues((prev) => ({ ...prev, [field.id]: opt.value }))
+                                }
+                              >
+                                <Text
+                                  style={[
+                                    styles.selectOptText,
+                                    selected && styles.selectOptTextActive,
+                                  ]}
+                                >
+                                  {isHindi ? opt.labelHi : opt.labelEn}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      ) : (
+                        <View style={styles.inputRow}>
+                          <TextInput
+                            style={[
+                              styles.textInput,
+                              field.type === 'text' && { fontSize: 13, fontWeight: '600' },
+                            ]}
+                            value={val}
+                            onChangeText={(txt) =>
+                              setSubValues((prev) => ({ ...prev, [field.id]: txt }))
+                            }
+                            keyboardType={field.type === 'number' ? 'numeric' : 'default'}
+                            placeholder={field.placeholderHi || ''}
+                          />
+                          {field.unitHi ? (
+                            <Text style={styles.unitText}>{field.unitHi}</Text>
+                          ) : null}
+                        </View>
+                      )}
+
+                      {field.helperNoteHi && (
+                        <Text style={styles.helpText}>💡 {field.helperNoteHi}</Text>
+                      )}
+                    </View>
+                  );
+                })}
+
+                <View style={styles.calcAppliedLine}>
+                  <Text style={styles.calcAppliedText}>
+                    📐 लागू दर: {tradeCalc.appliedRateLabel} ({tradeCalc.breakdownLineHi})
+                  </Text>
                 </View>
-                <Text style={styles.helpText}>
-                  * {isHindi ? 'कारीगर की तय दर:' : 'Pro unit rate:'} {contractor.contractUnitRate ? `₹${contractor.contractUnitRate} ${contractor.unitLabel}` : (isHindi ? 'भाव पूछें (साइट मुआयने पर तय)' : 'Ask Quote')}
-                </Text>
 
                 {/* Brick&Bolt Model: 3-Stage Milestone Escrow Protection */}
-                {grandTotal > 0 && (
+                {!activeMode.isDailyLike && grandTotal > 0 && (
                   <View style={styles.milestoneBox}>
                     <View style={styles.milestoneHeader}>
                       <Ionicons name="shield-checkmark" size={15} color="#059669" />
@@ -432,7 +700,8 @@ export const BookingModal: React.FC<BookingModalProps> = ({
             {/* Address */}
             <View style={styles.cardBox}>
               <Text style={styles.boxLabel}>
-                {isHindi ? '2. कार्य स्थल का पता (Site Address):' : '2. Work Site Address:'}
+                {isHindi ? '2. कार्य स्थल का पता (Site Address)' : '2. Work Site Address'}{' '}
+                <Text style={styles.reqStar}>*</Text>
               </Text>
               <TextInput
                 style={styles.addressInput}
@@ -557,7 +826,10 @@ export const BookingModal: React.FC<BookingModalProps> = ({
             {/* Work details */}
             <View style={styles.cardBox}>
               <Text style={styles.boxLabel}>
-                {isHindi ? '4. काम का संक्षिप्त विवरण (वैकल्पिक):' : '4. Work Notes (Optional):'}
+                {isHindi
+                  ? `4. काम का संक्षिप्त विवरण (${isQuoteInquiryMode ? 'अनिवार्य' : 'वैकल्पिक'}):`
+                  : '4. Work Notes:'}
+                {isQuoteInquiryMode && <Text style={styles.reqStar}> * अनिवार्य</Text>}
               </Text>
               <TextInput
                 style={styles.descInput}
@@ -801,11 +1073,9 @@ export const BookingModal: React.FC<BookingModalProps> = ({
               <View style={styles.preConfirmRow}>
                 <Text style={styles.preConfirmLabel}>काम का प्रकार:</Text>
                 <Text style={styles.preConfirmVal}>
-                  {bookingMode === 'भाव_पूछें'
+                  {isQuoteInquiryMode
                     ? 'छोटा काम / साइट मुआयना (भाव पूछें)'
-                    : bookingMode === 'दिहाड़ी'
-                    ? `${days} दिन दिहाड़ी शिफ्ट${includeHelper ? ' (+1 हेल्पर)' : ''}`
-                    : `${units} ${contractor.unitLabel} ठेका कार्य`}
+                    : `${activeMode.labelHi} — ${tradeCalc.breakdownLineHi}`}
                 </Text>
               </View>
 
@@ -1627,5 +1897,106 @@ const styles = StyleSheet.create({
     fontSize: 8.5,
     color: '#64748B',
     textAlign: 'center',
+  },
+  reqStar: {
+    color: '#DC2626',
+    fontWeight: '900',
+  },
+  tradeModesScroll: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingBottom: 10,
+  },
+  tradeModeChip: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+  },
+  tradeModeChipActive: {
+    backgroundColor: '#1E40AF',
+    borderColor: '#1E40AF',
+  },
+  tradeModeChipQuoteActive: {
+    backgroundColor: '#D97706',
+    borderColor: '#D97706',
+  },
+  tradeModeChipText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  tradeModeChipTextActive: {
+    color: '#FFFFFF',
+  },
+  benchmarkHintCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 7,
+    backgroundColor: '#E0F2FE',
+    borderRadius: 8,
+    padding: 9,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    marginBottom: 10,
+  },
+  benchmarkHintTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0369A1',
+  },
+  benchmarkHintSub: {
+    fontSize: 10,
+    color: '#0C4A6E',
+    marginTop: 1,
+  },
+  subFieldBlock: {
+    marginTop: 10,
+  },
+  subFieldLabel: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 5,
+  },
+  selectPillsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  selectOptPill: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  selectOptPillActive: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#2563EB',
+  },
+  selectOptText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  selectOptTextActive: {
+    color: '#1E40AF',
+    fontWeight: '800',
+  },
+  calcAppliedLine: {
+    backgroundColor: '#DCFCE7',
+    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    marginTop: 12,
+  },
+  calcAppliedText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#166534',
   },
 });

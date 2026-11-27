@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { VALID_CONTRACTOR_CATEGORIES } = require('../tradeRateRules');
 
 const PortfolioPhotoSchema = new mongoose.Schema({
   id: String,
@@ -52,7 +53,7 @@ const ContractorSchema = new mongoose.Schema({
   category: { 
     type: String, 
     required: true,
-    enum: ['plumber', 'electrician', 'carpenter', 'mason', 'painter', 'welder', 'tiling', 'general', 'caterer', 'cleaning', 'ac_repair', 'wedding_tent', 'wedding_makeup', 'event_dj', 'wedding_photo']
+    enum: VALID_CONTRACTOR_CATEGORIES,
   },
   specialtyHindi: { type: String, required: true },
   bio: { type: String, default: '' },
@@ -73,6 +74,8 @@ const ContractorSchema = new mongoose.Schema({
   helperRate: { type: Number, default: null },    // Nullable: null means "भाव पूछें"
   contractUnitRate: { type: Number, default: null }, // Nullable: null means "भाव पूछें"
   unitLabel: { type: String, default: 'प्रति काम' },
+  additionalRateCards: [{ title: String, rate: String }],
+  tradeRateSpec: { type: mongoose.Schema.Types.Mixed, default: {} },
   
   walletBalance: { type: Number, default: 0 }, // Verified wallet balance
   available: { type: Boolean, default: true },

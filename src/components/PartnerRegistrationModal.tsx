@@ -18,6 +18,11 @@ import { ApiService } from '../services/api';
 import { Language } from '../i18n/translations';
 import { showAppAlert } from '../utils/appAlert';
 import { useResponsive } from '../hooks/useResponsive';
+import {
+  ORDERED_15_TRADES,
+  getTradeRateProfile,
+  normalizeTradeCategory,
+} from '../data/tradeRateConfig';
 
 interface PartnerRegistrationModalProps {
   visible: boolean;
@@ -42,7 +47,7 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
   // STEP 1: Basic Info & Trade / Store
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
-  const [selectedTrade, setSelectedTrade] = useState('बढ़ई (Carpenter)');
+  const [selectedTrade, setSelectedTrade] = useState(ORDERED_15_TRADES[0].registrationLabelHi);
   const [storeName, setStoreName] = useState('');
   const [city, setCity] = useState('भोपाल');
   const [locality, setLocality] = useState('एमपी नगर');
@@ -55,7 +60,12 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
   const [aadhaarPhotoUrl, setAadhaarPhotoUrl] = useState('');
   const [isUploading, setIsUploading] = useState(false);
 
-  // STEP 3: Experience, Tools & Rate Card (Contractor) / Delivery Radius (Vendor)
+  // STEP 3: Experience, Tools & Dynamic 15-Trade Rate Card
+  const activeTradeProfile = getTradeRateProfile(selectedTrade);
+  const [selectedPrimaryModeId, setSelectedPrimaryModeId] = useState<string>(
+    ORDERED_15_TRADES[0].rateModes[0].id
+  );
+  const [tradeFieldValues, setTradeFieldValues] = useState<Record<string, string>>({});
   const [experienceYears, setExperienceYears] = useState('0');
   const [isTeamThekedar, setIsTeamThekedar] = useState(false);
   const [teamSize, setTeamSize] = useState('1');
@@ -63,9 +73,28 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
   const [dailyRate, setDailyRate] = useState('');
   const [helperRate, setHelperRate] = useState('');
   const [thekaRate, setThekaRate] = useState('');
-  const [thekaUnitLabel, setThekaUnitLabel] = useState('प्रति यूनिट / काम');
+  const [thekaUnitLabel, setThekaUnitLabel] = useState(ORDERED_15_TRADES[0].rateModes[0].unitHi);
   const [deliveryRadiusKm, setDeliveryRadiusKm] = useState('10');
   const [minFreeDeliveryAmount, setMinFreeDeliveryAmount] = useState('3000');
+
+  const handleSelectTradeOption = (tradeLabel: string) => {
+    setSelectedTrade(tradeLabel);
+    const prof = getTradeRateProfile(tradeLabel);
+    const firstMode = prof.rateModes[0];
+    setSelectedPrimaryModeId(firstMode.id);
+    setThekaUnitLabel(firstMode.unitHi);
+    setDailyRate('');
+    setHelperRate('');
+    setThekaRate('');
+    setTradeFieldValues({});
+  };
+
+  const handleTradeFieldChange = (fieldKey: string, val: string, mapsTo?: string) => {
+    setTradeFieldValues((prev) => ({ ...prev, [fieldKey]: val }));
+    if (mapsTo === 'dailyWageRate' || fieldKey === 'dailyWageRate') setDailyRate(val);
+    if (mapsTo === 'helperRate' || fieldKey === 'helperRate') setHelperRate(val);
+    if (mapsTo === 'contractUnitRate' || fieldKey === 'contractUnitRate') setThekaRate(val);
+  };
 
   // STEP 4: Bank Account & UPI Setup for Instant Escrow Payouts
   const [accountHolderName, setAccountHolderName] = useState('');
@@ -125,26 +154,101 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
   const handleNext = () => {
     const cleanPhone = phone.replace(/\D/g, '').slice(-10);
     if (currentStep === 1) {
-      if (!fullName.trim() || cleanPhone.length < 10) {
-        showAppAlert('अधूरी जानकारी', 'कृपया पूरा नाम और 10 अंकों का वैध मोबाइल नंबर अवश्य भरें।');
+      if (fullName.trim().length < 2) {
+        showAppAlert('अनिवार्य जानकारी (*)', 'कृपया अपना पूरा नाम (कम से कम 2 अक्षर) अवश्य दर्ज करें।');
+        return;
+      }
+      if (cleanPhone.length !== 10) {
+        showAppAlert('अनिवार्य जानकारी (*)', 'कृपया 10 अंकों का वैध भारतीय मोबाइल नंबर दर्ज करें।');
+        return;
+      }
+      if (partnerType === 'VENDOR' && storeName.trim().length < 2) {
+        showAppAlert('अनिवार्य जानकारी (*)', 'कृपया अपनी दुकान / फर्म का नाम दर्ज करें।');
+        return;
+      }
+      if (!city.trim() || !locality.trim()) {
+        showAppAlert('अनिवार्य जानकारी (*)', 'कृपया अपना शहर और कार्य क्षेत्र / इलाका दर्ज करें।');
         return;
       }
     } else if (currentStep === 2) {
       if (partnerType === 'CONTRACTOR') {
         const aadhaarDigits = aadhaarNumber.replace(/\D/g, '');
         if (aadhaarDigits.length !== 12) {
-          showAppAlert('KYC आवश्यक', 'सुरक्षा सत्यापन हेतु सही 12 अंकों का आधार नंबर दर्ज करें।');
+          showAppAlert('KYC अनिवार्य (*)', 'सुरक्षा सत्यापन हेतु सही 12 अंकों का आधार नंबर दर्ज करें।');
+          return;
+        }
+        if (!noCriminalRecord) {
+          showAppAlert('घोषणा अनिवार्य (*)', 'रजिस्ट्रेशन आगे बढ़ाने के लिए स्वच्छ पृष्ठभूमि घोषणा (Self Declaration) स्वीकार करना अनिवार्य है।');
+          return;
+        }
+      } else {
+        const gstClean = gstNumber.trim().toUpperCase();
+        const panClean = panNumber.trim().toUpperCase();
+        if (gstClean.length < 10 && panClean.length < 10) {
+          showAppAlert('व्यापार KYC अनिवार्य (*)', 'सप्लायर सत्यापन के लिए वैध GSTIN (15 अंक) अथवा PAN कार्ड नंबर दर्ज करें।');
           return;
         }
       }
-    } else if (currentStep === 3 && partnerType === 'CONTRACTOR') {
-      // SETU Rule: Blank rates stay null ("भाव पूछें"), only reject negative/invalid values!
-      if (
-        parseSafeOptionalRate(dailyRate) === 'INVALID' ||
-        parseSafeOptionalRate(helperRate) === 'INVALID' ||
-        parseSafeOptionalRate(thekaRate) === 'INVALID'
-      ) {
-        showAppAlert('अमान्य दर', 'दर केवल धनात्मक संख्या (> 0) होनी चाहिए या "भाव पूछें" हेतु खाली छोड़ें।');
+    } else if (currentStep === 3) {
+      if (partnerType === 'CONTRACTOR') {
+        if (!selectedPrimaryModeId) {
+          showAppAlert('दर तरीका अनिवार्य (*)', 'कृपया फॉर्म में सबसे पहले दिखने वाला अपना मुख्य दर तरीका चुनें।');
+          return;
+        }
+        for (const field of activeTradeProfile.contractorFields) {
+          const isMandatory =
+            Boolean(field.alwaysMandatory) ||
+            Boolean(field.mandatoryWhenModes && field.mandatoryWhenModes.includes(selectedPrimaryModeId));
+          const rawVal = (tradeFieldValues[field.key] || '').trim();
+
+          if (isMandatory && !rawVal) {
+            showAppAlert(
+              'अनिवार्य दर जानकारी (*)',
+              `"${field.labelHi.replace(' *', '')}" भरना इस श्रेणी/मोड के लिए अनिवार्य है।`
+            );
+            return;
+          }
+
+          if (rawVal && field.isNumeric) {
+            const num = Number(rawVal);
+            if (!Number.isFinite(num) || num <= 0) {
+              showAppAlert('अमान्य दर', `"${field.labelHi.replace(' *', '')}" केवल धनात्मक संख्या (> 0) होनी चाहिए।`);
+              return;
+            }
+            if (field.min !== undefined && num < field.min) {
+              showAppAlert('दर सीमा जाँच', `"${field.labelHi.replace(' *', '')}" कम से कम ${field.min} (${field.unitHi}) होनी चाहिए।`);
+              return;
+            }
+            if (field.max !== undefined && num > field.max) {
+              showAppAlert('दर सीमा जाँच', `"${field.labelHi.replace(' *', '')}" अधिकतम ${field.max} (${field.unitHi}) हो सकती है।`);
+              return;
+            }
+          }
+        }
+      } else {
+        const radiusNum = Number(deliveryRadiusKm);
+        if (!Number.isFinite(radiusNum) || radiusNum <= 0) {
+          showAppAlert('अनिवार्य जानकारी (*)', 'कृपया डिलीवरी दायरा (Km > 0) दर्ज करें।');
+          return;
+        }
+      }
+    } else if (currentStep === 4 && partnerType === 'CONTRACTOR') {
+      if (workPhotoTitle.trim().length < 3) {
+        showAppAlert('कार्य विवरण अनिवार्य (*)', 'ग्राहकों के भरोसे के लिए कम से कम 1 पिछले प्रोजेक्ट/काम का नाम लिखना अनिवार्य है।');
+        return;
+      }
+    } else if (currentStep === totalSteps) {
+      if (!accountHolderName.trim()) {
+        showAppAlert('बैंक विवरण अनिवार्य (*)', 'भुगतान प्राप्त करने के लिए खाताधारक का पूरा नाम दर्ज करें।');
+        return;
+      }
+      const hasValidUpi = upiId.trim().includes('@') && upiId.trim().length >= 5;
+      const hasValidBank = bankAccountNumber.replace(/\D/g, '').length >= 9 && ifscCode.trim().length === 11;
+      if (!hasValidUpi && !hasValidBank) {
+        showAppAlert(
+          'भुगतान माध्यम अनिवार्य (*)',
+          'कृपया वैध UPI ID (जैसे name@okaxis) अथवा पूरा बैंक खाता नंबर + 11-अंक IFSC कोड दर्ज करें।'
+        );
         return;
       }
     }
@@ -163,35 +267,47 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
     const parsedHelper = parseSafeOptionalRate(helperRate);
     const parsedTheka = parseSafeOptionalRate(thekaRate);
 
-    const helperCategory = (trade: string) => {
-      const t = trade.toLowerCase();
-      if (t.includes('carpenter') || t.includes('बढ़ई')) return 'carpenter';
-      if (t.includes('टाइल्स') || t.includes('tile')) return 'tiling';
-      if (t.includes('mason') || t.includes('मिस्त्री')) return 'mason';
-      if (t.includes('plumber') || t.includes('प्लंबर')) return 'plumber';
-      if (t.includes('ac') || t.includes('एसी')) return 'ac_repair';
-      if (t.includes('electrician') || t.includes('इलेक्ट्रीशियन')) return 'electrician';
-      if (t.includes('painter') || t.includes('पेंटर')) return 'painter';
-      if (t.includes('टेंट') || t.includes('डेकोर')) return 'wedding_tent';
-      if (t.includes('कैटरर') || t.includes('हलवाई')) return 'caterer';
-      if (t.includes('मेकअप')) return 'wedding_makeup';
-      if (t.includes('dj') || t.includes('डीजे')) return 'event_dj';
-      if (t.includes('फोटो') || t.includes('कैमरा')) return 'wedding_photo';
-      return 'general';
-    };
+    const activeMode =
+      activeTradeProfile.rateModes.find((m) => m.id === selectedPrimaryModeId) ||
+      activeTradeProfile.rateModes[0];
+    const resolvedCategory = normalizeTradeCategory(selectedTrade);
+
+    // Build structured additionalRateCards from all entered trade-specific fields
+    const additionalRateCards: { title: string; rate: string }[] = [];
+    for (const f of activeTradeProfile.contractorFields) {
+      const val = (tradeFieldValues[f.key] || '').trim();
+      if (!val || !f.cardTitleHi) continue;
+      if (f.key === 'materialBillPercent') {
+        additionalRateCards.push({ title: f.cardTitleHi, rate: `${val}% (बिल अनुसार)` });
+      } else if (f.isNumeric && !f.unitHi.includes('₹')) {
+        additionalRateCards.push({ title: f.cardTitleHi, rate: `${val} ${f.unitHi}` });
+      } else if (f.isNumeric) {
+        additionalRateCards.push({ title: f.cardTitleHi, rate: `₹${val} ${f.unitHi.replace('₹ ', '')}` });
+      } else {
+        additionalRateCards.push({ title: f.cardTitleHi, rate: val });
+      }
+    }
 
     const newPartner = {
       name: fullName.trim(),
       phone: cleanPhone,
       role: partnerType,
-      category: partnerType === 'VENDOR' ? 'general' : helperCategory(selectedTrade),
+      category: partnerType === 'VENDOR' ? 'general' : resolvedCategory,
       tradeOrShop: partnerType === 'CONTRACTOR' ? selectedTrade : storeName.trim() || `${fullName.trim()} हार्डवेयर स्टोर`,
       city: city.trim() || 'भोपाल',
       locality: locality.trim() || 'एमपी नगर',
+      primaryRateType: partnerType === 'CONTRACTOR' ? activeMode.primaryRateTypeLabel : 'थोक विक्रेता',
+      primaryRateMode: selectedPrimaryModeId,
       dailyWageRate: parsedDaily === 'INVALID' ? null : parsedDaily,
       helperRate: parsedHelper === 'INVALID' ? null : parsedHelper,
       contractUnitRate: parsedTheka === 'INVALID' ? null : parsedTheka,
-      unitLabel: thekaUnitLabel.trim() || 'प्रति काम',
+      unitLabel: (thekaUnitLabel || activeMode.unitHi).trim() || 'प्रति काम',
+      additionalRateCards,
+      tradeRateSpec: {
+        primaryModeId: selectedPrimaryModeId,
+        ...tradeFieldValues,
+      },
+      strictValidation: true,
       experienceYears: Math.max(0, parseInt(experienceYears, 10) || 0),
       isTeamThekedar,
       teamSize: isTeamThekedar ? Math.max(1, parseInt(teamSize, 10) || 4) : 1,
@@ -322,7 +438,9 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                   ग्राहक आपको इसी नाम और श्रेणी के आधार पर खोजेंगे।
                 </Text>
 
-                <Text style={styles.label}>आपका पूरा नाम (आधार के अनुसार):</Text>
+                <Text style={styles.label}>
+                  आपका पूरा नाम (आधार के अनुसार)<Text style={styles.reqStar}> *</Text>
+                </Text>
                 <TextInput
                   style={styles.input}
                   placeholder="उदा. रमेश कुमार शर्मा"
@@ -330,7 +448,9 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                   onChangeText={setFullName}
                 />
 
-                <Text style={styles.label}>मोबाइल नंबर (WhatsApp/OTP):</Text>
+                <Text style={styles.label}>
+                  मोबाइल नंबर (WhatsApp/OTP)<Text style={styles.reqStar}> *</Text>
+                </Text>
                 <View style={styles.phoneBox}>
                   <Text style={styles.prefix}>+91</Text>
                   <TextInput
@@ -345,43 +465,39 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
 
                 {partnerType === 'CONTRACTOR' ? (
                   <>
-                    <Text style={styles.label}>आपकी मुख्य कारीगरी (Primary Trade):</Text>
+                    <Text style={styles.label}>
+                      आपकी मुख्य कारीगरी (सभी 15+ श्रेणियाँ)<Text style={styles.reqStar}> *</Text>
+                    </Text>
                     <View style={styles.tradeGrid}>
-                      {[
-                        'बढ़ई (Carpenter)',
-                        'राजमिस्त्री (Mason)',
-                        'पेंटर (Painter)',
-                        'इलेक्ट्रीशियन',
-                        'प्लंबर (Plumber)',
-                        'AC रिपेयर & सर्विस',
-                        'टाइल्स & मार्बल',
-                        'वेडिंग टेंट & डेकोर',
-                        'हलवाई & कैटरिंग',
-                        'वेडिंग फोटोग्राफर',
-                      ].map((trade) => (
-                        <TouchableOpacity
-                          key={trade}
-                          style={[
-                            styles.tradePill,
-                            selectedTrade === trade && styles.tradePillActive,
-                          ]}
-                          onPress={() => setSelectedTrade(trade)}
-                        >
-                          <Text
+                      {ORDERED_15_TRADES.map((tr) => {
+                        const trade = tr.registrationLabelHi;
+                        return (
+                          <TouchableOpacity
+                            key={tr.id}
                             style={[
-                              styles.tradePillText,
-                              selectedTrade === trade && styles.tradePillTextActive,
+                              styles.tradePill,
+                              selectedTrade === trade && styles.tradePillActive,
                             ]}
+                            onPress={() => handleSelectTradeOption(trade)}
                           >
-                            {trade}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
+                            <Text
+                              style={[
+                                styles.tradePillText,
+                                selectedTrade === trade && styles.tradePillTextActive,
+                              ]}
+                            >
+                              {trade}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
                     </View>
                   </>
                 ) : (
                   <>
-                    <Text style={styles.label}>दुकान का पूरा नाम (Shop/Firm Name):</Text>
+                    <Text style={styles.label}>
+                      दुकान का पूरा नाम (Shop/Firm Name)<Text style={styles.reqStar}> *</Text>
+                    </Text>
                     <TextInput
                       style={styles.input}
                       placeholder="उदा. गुप्ता हार्डवेयर & बिल्डिंग मैटेरियल"
@@ -393,11 +509,15 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
 
                 <View style={styles.row}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>शहर (City):</Text>
+                    <Text style={styles.label}>
+                      शहर (City)<Text style={styles.reqStar}> *</Text>
+                    </Text>
                     <TextInput style={styles.input} value={city} onChangeText={setCity} />
                   </View>
                   <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={styles.label}>कार्य क्षेत्र / इलाका:</Text>
+                    <Text style={styles.label}>
+                      कार्य क्षेत्र / इलाका<Text style={styles.reqStar}> *</Text>
+                    </Text>
                     <TextInput style={styles.input} value={locality} onChangeText={setLocality} />
                   </View>
                 </View>
@@ -409,12 +529,14 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
               <View>
                 <Text style={styles.stepHeader}>चरण 2: सरकारी पहचान & सुरक्षा सत्यापन (KYC)</Text>
                 <Text style={styles.stepHint}>
-                  सुरक्षित भुगतानों और ग्राहकों के भरोसे के लिए KYC अनिवार्य है।
+                  सुरक्षित भुगतानों और ग्राहकों के भरोसे के लिए लाल * वाले फील्ड अनिवार्य हैं।
                 </Text>
 
                 {partnerType === 'CONTRACTOR' ? (
                   <>
-                    <Text style={styles.label}>12 अंकों का आधार नंबर (Aadhaar Number):</Text>
+                    <Text style={styles.label}>
+                      12 अंकों का आधार नंबर (Aadhaar Number)<Text style={styles.reqStar}> *</Text>
+                    </Text>
                     <TextInput
                       style={styles.input}
                       placeholder="XXXX-XXXX-XXXX"
@@ -479,13 +601,15 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                       />
                       <Text style={styles.declarationText}>
                         मैं प्रमाणित करता हूँ कि मेरे विरुद्ध कोई आपराधिक मामला लंबित नहीं है और मेरा
-                        व्यवहार स्वच्छ है। (Self Declaration)
+                        व्यवहार स्वच्छ है। (Self Declaration)<Text style={styles.reqStar}> * अनिवार्य</Text>
                       </Text>
                     </View>
                   </>
                 ) : (
                   <>
-                    <Text style={styles.label}>GSTIN नंबर (GST Number):</Text>
+                    <Text style={styles.label}>
+                      GSTIN नंबर (15 अंक) अथवा नीचे PAN दर्ज करें<Text style={styles.reqStar}> *</Text>
+                    </Text>
                     <TextInput
                       style={styles.input}
                       placeholder="09AAACG1234F1Z5 (यदि कम्पोजिट है तो पैन दें)"
@@ -564,51 +688,98 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                       </View>
                     )}
 
-                    {/* Rates Inputs */}
+                    {/* Rates Inputs: Dynamic Trade-First Schema */}
                     <View style={styles.rateCardInputBox}>
-                      <Text style={styles.rateBoxTitle}>💰 आपका डिजिटल रेट-कार्ड:</Text>
+                      <Text style={styles.rateBoxTitle}>
+                        💰 {activeTradeProfile.nameHindi} — डिजिटल रेट-कार्ड (* अनिवार्य):
+                      </Text>
 
-                      <View style={styles.rateRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.rateFieldLabel}>1 दिन की दिहाड़ी (8 घंटे):</Text>
-                          <TextInput
-                            style={styles.rateInput}
-                            placeholder="₹ 950"
-                            keyboardType="numeric"
-                            value={dailyRate}
-                            onChangeText={setDailyRate}
-                          />
-                        </View>
-                        <View style={{ flex: 1, marginLeft: 10 }}>
-                          <Text style={styles.rateFieldLabel}>हेल्पर मजदूरी (/दिन):</Text>
-                          <TextInput
-                            style={styles.rateInput}
-                            placeholder="₹ 550"
-                            keyboardType="numeric"
-                            value={helperRate}
-                            onChangeText={setHelperRate}
-                          />
-                        </View>
+                      {/* Research-backed Fair Benchmark Tip */}
+                      <View style={styles.researchTipBanner}>
+                        <Ionicons name="bulb-outline" size={14} color="#92400E" />
+                        <Text style={styles.researchTipText}>
+                          {activeTradeProfile.researchSummaryHi}
+                        </Text>
                       </View>
 
-                      <View style={{ marginTop: 8 }}>
-                        <Text style={styles.rateFieldLabel}>मुख्य ठेका दर (Unit Rate):</Text>
-                        <View style={styles.thekaRow}>
-                          <TextInput
-                            style={[styles.rateInput, { width: 100 }]}
-                            placeholder="₹ 350"
-                            keyboardType="numeric"
-                            value={thekaRate}
-                            onChangeText={setThekaRate}
-                          />
-                          <TextInput
-                            style={[styles.rateInput, { flex: 1, marginLeft: 8 }]}
-                            placeholder="यूनिट उदा. प्रति sq.ft या शीट"
-                            value={thekaUnitLabel}
-                            onChangeText={setThekaUnitLabel}
-                          />
-                        </View>
+                      {/* 1. First-visible Priority Rate Mode Selector */}
+                      <Text style={styles.rateFieldLabel}>
+                        ग्राहक फॉर्म में सबसे पहले दिखने वाला आपका मुख्य दर विकल्प चुनें
+                        <Text style={styles.reqStar}> *</Text>
+                      </Text>
+                      <View style={styles.modeChipsWrap}>
+                        {activeTradeProfile.rateModes.map((mode) => {
+                          const isSelected = selectedPrimaryModeId === mode.id;
+                          return (
+                            <TouchableOpacity
+                              key={mode.id}
+                              style={[styles.modeChip, isSelected && styles.modeChipActive]}
+                              onPress={() => {
+                                setSelectedPrimaryModeId(mode.id);
+                                setThekaUnitLabel(mode.unitHi);
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.modeChipText,
+                                  isSelected && styles.modeChipTextActive,
+                                ]}
+                              >
+                                {mode.labelHi}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
                       </View>
+
+                      {(() => {
+                        const selMode =
+                          activeTradeProfile.rateModes.find((m) => m.id === selectedPrimaryModeId) ||
+                          activeTradeProfile.rateModes[0];
+                        return (
+                          <View style={styles.modeFairHintBox}>
+                            <Text style={styles.modeFairRangeText}>
+                              📊 बाजार मानक ({selMode.labelHi}): {selMode.fairRangeHi}
+                            </Text>
+                            <Text style={styles.modeResearchSub}>{selMode.researchNoteHi}</Text>
+                          </View>
+                        );
+                      })()}
+
+                      {/* Dynamic Trade-Specific Rate Entries */}
+                      {activeTradeProfile.contractorFields.map((field) => {
+                        const isMandatory =
+                          Boolean(field.alwaysMandatory) ||
+                          Boolean(
+                            field.mandatoryWhenModes &&
+                              field.mandatoryWhenModes.includes(selectedPrimaryModeId)
+                          );
+                        const val = tradeFieldValues[field.key] || '';
+                        return (
+                          <View key={field.key} style={styles.dynamicRateFieldWrap}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <Text style={styles.rateFieldLabel}>
+                                {field.labelHi.replace(' *', '')}
+                                {isMandatory && <Text style={styles.reqStar}> * अनिवार्य</Text>}
+                              </Text>
+                              <Text style={styles.rateUnitPill}>{field.unitHi}</Text>
+                            </View>
+                            <Text style={styles.rateFieldSub}>{field.subLabelHi}</Text>
+                            <TextInput
+                              style={[
+                                styles.rateInput,
+                                isMandatory && !val.trim() && styles.rateInputMandatoryHighlight,
+                              ]}
+                              placeholder={field.placeholder}
+                              keyboardType={field.isNumeric ? 'numeric' : 'default'}
+                              value={val}
+                              onChangeText={(txt) =>
+                                handleTradeFieldChange(field.key, txt, field.mapsToColumn)
+                              }
+                            />
+                          </View>
+                        );
+                      })}
                     </View>
                   </>
                 ) : (
@@ -648,7 +819,9 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                   Upwork / Urban Company की तरह ग्राहक आपके काम की तस्वीरें देखकर ही बड़ा ठेका देंगे।
                 </Text>
 
-                <Text style={styles.label}>हाल ही में किए गए प्रोजेक्ट का नाम:</Text>
+                <Text style={styles.label}>
+                  हाल ही में किए गए प्रोजेक्ट का नाम<Text style={styles.reqStar}> * अनिवार्य</Text>
+                </Text>
                 <TextInput
                   style={styles.input}
                   placeholder="उदा. लक्ज़री 10x8 मॉड्यूलर किचन - सिविल लाइन्स"
@@ -716,7 +889,9 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                   काम पूरा होते ही एस्क्रो से पैसा सीधे इस बैंक खाते या UPI पर ट्रांसफर होगा।
                 </Text>
 
-                <Text style={styles.label}>खाताधारक का नाम (Account Holder Name):</Text>
+                <Text style={styles.label}>
+                  खाताधारक का नाम (Account Holder Name)<Text style={styles.reqStar}> *</Text>
+                </Text>
                 <TextInput
                   style={styles.input}
                   placeholder="उदा. रमेश कुमार शर्मा"
@@ -724,7 +899,7 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                   onChangeText={setAccountHolderName}
                 />
 
-                <Text style={styles.label}>बैंक खाता संख्या (Bank Account Number):</Text>
+                <Text style={styles.label}>बैंक खाता संख्या (या नीचे UPI ID दर्ज करें)<Text style={styles.reqStar}> *</Text></Text>
                 <TextInput
                   style={styles.input}
                   placeholder="11-16 अंकों का खाता संख्या"
@@ -735,7 +910,7 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
 
                 <View style={styles.row}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>IFSC कोड:</Text>
+                    <Text style={styles.label}>IFSC कोड (11 अंक):</Text>
                     <TextInput
                       style={styles.input}
                       placeholder="SBIN0001234"
@@ -745,7 +920,7 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                     />
                   </View>
                   <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={styles.label}>UPI ID (GPay / PhonePe):</Text>
+                    <Text style={styles.label}>UPI ID (GPay / PhonePe)<Text style={styles.reqStar}> *</Text></Text>
                     <TextInput
                       style={styles.input}
                       placeholder="name@okaxis"
@@ -1113,5 +1288,92 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '800',
+  },
+  reqStar: {
+    color: '#DC2626',
+    fontWeight: '900',
+  },
+  researchTipBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 8,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    marginBottom: 10,
+  },
+  researchTipText: {
+    flex: 1,
+    fontSize: 10.5,
+    color: '#78350F',
+    lineHeight: 15,
+    fontWeight: '600',
+  },
+  modeChipsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 8,
+  },
+  modeChip: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  modeChipActive: {
+    backgroundColor: '#1E40AF',
+    borderColor: '#1E40AF',
+  },
+  modeChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  modeChipTextActive: {
+    color: '#FFFFFF',
+  },
+  modeFairHintBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 6,
+    padding: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#0284C7',
+    marginBottom: 10,
+  },
+  modeFairRangeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0369A1',
+  },
+  modeResearchSub: {
+    fontSize: 10,
+    color: '#475569',
+    marginTop: 2,
+  },
+  dynamicRateFieldWrap: {
+    marginTop: 10,
+  },
+  rateUnitPill: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#1E40AF',
+    backgroundColor: '#DBEAFE',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  rateFieldSub: {
+    fontSize: 9.5,
+    color: '#64748B',
+    marginBottom: 4,
+  },
+  rateInputMandatoryHighlight: {
+    borderColor: '#FCA5A5',
+    backgroundColor: '#FFFBFB',
   },
 });

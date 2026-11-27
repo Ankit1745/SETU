@@ -38,6 +38,11 @@ const {
   getLearnedPromptHints,
   getLearningInsightsSnapshot,
 } = require('./aiLearningEngine');
+const {
+  mapTradeToCanonicalCategory,
+  validateContractorTradeRates,
+  validateBookingMeasurements,
+} = require('./tradeRateRules');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -627,22 +632,7 @@ function deterministicPromptSeed(str = '') {
 
 // Helper to map Hindi trade string to standard category enum
 function mapTradeToCategory(trade = '') {
-  const t = String(trade || '').toLowerCase();
-  if (t.includes('carpenter') || t.includes('बढ़ई')) return 'carpenter';
-  if (t.includes('टाइल') || t.includes('tile') || t.includes('tiling') || t.includes('मार्बल')) return 'tiling';
-  if (t.includes('वेल्ड') || t.includes('weld') || t.includes('गेट') || t.includes('फैब्रिकेटर') || t.includes('लोहा')) return 'welder';
-  if (t.includes('mason') || t.includes('मिस्त्री') || t.includes('राजमिस्त्री') || t.includes('सिविल')) return 'mason';
-  if (t.includes('plumber') || t.includes('प्लंबर') || t.includes('सेनेटरी')) return 'plumber';
-  if (t.includes('ac') || t.includes('एसी') || t.includes('कंप्रेसर') || t.includes('कूलिंग')) return 'ac_repair';
-  if (t.includes('electrician') || t.includes('इलेक्ट्रीशियन') || t.includes('बिजली') || t.includes('वायरिंग')) return 'electrician';
-  if (t.includes('painter') || t.includes('पेंटर') || t.includes('रंगाई') || t.includes('पुट्टी')) return 'painter';
-  if (t.includes('टेंट') || t.includes('डेकोर')) return 'wedding_tent';
-  if (t.includes('कैटरर') || t.includes('हलवाई')) return 'caterer';
-  if (t.includes('मेकअप') || t.includes('ब्यूटी')) return 'wedding_makeup';
-  if (t.includes('dj') || t.includes('डीजे')) return 'event_dj';
-  if (t.includes('फोटो') || t.includes('कैमरा')) return 'wedding_photo';
-  if (t.includes('सफाई') || t.includes('cleaning')) return 'cleaning';
-  return 'general';
+  return mapTradeToCanonicalCategory(trade);
 }
 
 // Connect to MongoDB
@@ -1234,6 +1224,50 @@ app.post('/api/partners/register', optionalAuth, aiRateLimiter('partner_register
     const helperRate = helperRes.value;
     const contractUnitRate = unitRes.value;
     const expYears = Math.min(70, Math.max(0, Number(partnerData.experienceYears) || 0));
+    const strictValidation = Boolean(partnerData.strictValidation);
+
+    if (strictValidation) {
+      if (!partnerData.name || String(partnerData.name).trim().length < 2) {
+        return res.status(400).json({ error: 'पार्टनर का पूरा नाम अनिवार्य है।' });
+      }
+      if (targetRole === 'CONTRACTOR') {
+        const aadhaarDigits = String(partnerData.aadhaarNumber || '').replace(/\D/g, '');
+        if (aadhaarDigits.length !== 12) {
+          return res.status(400).json({ error: 'कारीगर KYC के लिए 12 अंकों का वैध आधार नंबर अनिवार्य है।' });
+        }
+        if (partnerData.noCriminalRecord === false) {
+          return res.status(400).json({ error: 'स्वच्छ पृष्ठभूमि स्व-घोषणा स्वीकार करना अनिवार्य है।' });
+        }
+        if (!partnerData.accountHolderName || (!partnerData.upiId && (!partnerData.bankAccount || !partnerData.ifscCode))) {
+          return res.status(400).json({ error: 'बैंक खाताधारक नाम व भुगतान हेतु UPI ID या बैंक+IFSC अनिवार्य है।' });
+        }
+      }
+    }
+
+    if (targetRole === 'CONTRACTOR') {
+      const tradeRateCheck = validateContractorTradeRates(category, partnerData, strictValidation);
+      if (!tradeRateCheck.ok) {
+        return res.status(400).json({ error: tradeRateCheck.error });
+      }
+    }
+
+    const cleanAdditionalRateCards = Array.isArray(partnerData.additionalRateCards)
+      ? partnerData.additionalRateCards
+          .slice(0, 12)
+          .filter((rc) => rc && typeof rc.title === 'string' && typeof rc.rate === 'string')
+          .map((rc) => ({ title: asStr(rc.title, 80).trim(), rate: asStr(rc.rate, 80).trim() }))
+      : [];
+
+    const rawTradeRateSpec =
+      partnerData.tradeRateSpec && typeof partnerData.tradeRateSpec === 'object'
+        ? partnerData.tradeRateSpec
+        : {};
+    const cleanTradeRateSpec = {};
+    for (const [k, v] of Object.entries(rawTradeRateSpec).slice(0, 20)) {
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+        cleanTradeRateSpec[asStr(String(k), 40)] = typeof v === 'string' ? asStr(v, 160).trim() : v;
+      }
+    }
 
     let savedUser = null;
     let savedContractor = null;
@@ -1309,11 +1343,13 @@ app.post('/api/partners/register', optionalAuth, aiRateLimiter('partner_register
           distance: '0.8 km दूर',
           etaMinutes: 20,
           isQuickAvailable: true,
-          primaryRateType: asStr(partnerData.unitLabel || 'दिहाड़ी', 60),
+          primaryRateType: asStr(partnerData.primaryRateType || partnerData.unitLabel || 'दिहाड़ी', 60),
           dailyWageRate,
           helperRate,
           contractUnitRate,
           unitLabel: asStr(partnerData.unitLabel || 'प्रति काम', 60),
+          additionalRateCards: cleanAdditionalRateCards,
+          tradeRateSpec: cleanTradeRateSpec,
           walletBalance: 0,
           available: true,
           phone: cleanPhone,
@@ -1412,10 +1448,13 @@ app.post('/api/partners/register', optionalAuth, aiRateLimiter('partner_register
           experienceYears: expYears,
           jobsCompleted: 0,
           verified: false,
+          primaryRateType: asStr(partnerData.primaryRateType || partnerData.unitLabel || 'दिहाड़ी', 60),
           dailyWageRate,
           helperRate,
           contractUnitRate,
           unitLabel: asStr(partnerData.unitLabel || 'प्रति काम', 60),
+          additionalRateCards: cleanAdditionalRateCards,
+          tradeRateSpec: cleanTradeRateSpec,
           available: true,
           phone: cleanPhone,
           phoneMasked: `+91 ${cleanPhone.slice(0, 2)}XXX-XX${cleanPhone.slice(-3)}`,
@@ -1576,6 +1615,21 @@ app.post('/api/contractors/:id/profile', requireAuth, async (req, res) => {
   if (typeof rawBody.specialtyHindi === 'string') updates.specialtyHindi = asStr(rawBody.specialtyHindi, 160).trim();
   if (typeof rawBody.bio === 'string') updates.bio = asStr(rawBody.bio, 500).trim();
   if (typeof rawBody.available === 'boolean') updates.available = rawBody.available;
+  if (Array.isArray(rawBody.additionalRateCards)) {
+    updates.additionalRateCards = rawBody.additionalRateCards
+      .slice(0, 12)
+      .filter((rc) => rc && typeof rc.title === 'string' && typeof rc.rate === 'string')
+      .map((rc) => ({ title: asStr(rc.title, 80).trim(), rate: asStr(rc.rate, 80).trim() }));
+  }
+  if (rawBody.tradeRateSpec && typeof rawBody.tradeRateSpec === 'object') {
+    const cleanSpec = {};
+    for (const [k, v] of Object.entries(rawBody.tradeRateSpec).slice(0, 20)) {
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+        cleanSpec[asStr(String(k), 40)] = typeof v === 'string' ? asStr(v, 160).trim() : v;
+      }
+    }
+    updates.tradeRateSpec = cleanSpec;
+  }
   if (Array.isArray(rawBody.skills)) {
     updates.skills = rawBody.skills.slice(0, 12).map((s) => asStr(s, 60).trim()).filter(Boolean);
   }
@@ -1610,6 +1664,14 @@ app.post('/api/contractors/:id/profile', requireAuth, async (req, res) => {
       if (!isContractorOwner(existing)) {
         return res.status(403).json({ error: '⛔ अस्वीकृत: आप केवल अपनी स्वयं की प्रोफाइल और दरें अपडेट कर सकते हैं।' });
       }
+      const tradeCheck = validateContractorTradeRates(
+        existing.category,
+        { ...existing.toObject(), ...updates, tradeRateSpec: updates.tradeRateSpec || existing.tradeRateSpec },
+        Boolean(rawBody.strictValidation)
+      );
+      if (!tradeCheck.ok) {
+        return res.status(400).json({ error: tradeCheck.error });
+      }
       Object.assign(existing, updates);
       await existing.save();
       return res.json({ success: true, message: 'रेट कार्ड व प्रोफाइल सफलतापूर्वक अपडेट हुई।', contractor: existing });
@@ -1619,6 +1681,14 @@ app.post('/api/contractors/:id/profile', requireAuth, async (req, res) => {
       if (!c) return res.status(404).json({ error: 'कारीगर रिकॉर्ड नहीं मिला।' });
       if (!isContractorOwner(c)) {
         return res.status(403).json({ error: '⛔ अस्वीकृत: आप केवल अपनी स्वयं की प्रोफाइल और दरें अपडेट कर सकते हैं।' });
+      }
+      const tradeCheck = validateContractorTradeRates(
+        c.category,
+        { ...c, ...updates, tradeRateSpec: updates.tradeRateSpec || c.tradeRateSpec },
+        Boolean(rawBody.strictValidation)
+      );
+      if (!tradeCheck.ok) {
+        return res.status(400).json({ error: tradeCheck.error });
       }
       Object.assign(c, updates);
       writeLocalDb(localData);
@@ -1761,6 +1831,10 @@ app.post('/api/bookings', requireAuth, async (req, res) => {
     if (!Number.isFinite(labor) || labor < 0 || !Number.isFinite(material) || material < 0) {
       return res.status(400).json({ error: 'बुकिंग की राशि नकारात्मक या अमान्य नहीं हो सकती।' });
     }
+    const measCheck = validateBookingMeasurements(req.body || {});
+    if (!measCheck.ok) {
+      return res.status(400).json({ error: measCheck.error });
+    }
     const safeMode = ['दिहाड़ी', 'ठेका', 'क्विक रिपेयर', 'भाव_पूछें'].includes(bookingMode) ? bookingMode : 'दिहाड़ी';
     const safePayment = ['CASH', 'ONLINE_ESCROW'].includes(paymentMethod) ? paymentMethod : 'CASH';
 
@@ -1787,11 +1861,13 @@ app.post('/api/bookings', requireAuth, async (req, res) => {
       contractorId: asStr(contractorId || 'c1', 80).trim(),
       contractorName: asStr(contractorName || 'SETU कारीगर', 120).trim(),
       contractorPhone: asStr(contractorPhone, 20).trim(),
+      category: asStr(req.body.category || '', 60).trim(),
       bookingMode: safeMode,
       paymentMethod: safePayment,
       contractorPlatformFee,
       workType: asStr(workType || 'निर्माण कार्य', 180).trim(),
       workAddress: asStr(workAddress || 'भोपाल, मध्य प्रदेश', 240).trim(),
+      workMeasurementSpec: req.body.workMeasurementSpec && typeof req.body.workMeasurementSpec === 'object' ? req.body.workMeasurementSpec : null,
       totalLaborAmount: labor,
       finalMaterialAmount: material,
       grandTotal,

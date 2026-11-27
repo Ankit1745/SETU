@@ -36,12 +36,14 @@ const BookingSchema = new mongoose.Schema({
   contractorId: { type: String, required: true },
   contractorName: { type: String, required: true },
   contractorPhone: { type: String, default: '' },
+  category: { type: String, default: '' },
   bookingMode: { type: String, enum: ['दिहाड़ी', 'ठेका', 'क्विक रिपेयर', 'भाव_पूछें'], default: 'दिहाड़ी' },
   paymentMethod: { type: String, enum: ['CASH', 'ONLINE_ESCROW'], default: 'CASH' },
   paymentStatus: { type: String, enum: ['PENDING', 'ADVANCE_PAID', 'FULLY_PAID', 'REFUNDED'], default: 'PENDING' },
   contractorPlatformFee: { type: Number, default: 35 }, // Cash: flat ₹35, Online: 5%
   workType: String,
   workAddress: { type: String, required: true },
+  workMeasurementSpec: { type: mongoose.Schema.Types.Mixed, default: null },
   
   // Rate & Financials
   totalLaborAmount: { type: Number, required: true },

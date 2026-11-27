@@ -385,6 +385,7 @@ export default function App() {
       customerName: newJob.customerName,
       contractorName: targetName,
       contractorId: bookingDetails.contractorId || 'c1',
+      category: bookingDetails.category || '',
       workType: workTitle,
       workAddress: addressText,
       bookingMode: ['दिहाड़ी', 'ठेका', 'क्विक रिपेयर', 'भाव_पूछें'].includes(modeLabel) ? modeLabel : 'दिहाड़ी',
@@ -393,6 +394,8 @@ export default function App() {
       finalMaterialAmount: Math.max(0, Number(bookingDetails.finalMaterialAmount) || 0),
       escrowAdvanceToken: bookingDetails.escrowAdvanceToken || 0,
       description: newJob.description,
+      strictValidation: Boolean(bookingDetails.strictValidation),
+      workMeasurementSpec: bookingDetails.workMeasurementSpec || null,
     });
     if (res && !res.success && res.status === 401) {
       showAppAlert('लॉगिन आवश्यक', 'कृपया लाइव बुकिंग सेव करने के लिए पुनः लॉगिन करें।');

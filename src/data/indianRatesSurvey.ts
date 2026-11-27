@@ -158,4 +158,113 @@ export const INDIAN_RATES_SURVEY: TradeRateStandard[] = [
       'पुट्टी की पहली और दूसरी परत के बीच कम से कम 6 घंटे का अंतराल रखें।',
     ],
   },
+  {
+    tradeId: 'false_ceiling',
+    tradeNameHindi: 'POP / फॉल्स सीलिंग वाला',
+    tradeNameEng: 'POP & False Ceiling',
+    commonUnits: ['प्रति Sq.Ft (मुख्य सपाट छत)', 'प्रति रनिंग फुट (कोव, स्लॉट & पेलमेट)'],
+    benchmarksByRegion: [
+      {
+        region: 'पूरे भारत का मानक रेट',
+        dailyWageMaster: '₹950 - ₹1,200 / दिन',
+        dailyWageHelper: '₹550 - ₹650 / दिन',
+        contractUnitRates: [
+          { unit: 'मुख्य जिप्सम / POP छत', range: '₹75 - ₹135 / sq.ft', note: '0.5mm GI फ्रेम + 12.5mm बोर्ड' },
+          { unit: 'कोव लाइट, स्लॉट & पर्दा पेलमेट', range: '₹65 - ₹120 / रनिंग ft', note: 'सीलिंग क्षेत्र से अलग गिनती' },
+        ],
+      },
+    ],
+    fairPricingTips: ['हमेशा 0.5mm या उससे मोटा जिंक कोटेड GI चैनल व पेरीमीटर लगवाएं ताकि छत न लटके।'],
+  },
+  {
+    tradeId: 'welder',
+    tradeNameHindi: 'सरिया बाँधने वाला / ग्रिल फैब्रिकेटर',
+    tradeNameEng: 'Rebar Binder & Fabricator',
+    commonUnits: ['प्रति किलो (सरिया लेबर या तैयार ग्रिल)', 'प्रति टन (TMT सरिया)', 'दिहाड़ी'],
+    benchmarksByRegion: [
+      {
+        region: 'पूरे भारत का मानक रेट',
+        dailyWageMaster: '₹850 - ₹1,100 / दिन',
+        dailyWageHelper: '₹550 - ₹650 / दिन',
+        contractUnitRates: [
+          { unit: 'सरिया कटिंग व बाँधने की मजदूरी', range: '₹5 - ₹8 / kg (या ₹5,000 - ₹7,500 / टन)', note: 'केवल लेबर रेट' },
+          { unit: 'तैयार MS ग्रिल / गेट सप्लाई व फिटिंग', range: '₹95 - ₹135 / kg', note: 'मटेरियल + प्राइमर + फिटिंग (अलग एंट्री)' },
+        ],
+      },
+    ],
+    fairPricingTips: ['सरिया बाँधने की मजदूरी व तैयार ग्रिल सप्लाई+फिटिंग के बिल हमेशा अलग रखवाएं।'],
+  },
+  {
+    tradeId: 'aluminium_upvc',
+    tradeNameHindi: 'एल्युमिनियम / uPVC / ग्लास वाला',
+    tradeNameEng: 'Aluminium, uPVC & Glazing',
+    commonUnits: ['प्रति Sq.Ft (बाहरी नाप अनुसार)', 'प्रति वर्ग मीटर (m²)'],
+    benchmarksByRegion: [
+      {
+        region: 'पूरे भारत का मानक रेट',
+        dailyWageMaster: '₹950 - ₹1,200 / दिन',
+        dailyWageHelper: '₹550 - ₹650 / दिन',
+        contractUnitRates: [
+          { unit: 'जिंदल एल्युमिनियम 3-ट्रैक + 5mm ग्लास', range: '₹320 - ₹480 / sq.ft', note: 'मच्छर जाली शटर सहित' },
+          { unit: 'uPVC साउंडप्रूफ खिड़की (DGU/8mm)', range: '₹480 - ₹720 / sq.ft (₹5,100 - ₹7,700 / m²)', note: 'मल्टी-पॉइंट लॉक व सिलिकॉन सील' },
+        ],
+      },
+    ],
+    fairPricingTips: ['ऑर्डर से पहले खिड़की का बाहरी नाप, ग्लास मोटाई (mm) और सिलिकॉन फिटिंग दायरा लिखवा लें।'],
+  },
+  {
+    tradeId: 'waterproofing',
+    tradeNameHindi: 'वॉटरप्रूफिंग वाला',
+    tradeNameEng: 'Waterproofing Specialist',
+    commonUnits: ['प्रति Sq.Ft ट्रीटमेंट', 'पूरे काम का कोटेशन (वारंटी सहित)'],
+    benchmarksByRegion: [
+      {
+        region: 'पूरे भारत का मानक रेट',
+        dailyWageMaster: '₹900 - ₹1,150 / दिन',
+        dailyWageHelper: '₹550 - ₹650 / दिन',
+        contractUnitRates: [
+          { unit: 'छत फाइबर-मेश + 3 कोट केमिकल', range: '₹40 - ₹75 / sq.ft', note: 'Dr. Fixit / Fosroc 5-7 वर्ष वारंटी' },
+          { unit: 'बेसमेंट / बाहरी दीवार इंजेक्शन सील', range: '₹55 - ₹120 / sq.ft', note: 'सीपेज स्रोत अनुसार' },
+        ],
+      },
+    ],
+    fairPricingTips: ['ट्रीटमेंट से पहले छत की पूरी धुलाई व क्रैक में V-ग्रूव पॉलीमर भरवाना सुनिश्चित करें।'],
+  },
+  {
+    tradeId: 'ac_repair',
+    tradeNameHindi: 'AC मैकेनिक',
+    tradeNameEng: 'AC Technician',
+    commonUnits: ['प्रति AC (इंस्टॉल)', 'प्रति सर्विस / विज़िट', 'अतिरिक्त कॉपर पाइप (फुट/मीटर अलग लाइन)'],
+    benchmarksByRegion: [
+      {
+        region: 'पूरे भारत का मानक रेट',
+        dailyWageMaster: '₹900 / दिन',
+        dailyWageHelper: '₹450 / दिन',
+        contractUnitRates: [
+          { unit: 'फोम-जेट AC सर्विस', range: '₹499 - ₹699 / सर्विस', note: 'इनडोर + आउटडोर प्रेशर वॉश' },
+          { unit: 'स्प्लिट AC इंस्टॉलेशन', range: '₹1,200 - ₹1,600 / AC', note: 'कोर कटिंग व स्टैंड अतिरिक्त' },
+          { unit: 'अतिरिक्त कॉपर पाइप (अलग लाइन)', range: '₹280 - ₹350 / फुट (₹950 - ₹1,150 / मीटर)', note: 'इंसुलेशन व ड्रेन पाइप सहित' },
+        ],
+      },
+    ],
+    fairPricingTips: ['गैस रिफिलिंग से पहले नाइट्रोजन प्रेशर से लीक टेस्ट व वैक्यूम पंप चलाना अनिवार्य कराएं।'],
+  },
+  {
+    tradeId: 'labor',
+    tradeNameHindi: 'हेल्पर / JCB / ट्रॉली',
+    tradeNameEng: 'Helper, JCB & Trolley',
+    commonUnits: ['हेल्पर प्रति व्यक्ति-दिन', 'JCB प्रति घंटा', 'मिट्टी/मलबा ट्रॉली प्रति चक्कर (क्षमता & दूरी)'],
+    benchmarksByRegion: [
+      {
+        region: 'पूरे भारत का मानक रेट',
+        dailyWageMaster: '₹550 - ₹650 / व्यक्ति-दिन',
+        dailyWageHelper: '₹500 - ₹600 / दिन',
+        contractUnitRates: [
+          { unit: 'JCB खुदाई / लेवलिंग', range: '₹950 - ₹1,350 / घंटा', note: 'डीजल व ऑपरेटर सहित' },
+          { unit: 'मिट्टी / मलबा ट्रॉली (100 cft)', range: '₹1,200 - ₹2,400 / चक्कर', note: 'ट्रॉली क्षमता व किमी दूरी अनुसार' },
+        ],
+      },
+    ],
+    fairPricingTips: ['ट्रॉली बुक करते समय 100/150 cft क्षमता और डंपिंग की दूरी (Km) पहले से तय करें।'],
+  },
 ];

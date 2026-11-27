@@ -32,6 +32,7 @@ import { COLORS } from '../theme/colors';
 import { Language, TRANSLATIONS } from '../i18n/translations';
 import { getSetuLogo } from '../constants/logos';
 import { useResponsive } from '../hooks/useResponsive';
+import { ORDERED_15_TRADES, normalizeTradeCategory } from '../data/tradeRateConfig';
 
 interface CustomerHomeProps {
   contractors: Contractor[];
@@ -136,18 +137,25 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   const [showPostTaskModal, setShowPostTaskModal] = useState(false);
   const [postTaskTitle, setPostTaskTitle] = useState('');
   const [postTaskBudget, setPostTaskBudget] = useState('');
-  const [postTaskCategory, setPostTaskCategory] = useState<
-    'carpenter' | 'plumber' | 'electrician' | 'mason' | 'painter' | 'tiling' | 'welder' | 'ac_repair' | 'general'
-  >('carpenter');
+  const [postTaskAddress, setPostTaskAddress] = useState('');
+  const [postTaskCategory, setPostTaskCategory] = useState<string>('carpenter');
   const scrollViewRef = React.useRef<any>(null);
   const [prosSectionY, setProsSectionY] = useState<number>(0);
 
   const handlePostTaskSubmit = () => {
     const budgetNum = Number(postTaskBudget.trim());
-    if (!postTaskTitle.trim() || !Number.isFinite(budgetNum) || budgetNum <= 0) {
+    const finalSiteAddr = (postTaskAddress.trim() || currentLocation.split('•')[0].trim() || 'भोपाल');
+    if (postTaskTitle.trim().length < 5) {
       showAppAlert(
-        language === 'en' ? 'Incomplete details' : 'अधूरी / अमान्य जानकारी',
-        language === 'en' ? 'Please provide work title and a valid positive budget (> 0).' : 'कृपया काम का विवरण और वैध धनात्मक बजट (₹ > 0) अवश्य लिखें।'
+        language === 'en' ? 'Mandatory Work Description (*)' : 'काम का विवरण अनिवार्य (*)',
+        language === 'en' ? 'Please describe the work needed (at least 5 characters).' : 'कृपया कम से कम 5 अक्षरों में स्पष्ट लिखें कि क्या काम करवाना है।'
+      );
+      return;
+    }
+    if (!Number.isFinite(budgetNum) || budgetNum <= 0) {
+      showAppAlert(
+        language === 'en' ? 'Mandatory Budget (*)' : 'बजट राशि अनिवार्य (*)',
+        language === 'en' ? 'Please enter a valid positive budget (> 0).' : 'कृपया वैध धनात्मक अनुमानित बजट (₹ > 0) अवश्य लिखें।'
       );
       return;
     }
@@ -160,10 +168,11 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
       workType: postTaskTitle.trim(),
       hiringType: 'ओपन कस्टम जॉब (Budget Offer)',
       customerName: 'सत्यापित ग्राहक',
-      location: currentLocation.split('•')[0].trim() || 'भोपाल',
+      location: finalSiteAddr,
+      workAddress: finalSiteAddr,
       budgetOffer: Math.round(budgetNum),
       totalLaborAmount: Math.round(budgetNum),
-      description: `ग्राहक द्वारा पोस्ट किया गया ओपन टास्क। बजट: ₹${Math.round(budgetNum)}`,
+      description: `ग्राहक द्वारा पोस्ट किया गया ओपन टास्क (${finalSiteAddr})। बजट: ₹${Math.round(budgetNum)}`,
       date: 'तत्काल / आज ही',
       status: 'PENDING',
     };
@@ -171,6 +180,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
     setShowPostTaskModal(false);
     setPostTaskTitle('');
     setPostTaskBudget('');
+    setPostTaskAddress('');
     showAppAlert(
       language === 'en' ? '🎉 Job Posted Successfully!' : '🎉 आपका काम लाइव हो गया!',
       language === 'en'
@@ -231,17 +241,27 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   // Dynamic filter for contractors based on Selected Need, Category, and Rate Type
   const filteredContractors = contractors.filter((c) => {
     const cat = c.category || 'general';
+    const normProCat = normalizeTradeCategory(cat);
     // 1. Need filter
     if (selectedNeed === 'QUICK' && !c.isQuickAvailable) return false;
-    if (selectedNeed === 'CONSTRUCTION' && !['carpenter', 'mason', 'plumber', 'electrician', 'painter', 'welder', 'tiling', 'ac_repair', 'acrepair', 'general'].includes(cat)) return false;
-    if (selectedNeed === 'WEDDING' && !['wedding_tent', 'wedding_catering', 'caterer', 'catering', 'event_dj', 'wedding_photo', 'wedding_makeup', 'mandap', 'photographer', 'makeup'].includes(cat)) return false;
+    if (
+      selectedNeed === 'CONSTRUCTION' &&
+      !['carpenter', 'mason', 'painter', 'electrician', 'plumber', 'tiling', 'false_ceiling', 'welder', 'aluminium_upvc', 'waterproofing', 'ac_repair', 'labor'].includes(normProCat)
+    ) {
+      return false;
+    }
+    if (
+      selectedNeed === 'WEDDING' &&
+      !['wedding_tent', 'caterer', 'wedding_photo', 'wedding_makeup'].includes(normProCat)
+    ) {
+      return false;
+    }
     if (selectedNeed === 'MATERIALS' && (!c.recommendedMaterials || c.recommendedMaterials.length === 0)) return false;
 
-    // 2. Specific Category filter (normalize acrepair <-> ac_repair)
+    // 2. Specific Category filter (normalize all aliases seamlessly)
     if (selectedCategory !== 'all') {
-      const catNorm = selectedCategory === 'acrepair' ? 'ac_repair' : selectedCategory;
-      const cCatNorm = cat === 'acrepair' ? 'ac_repair' : cat;
-      if (cCatNorm !== catNorm) return false;
+      const catNorm = normalizeTradeCategory(selectedCategory);
+      if (normProCat !== catNorm) return false;
     }
 
     // 3. Rate Type filter
@@ -503,65 +523,59 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
         </View>
           </View>
 
-        {/* 2. 3D INTERACTIVE CATEGORIES */}
+        {/* 2. 3D INTERACTIVE CATEGORIES (All 15+ Trades) */}
         <View style={[styles.categoriesSection, isTabletOrDesktop && styles.categoriesSectionDesktop]}>
-          {isTabletOrDesktop ? (
-            <View style={[styles.categoryPillsScroll, styles.categoryPillsDesktopWrap]}>
-              {[
-                { id: 'all', icon: 'sparkles', label: language === 'hi' ? '🌟 सभी' : 'All', action: () => { setSelectedCategory('all'); setSelectedNeed('ALL'); } },
-                { id: 'plumber', icon: 'water', label: language === 'hi' ? '🚰 प्लंबर' : 'Plumber', action: () => { setSelectedCategory('plumber'); setSelectedNeed('ALL'); } },
-                { id: 'electrician', icon: 'flash', label: language === 'hi' ? '⚡ बिजली' : 'Electrician', action: () => { setSelectedCategory('electrician'); setSelectedNeed('ALL'); } },
-                { id: 'carpenter', icon: 'hammer', label: language === 'hi' ? '🪚 बढ़ई' : 'Carpenter', action: () => { setSelectedCategory('carpenter'); setSelectedNeed('ALL'); } },
-                { id: 'mason', icon: 'cube', label: language === 'hi' ? '🧱 मिस्त्री' : 'Mason', action: () => { setSelectedCategory('mason'); setSelectedNeed('ALL'); } },
-                { id: 'painter', icon: 'color-palette', label: language === 'hi' ? '🎨 पेंटर' : 'Painter', action: () => { setSelectedCategory('painter'); setSelectedNeed('ALL'); } },
-                { id: 'wedding', icon: 'heart', label: language === 'hi' ? '🎪 इवेंट' : 'Events', action: () => { setSelectedNeed('WEDDING'); setSelectedCategory('all'); } },
-              ].map((cat) => {
-                const isActive = (cat.id === 'all' && selectedCategory === 'all' && selectedNeed === 'ALL') ||
-                  (cat.id === selectedCategory) ||
-                  (cat.id === 'wedding' && selectedNeed === 'WEDDING');
-                return (
-                  <TouchableOpacity
-                    key={cat.id}
-                    style={[styles.categoryPill, isActive && styles.categoryPillActive]}
-                    onPress={cat.action}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
-                      {cat.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryPillsScroll}>
-              {[
-                { id: 'all', icon: 'sparkles', label: language === 'hi' ? '🌟 सभी' : 'All', action: () => { setSelectedCategory('all'); setSelectedNeed('ALL'); } },
-                { id: 'plumber', icon: 'water', label: language === 'hi' ? '🚰 प्लंबर' : 'Plumber', action: () => { setSelectedCategory('plumber'); setSelectedNeed('ALL'); } },
-                { id: 'electrician', icon: 'flash', label: language === 'hi' ? '⚡ बिजली' : 'Electrician', action: () => { setSelectedCategory('electrician'); setSelectedNeed('ALL'); } },
-                { id: 'carpenter', icon: 'hammer', label: language === 'hi' ? '🪚 बढ़ई' : 'Carpenter', action: () => { setSelectedCategory('carpenter'); setSelectedNeed('ALL'); } },
-                { id: 'mason', icon: 'cube', label: language === 'hi' ? '🧱 मिस्त्री' : 'Mason', action: () => { setSelectedCategory('mason'); setSelectedNeed('ALL'); } },
-                { id: 'painter', icon: 'color-palette', label: language === 'hi' ? '🎨 पेंटर' : 'Painter', action: () => { setSelectedCategory('painter'); setSelectedNeed('ALL'); } },
-                { id: 'wedding', icon: 'heart', label: language === 'hi' ? '🎪 इवेंट' : 'Events', action: () => { setSelectedNeed('WEDDING'); setSelectedCategory('all'); } },
-              ].map((cat) => {
-                const isActive = (cat.id === 'all' && selectedCategory === 'all' && selectedNeed === 'ALL') ||
-                  (cat.id === selectedCategory) ||
-                  (cat.id === 'wedding' && selectedNeed === 'WEDDING');
-                return (
-                  <TouchableOpacity
-                    key={cat.id}
-                    style={[styles.categoryPill, isActive && styles.categoryPillActive]}
-                    onPress={cat.action}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
-                      {cat.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          )}
+          {(() => {
+            const catList = [
+              { id: 'all', label: language === 'hi' ? '🌟 सभी कारीगर' : 'All Pros', action: () => { setSelectedCategory('all'); setSelectedNeed('ALL'); } },
+              ...ORDERED_15_TRADES.map((tr) => ({
+                id: tr.id,
+                label: tr.registrationLabelHi.split('/')[0].trim(),
+                action: () => { setSelectedCategory(tr.id); setSelectedNeed('ALL'); },
+              })),
+            ];
+            return isTabletOrDesktop ? (
+              <View style={[styles.categoryPillsScroll, styles.categoryPillsDesktopWrap]}>
+                {catList.map((cat) => {
+                  const isActive =
+                    (cat.id === 'all' && selectedCategory === 'all' && selectedNeed === 'ALL') ||
+                    cat.id === selectedCategory;
+                  return (
+                    <TouchableOpacity
+                      key={cat.id}
+                      style={[styles.categoryPill, isActive && styles.categoryPillActive]}
+                      onPress={cat.action}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
+                        {cat.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryPillsScroll}>
+                {catList.map((cat) => {
+                  const isActive =
+                    (cat.id === 'all' && selectedCategory === 'all' && selectedNeed === 'ALL') ||
+                    cat.id === selectedCategory;
+                  return (
+                    <TouchableOpacity
+                      key={cat.id}
+                      style={[styles.categoryPill, isActive && styles.categoryPillActive]}
+                      onPress={cat.action}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
+                        {cat.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            );
+          })()}
         </View>
 
         {/* 3 & 4. UNIFIED AI STUDIO + POST CUSTOM JOB ROW (side-by-side on Desktop) */}
@@ -921,7 +935,9 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
             </Text>
 
             {/* Work Title */}
-            <Text style={styles.inputFieldLabel}>काम का विवरण (क्या करवाना है?):</Text>
+            <Text style={styles.inputFieldLabel}>
+              काम का विवरण (क्या करवाना है?) <Text style={{ color: '#DC2626', fontWeight: '900' }}>* अनिवार्य</Text>
+            </Text>
             <TextInput
               style={styles.postTextInput}
               placeholder="उदा. बेडरूम में 2 अलमारी के हैंडल और 1 नया लॉक लगाना है"
@@ -930,41 +946,45 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
               multiline
             />
 
-            {/* Trade Category Selection */}
-            <Text style={styles.inputFieldLabel}>कारीगर की श्रेणी:</Text>
+            {/* Trade Category Selection (All 15+ Trades) */}
+            <Text style={styles.inputFieldLabel}>
+              कारीगर की श्रेणी <Text style={{ color: '#DC2626', fontWeight: '900' }}>*</Text>
+            </Text>
             <View style={styles.categorySelectRow}>
-              {[
-                { id: 'carpenter', label: '🪚 बढ़ई' },
-                { id: 'plumber', label: '🚰 प्लंबर' },
-                { id: 'electrician', label: '⚡ बिजली' },
-                { id: 'mason', label: '🧱 मिस्त्री' },
-                { id: 'painter', label: '🎨 पेंटर' },
-                { id: 'tiling', label: '📐 टाइल्स' },
-                { id: 'welder', label: '🔥 वेल्डर' },
-                { id: 'ac_repair', label: '❄️ AC रिपेयर' },
-              ].map((c) => (
+              {ORDERED_15_TRADES.map((tr) => (
                 <TouchableOpacity
-                  key={c.id}
+                  key={tr.id}
                   style={[
                     styles.catSelectPill,
-                    postTaskCategory === c.id && styles.catSelectPillActive,
+                    postTaskCategory === tr.id && styles.catSelectPillActive,
                   ]}
-                  onPress={() => setPostTaskCategory(c.id as any)}
+                  onPress={() => setPostTaskCategory(tr.id)}
                 >
                   <Text
                     style={[
                       styles.catSelectText,
-                      postTaskCategory === c.id && styles.catSelectTextActive,
+                      postTaskCategory === tr.id && styles.catSelectTextActive,
                     ]}
                   >
-                    {c.label}
+                    {tr.registrationLabelHi}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
 
+            {/* Site Location */}
+            <Text style={styles.inputFieldLabel}>कार्य स्थल का इलाका / पता:</Text>
+            <TextInput
+              style={[styles.postTextInput, { minHeight: 38 }]}
+              placeholder={currentLocation.split('•')[0].trim() || 'उदा. एमपी नगर, भोपाल'}
+              value={postTaskAddress}
+              onChangeText={setPostTaskAddress}
+            />
+
             {/* Budget Offer */}
-            <Text style={styles.inputFieldLabel}>आपका बजट ऑफर (₹ कुल लेबर):</Text>
+            <Text style={styles.inputFieldLabel}>
+              आपका अनुमानित बजट ऑफर (₹ कुल लेबर) <Text style={{ color: '#DC2626', fontWeight: '900' }}>*</Text>
+            </Text>
             <View style={styles.budgetInputRow}>
               <Text style={styles.budgetCurrency}>₹</Text>
               <TextInput
