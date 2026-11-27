@@ -746,6 +746,8 @@ connectDB();
 app.get('/api/health', (req, res) => {
   const dbStatus = getDbStatus();
   const cloudinaryConfigured = Boolean(getCloudinaryConfig());
+  const rawSmsKey = cleanSecret(process.env.SMS_API_KEY);
+  const smsConfigured = Boolean(rawSmsKey && !/your_fast2sms/i.test(rawSmsKey));
   res.json({
     status: isDbAvailable() ? 'ONLINE' : 'DEGRADED',
     service: 'SETU Production Hardened Backend REST API',
@@ -759,6 +761,10 @@ app.get('/api/health', (req, res) => {
         : isServerless
         ? 'Ephemeral /tmp (Configure Cloudinary env vars for permanent media)'
         : 'Local Disk (/uploads)',
+    },
+    sms: {
+      configured: smsConfigured,
+      provider: smsConfigured ? 'Fast2SMS' : 'Not Configured',
     },
   });
 });
@@ -804,9 +810,11 @@ app.post('/api/auth/send-otp', aiRateLimiter('send_otp_ip', 15), async (req, res
 
   // SMS Dispatch strictly via environment key (NO hardcoded third-party keys!)
   const smsApiKey = cleanSecret(process.env.SMS_API_KEY);
+  const hasSmsKey = Boolean(smsApiKey && !/your_fast2sms/i.test(smsApiKey));
   let smsSentSuccessfully = false;
+  let smsGatewayError = '';
 
-  if (smsApiKey && !/your_fast2sms/i.test(smsApiKey)) {
+  if (hasSmsKey) {
     try {
       const smsRes = await fetch('https://www.fast2sms.com/dev/bulkV2', {
         method: 'POST',
@@ -826,10 +834,12 @@ app.post('/api/auth/send-otp', aiRateLimiter('send_otp_ip', 15), async (req, res
         smsSentSuccessfully = true;
         console.log(`[Fast2SMS] Real OTP sent to +91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)}`);
       } else {
-        console.warn('[Fast2SMS] Dispatch Response:', smsData?.message || smsData?.status_code);
+        smsGatewayError = String(smsData?.message || (smsData?.status_code ? `Code ${smsData.status_code}` : 'Gateway rejected'));
+        console.warn('[Fast2SMS] Dispatch Response:', smsGatewayError);
       }
     } catch (smsErr) {
-      console.error('External SMS Gateway Error:', smsErr.message);
+      smsGatewayError = smsErr.message || 'Network timeout';
+      console.error('External SMS Gateway Error:', smsGatewayError);
     }
   }
 
@@ -843,13 +853,16 @@ app.post('/api/auth/send-otp', aiRateLimiter('send_otp_ip', 15), async (req, res
   }, 300);
 
   const allowDemoOtp = process.env.ALLOW_DEMO_OTP === 'true';
+  const maskedPhone = `+91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)}`;
   const payload = {
     success: true,
     message: smsSentSuccessfully
-      ? `+91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)} पर SMS द्वारा 4-अंकीय OTP भेजा गया है।`
+      ? `${maskedPhone} पर SMS द्वारा 4-अंकीय OTP भेजा गया है।`
       : allowDemoOtp
-      ? `+91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)} के लिए टेस्ट OTP तैयार है।`
-      : `SMS गेटवे कॉन्फ़िगर न होने के कारण +91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)} पर SMS नहीं जा सका। कृपया सर्वर SMS_API_KEY जांचें।`,
+      ? `${maskedPhone} के लिए टेस्ट OTP तैयार है।`
+      : hasSmsKey
+      ? `Fast2SMS से OTP नहीं जा सका (${smsGatewayError || 'Gateway Error'})। कृपया Fast2SMS पैनल में OTP Website Verification / DLT जांचें।`
+      : `SMS गेटवे कॉन्फ़िगर न होने के कारण ${maskedPhone} पर SMS नहीं जा सका। कृपया सर्वर SMS_API_KEY जांचें।`,
     expiresInSec: 300,
     resendCooldownSec: 60,
     smsDispatched: smsSentSuccessfully,
