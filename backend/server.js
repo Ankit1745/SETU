@@ -201,6 +201,108 @@ function cleanSecret(val) {
   return String(val || '').replace(/[^\x21-\x7E]/g, '').trim();
 }
 
+function getCloudinaryConfig() {
+  const cloudinaryUrl = cleanSecret(process.env.CLOUDINARY_URL);
+  if (cloudinaryUrl && /^cloudinary:\/\/[^:]+:[^@]+@[^/]+/i.test(cloudinaryUrl)) {
+    try {
+      const u = new URL(cloudinaryUrl);
+      const cloudName = decodeURIComponent(u.hostname || '');
+      const apiKey = decodeURIComponent(u.username || '');
+      const apiSecret = decodeURIComponent(u.password || '');
+      if (
+        cloudName &&
+        apiKey &&
+        apiSecret &&
+        !/your_|example|replace_with/i.test(`${cloudName}${apiKey}${apiSecret}`)
+      ) {
+        return { cloudName, apiKey, apiSecret };
+      }
+    } catch {
+      // Fallback to individual environment variables
+    }
+  }
+  const cloudName = cleanSecret(process.env.CLOUDINARY_CLOUD_NAME);
+  const apiKey = cleanSecret(process.env.CLOUDINARY_API_KEY);
+  const apiSecret = cleanSecret(process.env.CLOUDINARY_API_SECRET);
+  if (
+    cloudName &&
+    apiKey &&
+    apiSecret &&
+    !/your_|example|replace_with/i.test(`${cloudName}${apiKey}${apiSecret}`)
+  ) {
+    return { cloudName, apiKey, apiSecret };
+  }
+  return null;
+}
+
+function signCloudinaryParams(params, apiSecret) {
+  const toSign = Object.keys(params)
+    .filter((k) => params[k] !== undefined && params[k] !== null && params[k] !== '')
+    .sort()
+    .map((k) => `${k}=${params[k]}`)
+    .join('&');
+  return crypto.createHash('sha1').update(`${toSign}${apiSecret}`).digest('hex');
+}
+
+async function uploadBufferToCloudinary({ buffer, mimeType, publicId, isKycDoc, isVideo }) {
+  const cfg = getCloudinaryConfig();
+  if (!cfg) return null;
+
+  const resourceType = isVideo ? 'video' : mimeType === 'application/pdf' ? 'raw' : 'image';
+  const folder = isKycDoc ? 'setu/kyc' : 'setu/public';
+  const timestamp = Math.floor(Date.now() / 1000);
+
+  const signPayload = {
+    folder,
+    public_id: publicId,
+    timestamp,
+    ...(isKycDoc ? { type: 'authenticated' } : {}),
+  };
+  const signature = signCloudinaryParams(signPayload, cfg.apiSecret);
+
+  const form = new FormData();
+  form.append('file', new Blob([buffer], { type: mimeType }), `${publicId}.${mimeType.split('/')[1] || 'bin'}`);
+  form.append('api_key', cfg.apiKey);
+  form.append('timestamp', String(timestamp));
+  form.append('signature', signature);
+  form.append('folder', folder);
+  form.append('public_id', publicId);
+  if (isKycDoc) form.append('type', 'authenticated');
+
+  const endpoint = `https://api.cloudinary.com/v1_1/${encodeURIComponent(cfg.cloudName)}/${resourceType}/upload`;
+  const resp = await fetch(endpoint, {
+    method: 'POST',
+    body: form,
+    signal: AbortSignal.timeout(25000),
+  });
+  const json = await resp.json().catch(() => null);
+  if (!resp.ok || !json || !json.secure_url) {
+    throw new Error(json?.error?.message || `Cloudinary upload failed (HTTP ${resp.status})`);
+  }
+  return {
+    secureUrl: json.secure_url,
+    publicId: json.public_id,
+    assetId: json.asset_id,
+    resourceType: json.resource_type || resourceType,
+  };
+}
+
+function buildCloudinaryAssetDownloadUrl(assetId) {
+  const cfg = getCloudinaryConfig();
+  if (!cfg || !assetId) return null;
+  const timestamp = Math.floor(Date.now() / 1000);
+  const expiresAt = timestamp + 300;
+  const signature = signCloudinaryParams({ asset_id: assetId, expires_at: expiresAt, timestamp }, cfg.apiSecret);
+  const qs = new URLSearchParams({
+    asset_id: assetId,
+    api_key: cfg.apiKey,
+    timestamp: String(timestamp),
+    expires_at: String(expiresAt),
+    signature,
+  });
+  return `https://api.cloudinary.com/v1_1/${encodeURIComponent(cfg.cloudName)}/asset/download?${qs.toString()}`;
+}
+
 // Helper to build Mongoose query safely without throwing CastError on custom string IDs (e.g. "c_...")
 function buildIdQuery(id) {
   return mongoose.isValidObjectId(id) ? { $or: [{ _id: id }, { customId: id }] } : { customId: id };
@@ -643,12 +745,21 @@ connectDB();
 // 1. Health & Readiness check
 app.get('/api/health', (req, res) => {
   const dbStatus = getDbStatus();
+  const cloudinaryConfigured = Boolean(getCloudinaryConfig());
   res.json({
     status: isDbAvailable() ? 'ONLINE' : 'DEGRADED',
     service: 'SETU Production Hardened Backend REST API',
     version: '2.0.0',
     timestamp: new Date().toISOString(),
     database: dbStatus,
+    storage: {
+      cloudinaryConfigured,
+      engine: cloudinaryConfigured
+        ? 'Cloudinary Cloud CDN'
+        : isServerless
+        ? 'Ephemeral /tmp (Configure Cloudinary env vars for permanent media)'
+        : 'Local Disk (/uploads)',
+    },
   });
 });
 
@@ -1208,7 +1319,7 @@ function verifyRawMagicBytes(buffer) {
   return null;
 }
 
-app.post('/api/upload', aiRateLimiter('upload', 20), (req, res) => {
+app.post('/api/upload', aiRateLimiter('upload', 20), async (req, res) => {
   try {
     const { imageBase64, type = 'portfolio', isPrivate = false } = req.body || {};
     if (!imageBase64 || typeof imageBase64 !== 'string') {
@@ -1260,8 +1371,51 @@ app.post('/api/upload', aiRateLimiter('upload', 20), (req, res) => {
     }
 
     const isKycDoc = isPrivate || type === 'kyc' || type === 'aadhaar' || type === 'document';
+    const basePublicId = `setu_${Date.now()}_${crypto.randomInt(1000, 10000)}_${crypto.randomBytes(2).toString('hex')}`;
+    const safeName = `${basePublicId}.${ext}`;
+
+    // Cloud storage first (permanent across serverless deployments when Cloudinary env vars exist)
+    if (getCloudinaryConfig()) {
+      try {
+        const cld = await uploadBufferToCloudinary({
+          buffer,
+          mimeType,
+          publicId: basePublicId,
+          isKycDoc,
+          isVideo,
+        });
+        if (cld) {
+          if (isKycDoc) {
+            const ref = cld.assetId ? `cld_asset:${cld.assetId}` : safeName;
+            return res.json({
+              success: true,
+              message: 'केवाईसी दस्तावेज क्लाउड प्राइवेट वॉल्ट में सुरक्षित अपलोड हुआ।',
+              storage: 'cloudinary',
+              isPrivate: true,
+              filename: safeName,
+              privateRef: ref,
+              sizeBytes: buffer.length,
+            });
+          }
+          return res.json({
+            success: true,
+            message: 'मीडिया क्लाउड पर सफलतापूर्वक अपलोड हुआ!',
+            storage: 'cloudinary',
+            url: cld.secureUrl,
+            publicId: cld.publicId,
+            filename: safeName,
+            sizeBytes: buffer.length,
+          });
+        }
+      } catch (cldErr) {
+        console.error('Cloudinary Upload Error:', cldErr.message);
+        return res.status(502).json({
+          error: 'क्लाउड मीडिया स्टोरेज (Cloudinary) अपलोड विफल रहा। कृपया Cloudinary कीज़ जांचें: ' + cldErr.message,
+        });
+      }
+    }
+
     const targetDir = isKycDoc ? PRIVATE_UPLOADS_DIR : PUBLIC_UPLOADS_DIR;
-    const safeName = `setu_${Date.now()}_${crypto.randomInt(1000, 10000)}_${crypto.randomBytes(2).toString('hex')}.${ext}`;
 
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
@@ -1273,6 +1427,7 @@ app.post('/api/upload', aiRateLimiter('upload', 20), (req, res) => {
       return res.json({
         success: true,
         message: 'केवाईसी दस्तावेज सुरक्षित प्राइवेट स्टोरेज में अपलोड हुआ।',
+        storage: isServerless ? 'tmp' : 'local',
         isPrivate: true,
         filename: safeName,
         privateRef: safeName,
@@ -1283,6 +1438,7 @@ app.post('/api/upload', aiRateLimiter('upload', 20), (req, res) => {
       return res.json({
         success: true,
         message: 'मीडिया सफलतापूर्वक अपलोड हुआ!',
+        storage: isServerless ? 'tmp' : 'local',
         url: publicUrl,
         filename: safeName,
         sizeBytes: buffer.length,
@@ -1308,6 +1464,23 @@ app.get('/api/admin/kyc/:id/document', requireAuth, requireRole('ADMIN'), async 
 
     if (!kyc || !kyc.docFilePath) {
       return res.status(404).json({ error: 'दस्तावेज नहीं मिला।' });
+    }
+
+    if (String(kyc.docFilePath).startsWith('cld_asset:')) {
+      const assetId = String(kyc.docFilePath).slice('cld_asset:'.length).trim();
+      const signedDownloadUrl = buildCloudinaryAssetDownloadUrl(assetId);
+      if (!signedDownloadUrl) {
+        return res.status(503).json({ error: 'Cloudinary क्रेडेंशियल कॉन्फ़िगर नहीं हैं।' });
+      }
+      const upstream = await fetch(signedDownloadUrl, { signal: AbortSignal.timeout(15000) });
+      if (!upstream.ok) {
+        return res.status(404).json({ error: 'क्लाउड वॉल्ट में दस्तावेज नहीं मिला।' });
+      }
+      const cType = upstream.headers.get('content-type') || 'application/octet-stream';
+      const arrBuf = await upstream.arrayBuffer();
+      res.setHeader('Content-Type', cType);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      return res.send(Buffer.from(arrBuf));
     }
 
     const filePath = path.join(PRIVATE_UPLOADS_DIR, path.basename(kyc.docFilePath));
