@@ -81,8 +81,8 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
         setOtp(data.demoOtp);
         setSmsNotification(
           language === 'en'
-            ? `📩 SMS Sent: Use verification OTP ${data.demoOtp} (auto-filled)`
-            : `📩 SMS भेजा गया: सत्यापन OTP ${data.demoOtp} (स्वतः भरा गया)`
+            ? `📩 Verification code issued: ${data.demoOtp}`
+            : `📩 सत्यापन कोड जारी हुआ: ${data.demoOtp}`
         );
       } else {
         setSmsNotification(
@@ -146,26 +146,6 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
     } finally {
       setIsVerifyingOtp(false);
     }
-  };
-
-  // Prefill & trigger real OTP login for sample accounts (NEVER bypasses server JWT!)
-  const handleFastDemoLogin = (role: 'CUSTOMER' | 'CONTRACTOR' | 'VENDOR' | 'ADMIN') => {
-    if (role === 'ADMIN') {
-      onRequestAdmin();
-      return;
-    }
-
-    const demoMeta = {
-      CUSTOMER: { phone: '9876543210', name: 'अंकित (भोपाल)', tradeOrShop: '' },
-      CONTRACTOR: { phone: '9812345678', name: 'रमेश शर्मा', tradeOrShop: 'मास्टर बढ़ई (Modular Kitchen)' },
-      VENDOR: { phone: '9898989898', name: 'गुप्ता जी', tradeOrShop: 'गुप्ता हार्डवेयर & सेनेटरी' },
-    }[role];
-
-    setAuthRole(role);
-    setPhone(demoMeta.phone);
-    setName(demoMeta.name);
-    setTradeOrShop(demoMeta.tradeOrShop);
-    handleSendOtp(demoMeta.phone);
   };
 
   const logoSource = getSetuLogo(language);
@@ -293,7 +273,7 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
             </View>
           </View>
 
-          {/* Right Column: SMS Notice + Role Selector + Auth Form Card + Demo Logins */}
+          {/* Right Column: SMS Notice + Role Selector + Auth Form Card */}
           <View style={[styles.authRightCol, isSplitDesktop && styles.authRightColDesktop]}>
             {/* Real Incoming SMS Notification Banner */}
             {smsNotification && (
@@ -337,25 +317,12 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.roleTab, isCompactPhone && { minWidth: '47%' }, authRole === 'VENDOR' && styles.roleTabActive]}
+                  style={[styles.roleTab, isCompactPhone && { minWidth: '31%' }, authRole === 'VENDOR' && styles.roleTabActive]}
                   onPress={() => switchRole('VENDOR')}
                 >
                   <MaterialIcons name="store" size={14} color={authRole === 'VENDOR' ? '#FFFFFF' : '#CBD5E1'} />
                   <Text style={[styles.roleTabText, authRole === 'VENDOR' && styles.roleTabTextActive]}>
                     {language === 'en' ? 'Store' : language === 'hinglish' ? 'Dukandar' : 'दुकानदार'}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.roleTab, isCompactPhone && { minWidth: '47%' }, authRole === 'ADMIN' && styles.roleTabActiveAdmin]}
-                  onPress={() => {
-                    setAuthRole('CUSTOMER');
-                    onRequestAdmin();
-                  }}
-                >
-                  <MaterialIcons name="security" size={14} color={authRole === 'ADMIN' ? '#FFFFFF' : '#F87171'} />
-                  <Text style={[styles.roleTabText, authRole === 'ADMIN' && styles.roleTabTextActive]}>
-                    {language === 'en' ? 'Admin' : 'एडमिन'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -484,40 +451,18 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
           >
             <Text style={styles.guestBtnText}>{t.browseAsGuest}</Text>
           </TouchableOpacity>
-        </View>
 
-        {/* ⚡ 1-Click Fast Test Profiles */}
-        <View style={styles.fastTestBox}>
-          <Text style={styles.fastTestTitle}>{t.fastDemoLogin}</Text>
-          <View style={styles.fastTestButtons}>
-            <TouchableOpacity
-              style={styles.fastTestPill}
-              onPress={() => handleFastDemoLogin('CUSTOMER')}
-            >
-              <Text style={styles.fastTestPillText}>👤 अमित (ग्राहक)</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.fastTestPill}
-              onPress={() => handleFastDemoLogin('CONTRACTOR')}
-            >
-              <Text style={styles.fastTestPillText}>👷 रमेश (बढ़ई)</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.fastTestPill}
-              onPress={() => handleFastDemoLogin('VENDOR')}
-            >
-              <Text style={styles.fastTestPillText}>🏪 गुप्ता जी (दुकान)</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.fastTestPill, { backgroundColor: '#FEE2E2', borderColor: '#FCA5A5' }]}
-              onPress={() => handleFastDemoLogin('ADMIN')}
-            >
-              <Text style={[styles.fastTestPillText, { color: '#DC2626' }]}>🛡️ एडमिन</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Subtle restricted staff/admin entry shown only on login screen */}
+          <TouchableOpacity
+            style={{ marginTop: 12, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 4, paddingHorizontal: 10 }}
+            onPress={onRequestAdmin}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="lock-outline" size={12} color="#64748B" />
+            <Text style={{ fontSize: 11, color: '#64748B', fontWeight: '600' }}>
+              {language === 'en' ? 'Restricted Admin Sign-In' : 'प्रशासनिक नियंत्रण प्रवेश'}
+            </Text>
+          </TouchableOpacity>
         </View>
           </View>
         </View>

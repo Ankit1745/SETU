@@ -64,8 +64,8 @@ export const QuickServiceModal: React.FC<QuickServiceModalProps> = ({
                 <Ionicons name="flash" size={16} color="#FFFFFF" />
               </View>
               <View>
-                <Text style={styles.title}>SETU Quick (क्विक रिपेयर मोड)</Text>
-                <Text style={styles.subtitle}>Uber / Rapido की तरह 15-30 मिनट में पास का कारीगर</Text>
+                <Text style={styles.title}>SETU Quick (तत्काल रिपेयर सेवा)</Text>
+                <Text style={styles.subtitle}>15-30 मिनट में नजदीकी सत्यापित कारीगर आपके द्वार</Text>
               </View>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>

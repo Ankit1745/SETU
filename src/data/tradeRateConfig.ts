@@ -132,7 +132,7 @@ export const TRADE_RATE_PROFILES: Record<CanonicalTradeId, TradeRateProfile> = {
     color: '#B45309',
     aliases: ['carpenter', 'बढ़ई', 'कारपेंटर', 'फर्नीचर'],
     researchSummaryHi:
-      'भारत में मॉड्यूलर वॉर्डरोब ₹320–₹500/sq.ft, किचन ₹1,100–₹1,700/रनिंग ft, या कुल प्लाईवुड+हार्डवेयर बिल का 18%–30% लेबर पर होता है।',
+      'मेट्रो व नगर मानक: मॉड्यूलर वॉर्डरोब ₹320–₹500/sq.ft, किचन ₹1,100–₹1,700/रनिंग ft, या कुल प्लाईवुड+हार्डवेयर बिल का 18%–30% लेबर पर होता है।',
     rateModes: [
       {
         id: 'carpenter_sqft',
@@ -2398,7 +2398,7 @@ export const TRADE_RATE_PROFILES: Record<CanonicalTradeId, TradeRateProfile> = {
     color: '#DB2777',
     aliases: ['wedding_makeup', 'makeup', 'मेकअप', 'ब्राइडल', 'ब्यूटी'],
     researchSummaryHi:
-      'मेकअप सेवा नियम: प्रति फंक्शन या ब्राइडल पैकेज में लगने वाले घंटे (उदा. 3-4 घंटे), ब्रांड (HD/Airbrush/MAC/Kryolan), हेयरस्टाइल व ड्रेपिंग शामिल है या नहीं—लिखना अनिवार्य है।',
+      'मेकअप सेवा नियम: प्रति फंक्शन या ब्राइडल पैकेज में लगने वाले घंटे (उदा. 3-4 घंटे), मेकअप प्रकार (HD / Airbrush / प्रोफेशनल ब्रांड्स), हेयरस्टाइल व ड्रेपिंग शामिल है या नहीं—लिखना अनिवार्य है।',
     rateModes: [
       {
         id: 'makeup_per_function',
@@ -2432,7 +2432,7 @@ export const TRADE_RATE_PROFILES: Record<CanonicalTradeId, TradeRateProfile> = {
       },
     ],
     defaultDeliverables: [
-      'HD / Airbrush मेकअप बेस (MAC/Kryolan)',
+      'HD / Airbrush प्रोफेशनल मेकअप बेस',
       'हेयर स्टाइलिंग व फ्लावर सेटिंग',
       'लहंगा / साड़ी ड्रेपिंग व पिनिंग',
       'फेक आईलैशेज व लेंस फिटिंग',

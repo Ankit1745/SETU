@@ -23,7 +23,7 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const [loginId, setLoginId] = useState('admin');
+  const [loginId, setLoginId] = useState('');
   const [passcode, setPasscode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -93,7 +93,7 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
               <MaterialIcons name="person" size={20} color="#64748B" style={styles.lockIcon} />
               <TextInput
                 style={styles.pinInput}
-                placeholder="उदा. admin"
+                placeholder="प्रशासकीय आईडी दर्ज करें"
                 placeholderTextColor="#94A3B8"
                 autoCapitalize="none"
                 value={loginId}
@@ -127,7 +127,7 @@ export const AdminSecurityModal: React.FC<AdminSecurityModalProps> = ({
             <View style={styles.credentialsHint}>
               <Ionicons name="key" size={13} color="#D97706" />
               <Text style={styles.credentialsHintText}>
-                सर्वर द्वारा कॉन्फ़िगर किए गए एडमिन पासवर्ड से लॉगिन करें अथवा नीचे Read-Only डेमो देखें।
+                केवल अधिकृत प्रशासकीय आईडी व पासवर्ड से प्रवेश मान्य है।
               </Text>
             </View>
 

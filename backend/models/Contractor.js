@@ -65,8 +65,16 @@ const ContractorSchema = new mongoose.Schema({
   jobsCompleted: { type: Number, default: 0 },
   verified: { type: Boolean, default: false }, // Only true after Admin KYC approval
   distance: { type: String, default: '' },
+  city: { type: String, default: '' },
+  locality: { type: String, default: '' },
   etaMinutes: { type: Number, default: null },
   isQuickAvailable: { type: Boolean, default: false },
+
+  // Optional bank / payout fields (editable anytime from partner dashboard)
+  accountHolderName: { type: String, default: '' },
+  bankAccount: { type: String, default: '' },
+  ifscCode: { type: String, default: '' },
+  upiId: { type: String, default: '' },
   
   // SETU Rate Rule: Contractor sets own rates. Empty / null means "भाव पूछें".
   primaryRateType: { type: String, default: 'दिहाड़ी' },

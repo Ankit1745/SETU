@@ -7,12 +7,13 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
-  Alert,
   TextInput,
 } from 'react-native';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
 import { useResponsive } from '../hooks/useResponsive';
+import { detectLiveGpsLocation } from '../utils/liveLocation';
+import { showAppAlert } from '../utils/appAlert';
 
 interface LocationPickerModalProps {
   visible: boolean;
@@ -62,50 +63,18 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
     onClose();
   };
 
-  const handleDetectGps = () => {
-    if (typeof navigator !== 'undefined' && navigator.geolocation) {
-      setIsLocating(true);
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          const { latitude, longitude } = pos.coords;
-          try {
-            const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1`;
-            const res = await fetch(url);
-            const geoData = await res.json();
-            const addr = geoData.address || {};
-
-            const area =
-              addr.suburb ||
-              addr.neighbourhood ||
-              addr.road ||
-              addr.residential ||
-              'एमपी नगर';
-            const city = addr.city || addr.town || addr.state_district || 'भोपाल';
-            const pincode = addr.postcode || '462011';
-
-            const detected = `${area}, ${city} • ${pincode}`;
-            onSelectLocation(detected);
-            onClose();
-          } catch {
-            const fallbackLoc = `एमपी नगर (ज़ोन-1), भोपाल • 462011 (मैन्युअल चयनित)`;
-            onSelectLocation(fallbackLoc);
-            onClose();
-          } finally {
-            setIsLocating(false);
-          }
-        },
-        (error) => {
-          setIsLocating(false);
-          Alert.alert(
-            'GPS अनुमति अस्वीकृत',
-            'कृपया नीचे दी गई सूची से अपना इलाका मैन्युअल रूप से चुनें।'
-          );
-        },
-        { enableHighAccuracy: true, timeout: 8000 }
-      );
-    } else {
-      onSelectLocation('एमपी नगर (ज़ोन-1), भोपाल • 462011 (मैन्युअल चयनित)');
+  const handleDetectGps = async () => {
+    setIsLocating(true);
+    const res = await detectLiveGpsLocation();
+    setIsLocating(false);
+    if (res.ok && res.formattedLocation) {
+      onSelectLocation(res.formattedLocation);
       onClose();
+    } else {
+      showAppAlert(
+        '📍 लाइव GPS लोकेशन',
+        res.error || 'कृपया नीचे से अपना शहर या क्षेत्र मैन्युअल चुनें।'
+      );
     }
   };
 
@@ -180,9 +149,9 @@ export const LocationPickerModal: React.FC<LocationPickerModalProps> = ({
               <MaterialIcons name="my-location" size={20} color="#FFFFFF" />
             )}
             <View style={{ flex: 1, marginLeft: 10 }}>
-              <Text style={styles.gpsTitle}>वर्तमान GPS लोकेशन का उपयोग करें</Text>
+              <Text style={styles.gpsTitle}>लाइव GPS लोकेशन ऑन करें (Live Detect)</Text>
               <Text style={styles.gpsSub}>
-                {isLocating ? 'GPS लोकेशन खोजी जा रही है...' : 'ऑटोमैटिक पिनपॉइंट शुद्धता (भोपाल)'}
+                {isLocating ? 'सैटेलाइट GPS से आपका शहर खोजा जा रहा है...' : 'आपके वर्तमान पते और पिनकोड का स्वतः पता लगाएं'}
               </Text>
             </View>
             <MaterialIcons name="chevron-right" size={20} color="#FFFFFF" />

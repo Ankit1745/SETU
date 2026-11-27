@@ -158,7 +158,7 @@ export default function App() {
         if (u?.contractorId) return u.contractorId;
       }
     } catch {}
-    return 'c1';
+    return '';
   });
   const [language, setLanguage] = useState<Language>(() => {
     const savedLang = safeWebGet('setu_lang') as Language | null;
@@ -172,8 +172,15 @@ export default function App() {
   };
   const [bottomTab, setBottomTab] = useState<'home' | 'quick' | 'estimator' | 'partner' | 'profile'>('home');
 
-  // Security & Role-Based Access Control State
-  const [showAdminSecurityModal, setShowAdminSecurityModal] = useState<boolean>(false);
+  // Security & Role-Based Access Control State (also supports #admin or ?admin=1 login gate)
+  const [showAdminSecurityModal, setShowAdminSecurityModal] = useState<boolean>(() => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const hash = window.location?.hash || '';
+      const search = window.location?.search || '';
+      return hash.includes('admin') || search.includes('admin=1');
+    }
+    return false;
+  });
   const [isGuestBrowsing, setIsGuestBrowsing] = useState<boolean>(true);
 
   const [contractors, setContractors] = useState<Contractor[]>(INITIAL_CONTRACTORS);
@@ -220,11 +227,21 @@ export default function App() {
     };
   }, []);
 
-  // Contractor updates
+  // Contractor updates (updates contractor card + syncs logged-in user identity)
   const handleUpdateContractorProfile = (updatedFields: Partial<Contractor>) => {
     setContractors((prev) =>
-      prev.map((c) => (c.id === activeContractorId ? { ...c, ...updatedFields } : c))
+      prev.map((c) => (c.id === activeContractorId || (c as any).customId === activeContractorId ? { ...c, ...updatedFields } : c))
     );
+    if (currentUser) {
+      const nextUser = {
+        ...currentUser,
+        ...(updatedFields.name ? { name: updatedFields.name } : {}),
+        ...(updatedFields.avatar ? { avatarUrl: updatedFields.avatar } : {}),
+        ...(updatedFields.specialtyHindi ? { tradeOrShop: updatedFields.specialtyHindi } : {}),
+      };
+      setCurrentUser(nextUser);
+      safeWebSet('setu_current_user', JSON.stringify(nextUser));
+    }
   };
 
   // Vendor updates (optimistic + persistent backend sync)
@@ -256,7 +273,7 @@ export default function App() {
     }
   };
 
-  // Partner Registration Handler (Urban Company / Amazon Seller Onboarding)
+  // Partner Registration Handler
   const handlePartnerRegistrationComplete = async (partnerData: any) => {
     const helperCategory = (trade: string) => {
       const tLow = String(trade || '').toLowerCase();
@@ -304,20 +321,24 @@ export default function App() {
         category: res.contractor?.category || calculatedCategory,
         specialtyHindi: partnerData.tradeOrShop,
         bio: `${partnerData.name} - SETU पंजीकृत कारीगर (${partnerData.experienceYears || 0} वर्ष का अनुभव)`,
-        avatar: partnerData.avatarUrl || 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=150',
+        avatar: partnerData.avatarUrl || '',
+        city: partnerData.city || '',
+        locality: partnerData.locality || '',
+        primaryRateType: partnerData.primaryRateType || partnerData.unitLabel || 'दिहाड़ी',
+        dailyWageRate: partnerData.dailyWageRate !== undefined ? partnerData.dailyWageRate : null,
+        helperRate: partnerData.helperRate !== undefined ? partnerData.helperRate : null,
+        contractUnitRate: partnerData.contractUnitRate !== undefined ? partnerData.contractUnitRate : null,
+        unitLabel: partnerData.unitLabel || 'प्रति काम',
+        additionalRateCards: partnerData.additionalRateCards || [],
+        tradeRateSpec: partnerData.tradeRateSpec || {},
         rating: 0,
         reviewsCount: 0,
         experienceYears: partnerData.experienceYears || 0,
         jobsCompleted: 0,
         verified: false,
-        distance: '0.8 km दूर',
+        distance: '1.0 km दूर',
         etaMinutes: 20,
         isQuickAvailable: true,
-        primaryRateType: partnerData.unitLabel || 'दिहाड़ी',
-        dailyWageRate: partnerData.dailyWageRate !== undefined ? partnerData.dailyWageRate : null,
-        helperRate: partnerData.helperRate !== undefined ? partnerData.helperRate : null,
-        contractUnitRate: partnerData.contractUnitRate !== undefined ? partnerData.contractUnitRate : null,
-        unitLabel: partnerData.unitLabel || 'प्रति काम',
         available: true,
         phoneMasked: partnerData.phone
           ? `+91 ${partnerData.phone.slice(0, 2)}XXX-XX${partnerData.phone.slice(-3)}`
@@ -658,7 +679,7 @@ export default function App() {
           </View>
         </View>
       ) : (
-        /* STANDARD CUSTOMER E-COMMERCE HEADER (Like Flipkart / Urban Company) */
+        /* STANDARD CUSTOMER HEADER */
         <Header
           currentLocation={currentLocation}
           onLocationPress={() => setShowLocationPicker(true)}
@@ -706,23 +727,46 @@ export default function App() {
         )}
 
         {/* 2. CONTRACTOR / WORKER DASHBOARD */}
-        {currentRole === 'CONTRACTOR' && (
-          <ContractorDashboard
-            contractor={
-              contractors.find(
-                (c) =>
-                  c.id === activeContractorId ||
-                  (c as any).customId === activeContractorId ||
-                  (currentUser?.contractorId && (c.id === currentUser.contractorId || (c as any).customId === currentUser.contractorId)) ||
-                  (c.phone && currentUser?.phone && c.phone === currentUser.phone)
-              ) || contractors[0]
-            }
-            onUpdateContractorProfile={handleUpdateContractorProfile}
-            jobRequests={jobRequests}
-            onUpdateJobRequestStatus={handleUpdateJobRequestStatus}
-            language={language}
-          />
-        )}
+        {currentRole === 'CONTRACTOR' && (() => {
+          const matchedPro = contractors.find(
+            (c) =>
+              (activeContractorId && (c.id === activeContractorId || (c as any).customId === activeContractorId)) ||
+              (currentUser?.contractorId && (c.id === currentUser.contractorId || (c as any).customId === currentUser.contractorId)) ||
+              (c.phone && currentUser?.phone && c.phone === currentUser.phone)
+          );
+          if (!matchedPro) {
+            return (
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: COLORS.textPrimary, textAlign: 'center' }}>
+                  आपकी कारीगर प्रोफाइल अभी तैयार नहीं हुई है
+                </Text>
+                <Text style={{ fontSize: 12, color: COLORS.textSecondary, textAlign: 'center', marginTop: 6, marginBottom: 14 }}>
+                  अपनी असली प्रोफाइल, फोटो व रेट कार्ड जोड़ने के लिए ऑनबोर्डिंग पूरा करें।
+                </Text>
+                <TouchableOpacity
+                  style={{ backgroundColor: COLORS.primary, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8 }}
+                  onPress={() => {
+                    setPartnerRegistrationType('CONTRACTOR');
+                    setShowPartnerRegistrationModal(true);
+                  }}
+                >
+                  <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 13 }}>
+                    👷 अपनी कारीगर ID बनाएं ➔
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            );
+          }
+          return (
+            <ContractorDashboard
+              contractor={matchedPro}
+              onUpdateContractorProfile={handleUpdateContractorProfile}
+              jobRequests={jobRequests}
+              onUpdateJobRequestStatus={handleUpdateJobRequestStatus}
+              language={language}
+            />
+          );
+        })()}
 
         {/* 3. MATERIAL VENDOR / SHOPKEEPER DASHBOARD */}
         {currentRole === 'VENDOR' && (
@@ -751,7 +795,7 @@ export default function App() {
         />
       )}
 
-      {/* Work With Us (Become a Partner) Modal with Strict Role Checks */}
+      {/* Work With Us (Become a Partner) Modal */}
       <WorkWithUsModal
         visible={showWorkWithUsModal}
         currentUser={currentUser}
@@ -766,10 +810,9 @@ export default function App() {
           setShowPartnerRegistrationModal(true);
         }}
         onSelectPartnerRole={handleRoleSwitch}
-        onRequestAdminAuth={() => setShowAdminSecurityModal(true)}
       />
 
-      {/* Urban Company / Amazon Seller Multi-Step Partner Registration Modal */}
+      {/* SETU Multi-Step Partner Onboarding Modal */}
       <PartnerRegistrationModal
         key={`${partnerRegistrationType}-${showPartnerRegistrationModal ? 'open' : 'closed'}`}
         visible={showPartnerRegistrationModal}

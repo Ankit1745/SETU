@@ -81,7 +81,7 @@ export const TRANSLATIONS = {
 
     // Partner Registration
     partnerRegTitle: 'SETU पार्टनर नेटवर्क',
-    partnerRegSub: 'Urban Company व Flipkart की तरह अपने काम को ऑनलाइन ले जाएं',
+    partnerRegSub: 'अपने कौशल या सामग्री स्टोर को ऑनलाइन SETU से जोड़ें',
     partnerContractor: 'कुशल कारीगर / ठेकेदार बनें',
     partnerVendor: 'मटेरियल सप्लायर बनें',
 
@@ -101,7 +101,6 @@ export const TRANSLATIONS = {
     getOtp: 'OTP प्राप्त करें ➔',
     verifyOtp: 'सत्यापित करें व आगे बढ़ें ➔',
     browseAsGuest: 'अतिथि के रूप में देखें (Skip / Guest) ➔',
-    fastDemoLogin: '⚡ 1-क्लिक टेस्ट लॉगिन:',
   },
 
   en: {
@@ -184,7 +183,7 @@ export const TRANSLATIONS = {
 
     // Partner Registration
     partnerRegTitle: 'SETU Partner Network',
-    partnerRegSub: 'Scale your trade or store like Urban Company & Amazon',
+    partnerRegSub: 'Take your skilled trade or material store online with SETU',
     partnerContractor: 'Join as Skilled Contractor / Pro',
     partnerVendor: 'Join as Material Supplier / Store',
 
@@ -204,7 +203,6 @@ export const TRANSLATIONS = {
     getOtp: 'Get OTP ➔',
     verifyOtp: 'Verify & Continue ➔',
     browseAsGuest: 'Explore as Guest ➔',
-    fastDemoLogin: '⚡ 1-Click Fast Test Login:',
   },
 
   hinglish: {
@@ -287,7 +285,7 @@ export const TRANSLATIONS = {
 
     // Partner Registration
     partnerRegTitle: 'SETU Partner Network',
-    partnerRegSub: 'Urban Company aur Amazon ki tarah apna kaam online le jayein',
+    partnerRegSub: 'SETU ke saath apna kaam aur dukaan online badhayein',
     partnerContractor: 'Skilled Karigar / Contractor banein',
     partnerVendor: 'Material Supplier / Shop banein',
 
@@ -307,6 +305,5 @@ export const TRANSLATIONS = {
     getOtp: 'OTP Paayein ➔',
     verifyOtp: 'Verify karke Aage Badhein ➔',
     browseAsGuest: 'Guest banke dekhein ➔',
-    fastDemoLogin: '⚡ 1-Click Fast Test Login:',
   },
 };

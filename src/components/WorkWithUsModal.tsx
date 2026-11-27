@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
-import { MaterialCommunityIcons, MaterialIcons, Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
 import { Language } from '../i18n/translations';
 import { showAppAlert } from '../utils/appAlert';
@@ -20,7 +20,6 @@ interface WorkWithUsModalProps {
   onClose: () => void;
   onOpenPartnerRegistration: (type: 'CONTRACTOR' | 'VENDOR') => void;
   onSelectPartnerRole: (role: 'CONTRACTOR' | 'VENDOR' | 'ADMIN') => void;
-  onRequestAdminAuth: () => void;
 }
 
 export const WorkWithUsModal: React.FC<WorkWithUsModalProps> = ({
@@ -30,7 +29,6 @@ export const WorkWithUsModal: React.FC<WorkWithUsModalProps> = ({
   onClose,
   onOpenPartnerRegistration,
   onSelectPartnerRole,
-  onRequestAdminAuth,
 }) => {
   const isEn = language === 'en';
   const handleOpenContractorDashboard = () => {
@@ -95,8 +93,8 @@ export const WorkWithUsModal: React.FC<WorkWithUsModalProps> = ({
               </Text>
               <Text style={styles.headerSub}>
                 {isEn
-                  ? 'Register your skill or material store directly on SETU'
-                  : 'Urban Company व Flipkart की तरह अपने काम या दुकान को SETU से जोड़ें'}
+                  ? 'Register your craft or material store directly on SETU'
+                  : 'अपने हुनर या निर्माण सामग्री स्टोर को सीधे SETU से जोड़ें'}
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -162,7 +160,7 @@ export const WorkWithUsModal: React.FC<WorkWithUsModalProps> = ({
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <View style={styles.cardHeaderRow}>
                   <Text style={styles.cardTitle}>2. मटेरियल सप्लायर बनें (दुकानदार)</Text>
-                  <Text style={styles.badgeVendor}>Flipkart Seller स्टाइल</Text>
+                  <Text style={styles.badgeVendor}>सत्यापित स्टोर पार्टनर</Text>
                 </View>
                 <Text style={styles.cardDesc}>
                   सीमेंट, सरिया, प्लाईवुड, फेविकोल, हार्डवेयर, CPVC पाइप्स, पेंट्स, टेंट फैब्रिक।
@@ -199,32 +197,6 @@ export const WorkWithUsModal: React.FC<WorkWithUsModalProps> = ({
                 </TouchableOpacity>
               </View>
             </View>
-
-            {/* Admin / Supervisor Portal Option (LOCKED) */}
-            <TouchableOpacity
-              style={[styles.adminCard, { borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' }]}
-              activeOpacity={0.85}
-              onPress={() => {
-                onClose();
-                onRequestAdminAuth();
-              }}
-            >
-              <View style={{ backgroundColor: '#FEE2E2', padding: 6, borderRadius: 20 }}>
-                <Ionicons name="lock-closed" size={18} color="#DC2626" />
-              </View>
-              <View style={{ flex: 1, marginLeft: 10 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.adminTitle, { color: '#991B1B' }]}>SETU एडमिन नियंत्रण कक्ष</Text>
-                  <View style={{ backgroundColor: '#DC2626', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
-                    <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '900' }}>🔒 सुरक्षित</Text>
-                  </View>
-                </View>
-                <Text style={[styles.adminSub, { color: '#B91C1C' }]}>
-                  सर्वर पासवर्ड प्रमाणीकरण आवश्यक • अनधिकृत प्रवेश वर्जित
-                </Text>
-              </View>
-              <MaterialIcons name="chevron-right" size={20} color="#DC2626" />
-            </TouchableOpacity>
 
             <View style={{ height: 20 }} />
           </ScrollView>

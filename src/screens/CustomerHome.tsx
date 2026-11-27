@@ -133,7 +133,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
       : null;
   });
 
-  // Airtasker / Thumbtack Model: Post-a-Job (Custom Task & Budget Posting)
+  // Custom Job Posting (Task & Budget Posting)
   const [showPostTaskModal, setShowPostTaskModal] = useState(false);
   const [postTaskTitle, setPostTaskTitle] = useState('');
   const [postTaskBudget, setPostTaskBudget] = useState('');
@@ -329,7 +329,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
       category: service.category || 'general',
       bookingMode: 'क्विक रिपेयर',
       workType: `क्विक रिपेयर: ${service.title}`,
-      contractorName: `${service.title} (अजय राठौर)`,
+      contractorName: `${service.title} (SETU एक्सप्रेस कारीगर)`,
       totalLaborAmount: service.startingPrice,
       escrowAdvanceToken: 0,
       workAddress: currentLocation,
@@ -613,7 +613,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* 4. AIRTASKER / THUMBTACK FEATURE: "अपना काम और बजट पोस्ट करें" (Post a Custom Job) */}
+          {/* 4. POST A CUSTOM JOB & BUDGET */}
           <View
             style={[
               styles.postJobBannerStrip,
@@ -647,7 +647,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
           </View>
         </View>
 
-        {/* 5. THUMBTACK / INFRA.MARKET FEATURE: "आज का भोपाल बाजार भाव सूचकांक" (Daily Market Rate Index) */}
+        {/* 5. DAILY CITY MARKET RATE INDEX */}
         <View style={[styles.marketIndexSection, isTabletOrDesktop && styles.marketIndexSectionDesktop]}>
           <View style={styles.marketIndexHeader}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -745,28 +745,45 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
 
           {filteredContractors.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Ionicons name="search-outline" size={36} color={COLORS.textMuted} />
+              <Ionicons name={contractors.length === 0 ? 'construct-outline' : 'search-outline'} size={36} color={COLORS.primary} />
               <Text style={styles.emptyTitle}>
-                {language === 'hi' ? 'कोई कारीगर नहीं मिला' : 'No Pros Found'}
+                {contractors.length === 0
+                  ? (language === 'hi' ? 'अभी कोई असली कारीगर प्रोफाइल लाइव नहीं है' : 'No Verified Pros Listed Yet')
+                  : (language === 'hi' ? 'कोई कारीगर नहीं मिला' : 'No Pros Found')}
               </Text>
               <Text style={styles.emptySub}>
-                {language === 'hi'
-                  ? 'कृपया सर्च शब्द बदलें या अन्य श्रेणी चुनें।'
-                  : 'Please adjust your search or clear filters.'}
+                {contractors.length === 0
+                  ? (language === 'hi'
+                      ? 'सभी पुरानी सैंपल प्रोफाइल हटा दी गई हैं। अब आप अपना काम पोस्ट कर सकते हैं या पार्टनर के रूप में असली ID जोड़ सकते हैं।'
+                      : 'All sample profiles are cleared. Post your job requirement or join with your verified partner profile.')
+                  : (language === 'hi'
+                      ? 'कृपया सर्च शब्द बदलें या अन्य श्रेणी चुनें।'
+                      : 'Please adjust your search or clear filters.')}
               </Text>
-              <TouchableOpacity
-                style={styles.resetBtn}
-                onPress={() => {
-                  setSearchQuery('');
-                  setSelectedNeed('ALL');
-                  setSelectedCategory('all');
-                  setSelectedRateType('ALL');
-                }}
-              >
-                <Text style={styles.resetBtnText}>
-                  {language === 'hi' ? 'सभी फिल्टर रीसेट करें' : 'Reset All Filters'}
-                </Text>
-              </TouchableOpacity>
+              {contractors.length === 0 ? (
+                <TouchableOpacity
+                  style={styles.resetBtn}
+                  onPress={() => setShowPostTaskModal(true)}
+                >
+                  <Text style={styles.resetBtnText}>
+                    {language === 'hi' ? '📝 अपना काम व बजट पोस्ट करें ➔' : '📝 Post Job & Budget ➔'}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.resetBtn}
+                  onPress={() => {
+                    setSearchQuery('');
+                    setSelectedNeed('ALL');
+                    setSelectedCategory('all');
+                    setSelectedRateType('ALL');
+                  }}
+                >
+                  <Text style={styles.resetBtnText}>
+                    {language === 'hi' ? 'सभी फिल्टर रीसेट करें' : 'Reset All Filters'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             <View style={proCols > 1 ? styles.prosGridContainer : undefined}>
@@ -883,7 +900,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
         onClose={() => setShowRateSurveyModal(false)}
       />
 
-      {/* 4. Uber/Rapido Quick SOS Service Modal */}
+      {/* 4. SETU Express Quick SOS Service Modal */}
       <QuickServiceModal
         visible={isQuickModalOpen}
         onClose={() => {
@@ -911,7 +928,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
         />
       )}
 
-      {/* 7. Airtasker / Thumbtack Model: Post Custom Job & Budget Modal */}
+      {/* 7. Post Custom Job & Budget Modal */}
       <Modal visible={showPostTaskModal} transparent animationType="slide" onRequestClose={() => setShowPostTaskModal(false)}>
         <View style={postModalResponsive.overlayStyle}>
           <View style={[styles.postModalCard, postModalResponsive.containerStyle]}>
@@ -1976,7 +1993,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#FFFFFF',
   },
-  // Airtasker / Thumbtack Post a Job Strip
+  // Post a Job Strip
   postJobBannerStrip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -2022,7 +2039,7 @@ const styles = StyleSheet.create({
     color: '#047857',
     marginTop: 1,
   },
-  // Thumbtack / Infra.Market Market Index
+  // Regional Material & Labor Market Index
   marketIndexSection: {
     paddingVertical: 8,
     backgroundColor: '#FFFFFF',

@@ -9,7 +9,6 @@ import {
   ScrollView,
   Image,
   ActivityIndicator,
-  Platform,
 } from 'react-native';
 import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
@@ -18,6 +17,7 @@ import { pickImageFromGallery } from '../utils/mediaPicker';
 import { ApiService } from '../services/api';
 import { showAppAlert } from '../utils/appAlert';
 import { useResponsive } from '../hooks/useResponsive';
+import { detectLiveGpsLocation } from '../utils/liveLocation';
 
 interface CustomerProfileModalProps {
   visible: boolean;
@@ -65,7 +65,7 @@ function normalizeProfileUser(
   return {
     ...(verifiedUser || {}),
     id: verifiedUser?.id || `u_${Date.now()}`,
-    name: verifiedUser?.name || nameInput.trim() || (isHindi ? 'अंकित शर्मा' : 'Ankit Sharma'),
+    name: verifiedUser?.name || nameInput.trim() || (isHindi ? 'SETU उपयोगकर्ता' : 'SETU User'),
     phone: verifiedUser?.phone || phoneInput.replace(/\D/g, '').slice(-10) || '',
     role: finalRole,
     location: finalLocation,
@@ -92,8 +92,14 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   // Login steps: 'PHONE' -> 'OTP' -> 'LOCATION_PERMISSION'
   const [authRole, setAuthRole] = useState<'CUSTOMER' | 'CONTRACTOR' | 'VENDOR'>('CUSTOMER');
   const [loginStep, setLoginStep] = useState<'PHONE' | 'OTP' | 'LOCATION_PERMISSION'>('PHONE');
-  const [showTestProfiles, setShowTestProfiles] = useState<boolean>(false);
   const [phone, setPhone] = useState('');
+
+  // Account Edit State (Logged-in users can update name, photo, and location anytime)
+  const [isEditingAccount, setIsEditingAccount] = useState(false);
+  const [editAccountName, setEditAccountName] = useState(user?.name || '');
+  const [editAccountLoc, setEditAccountLoc] = useState(user?.location || currentLocation || '');
+  const [editAccountAvatar, setEditAccountAvatar] = useState(user?.avatarUrl || '');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [otp, setOtp] = useState('');
   const [name, setName] = useState('');
 
@@ -258,51 +264,91 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
     }
   };
 
-  // 3. GPS Location Detection (Web Geolocation + explicit manual preset prompt on native)
-  const handleGrantGpsLocation = () => {
-    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation) {
-      setIsDetectingGps(true);
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          const { latitude, longitude } = pos.coords;
-          try {
-            const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1`;
-            const res = await fetch(url);
-            const geoData = await res.json();
-            const addr = geoData.address || {};
-
-            const area =
-              addr.suburb ||
-              addr.neighbourhood ||
-              addr.road ||
-              addr.residential ||
-              'एमपी नगर';
-            const city = addr.city || addr.town || addr.state_district || 'भोपाल';
-            const pincode = addr.postcode || '462011';
-
-            const detectedLocation = `${area}, ${city} • ${pincode}`;
-            completeLogin(detectedLocation);
-          } catch {
-            const fallbackLoc = `भोपाल (${latitude.toFixed(3)}, ${longitude.toFixed(3)})`;
-            completeLogin(fallbackLoc);
-          } finally {
-            setIsDetectingGps(false);
-          }
-        },
-        () => {
-          setIsDetectingGps(false);
-          showAppAlert(
-            'GPS अनुमति अस्वीकृत',
-            'कृपया नीचे दी गई सूची से अपना इलाका मैन्युअल रूप से चुनें।'
-          );
-        },
-        { enableHighAccuracy: true, timeout: 8000 }
-      );
+  // 3. Live GPS Location Detection (Works globally across devices via Geolocation + backend reverse proxy)
+  const handleGrantGpsLocation = async () => {
+    setIsDetectingGps(true);
+    const res = await detectLiveGpsLocation();
+    setIsDetectingGps(false);
+    if (res.ok && res.formattedLocation) {
+      completeLogin(res.formattedLocation);
     } else {
       showAppAlert(
-        'मैन्युअल लोकेशन चुनें',
-        'कृपया नीचे दिए गए प्रमुख इलाकों में से अपना क्षेत्र चुनें।'
+        '📍 लाइव GPS लोकेशन',
+        res.error || 'कृपया नीचे दी गई सूची से अपना इलाका चुनें।'
       );
+    }
+  };
+
+  const handleUploadLoggedAvatar = async () => {
+    setIsUploadingPhoto(true);
+    try {
+      const picked = await pickImageFromGallery();
+      if (!picked || !picked.base64) {
+        setIsUploadingPhoto(false);
+        return;
+      }
+      const res = await ApiService.uploadFile(picked.base64, picked.name || 'avatar.jpg', 'avatar', false);
+      setIsUploadingPhoto(false);
+      if (res && res.success) {
+        const finalUrl = res.fullUrl || res.url;
+        setEditAccountAvatar(finalUrl);
+        showAppAlert('✅ फोटो अपलोड हुई', 'सेव करते ही आपकी नई प्रोफाइल फोटो दिखेगी।');
+      } else {
+        showAppAlert('त्रुटि', res?.error || 'फोटो अपलोड विफल रही।');
+      }
+    } catch (e: any) {
+      setIsUploadingPhoto(false);
+      showAppAlert('त्रुटि', e.message || 'फोटो अपलोड त्रुटि');
+    }
+  };
+
+  const handleDetectEditAccountGps = async () => {
+    setIsDetectingGps(true);
+    const res = await detectLiveGpsLocation();
+    setIsDetectingGps(false);
+    if (res.ok && res.formattedLocation) {
+      setEditAccountLoc(res.formattedLocation);
+    } else {
+      showAppAlert('GPS लोकेशन', res.error || 'लोकेशन प्राप्त नहीं हो सकी।');
+    }
+  };
+
+  const handleSaveAccountEdits = async () => {
+    const cleanName = editAccountName.trim();
+    if (cleanName.length < 2) {
+      showAppAlert('अनिवार्य जानकारी', 'कृपया अपना पूरा नाम (कम से कम 2 अक्षर) दर्ज करें।');
+      return;
+    }
+    setIsSavingProfile(true);
+    try {
+      let updatedUser = {
+        ...(user || {}),
+        name: cleanName,
+        location: editAccountLoc.trim() || currentLocation,
+        avatarUrl: editAccountAvatar.trim(),
+      };
+      if (ApiService.getAuthToken()) {
+        const res = await ApiService.updateUserProfile({
+          name: cleanName,
+          location: updatedUser.location,
+          avatarUrl: updatedUser.avatarUrl,
+        });
+        if (res && res.success === false) {
+          showAppAlert('अपडेट विफल', res.error || 'प्रोफाइल सेव नहीं हो सकी।');
+          return;
+        }
+        if (res && res.user) {
+          updatedUser = { ...updatedUser, ...res.user };
+        }
+      }
+      if (onLocationUpdate && updatedUser.location) {
+        onLocationUpdate(updatedUser.location);
+      }
+      onLoginSuccess(updatedUser);
+      setIsEditingAccount(false);
+      showAppAlert('✅ प्रोफाइल अपडेट हुई', 'आपकी फोटो, नाम व लोकेशन सफलतापूर्वक सेव हो गए हैं।');
+    } finally {
+      setIsSavingProfile(false);
     }
   };
 
@@ -495,9 +541,88 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                     <Text style={styles.userSetuId}>ID: {user.setuId}</Text>
                     <Text style={styles.userLocationBadge}>📍 {user.location || currentLocation}</Text>
                   </View>
+                  <TouchableOpacity
+                    style={{
+                      backgroundColor: '#EEF2FF',
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 6,
+                    }}
+                    onPress={() => {
+                      setEditAccountName(user.name || '');
+                      setEditAccountLoc(user.location || currentLocation || '');
+                      setEditAccountAvatar(user.avatarUrl || '');
+                      setIsEditingAccount(!isEditingAccount);
+                    }}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#4338CA' }}>
+                      {isEditingAccount ? 'बंद करें' : 'एडिट ✎'}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
 
-                {/* THE CUSTOMER POINTS CARD (Flipkart SuperCoins style) */}
+                {isEditingAccount && (
+                  <View style={[styles.inputBox, { backgroundColor: '#F8FAFC', borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#E2E8F0' }]}>
+                    <Text style={{ fontSize: 12.5, fontWeight: '800', color: '#1E40AF', marginBottom: 8 }}>
+                      ✏️ अपनी प्रोफाइल जानकारी, फोटो व लोकेशन अपडेट करें
+                    </Text>
+
+                    <View style={styles.uploadRow}>
+                      <TouchableOpacity
+                        style={styles.photoUploadBtn}
+                        onPress={handleUploadLoggedAvatar}
+                        disabled={isUploadingPhoto}
+                      >
+                        <Ionicons name="camera" size={16} color="#4F46E5" />
+                        <Text style={styles.photoUploadBtnText}>
+                          {editAccountAvatar ? '✓ फोटो बदलें' : '📷 प्रोफाइल फोटो चुनें'}
+                        </Text>
+                      </TouchableOpacity>
+                      {isUploadingPhoto ? (
+                        <ActivityIndicator size="small" color="#4F46E5" />
+                      ) : editAccountAvatar ? (
+                        <Image source={{ uri: editAccountAvatar }} style={styles.thumbnailPreview} />
+                      ) : null}
+                    </View>
+
+                    <Text style={styles.inputLabel}>पूरा नाम:</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={editAccountName}
+                      onChangeText={setEditAccountName}
+                      placeholder="आपका पूरा नाम"
+                    />
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                      <Text style={styles.inputLabel}>पता / शहर लोकेशन:</Text>
+                      <TouchableOpacity onPress={handleDetectEditAccountGps} disabled={isDetectingGps}>
+                        <Text style={{ fontSize: 11, fontWeight: '800', color: COLORS.primary }}>
+                          {isDetectingGps ? 'GPS जांच...' : '📍 लाइव GPS से भरें'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <TextInput
+                      style={styles.textInput}
+                      value={editAccountLoc}
+                      onChangeText={setEditAccountLoc}
+                      placeholder="शहर, इलाका व पिनकोड"
+                    />
+
+                    <TouchableOpacity
+                      style={[styles.submitBtn, { marginTop: 12 }]}
+                      onPress={handleSaveAccountEdits}
+                      disabled={isSavingProfile}
+                    >
+                      {isSavingProfile ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.submitBtnText}>प्रोफाइल सेव करें ✓</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* THE CUSTOMER POINTS CARD (SETU Rewards) */}
                 <View style={styles.pointsCard}>
                   <View style={styles.pointsTopRow}>
                     <View style={styles.coinBadge}>
@@ -704,7 +829,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                       <Text style={styles.inputLabel}>{isHindi ? 'पूरा नाम:' : 'Full Name:'}</Text>
                       <TextInput
                         style={styles.textInput}
-                        placeholder={isHindi ? 'उदा. अंकित शर्मा' : 'e.g. Ankit Sharma'}
+                        placeholder={isHindi ? 'अपना पूरा नाम लिखें' : 'Enter your full name'}
                         value={name}
                         onChangeText={setName}
                       />
@@ -771,88 +896,6 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                           )}
                         </View>
                       </View>
-
-                      {/* Collapsible Quick Test Roles Accordion */}
-                      <TouchableOpacity
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          paddingVertical: 7,
-                          paddingHorizontal: 10,
-                          backgroundColor: '#F8FAFC',
-                          borderRadius: 8,
-                          marginBottom: showTestProfiles ? 8 : 12,
-                          borderWidth: 1,
-                          borderColor: '#E2E8F0',
-                        }}
-                        onPress={() => setShowTestProfiles(!showTestProfiles)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Ionicons name="key-outline" size={13} color="#64748B" />
-                          <Text style={{ fontSize: 11, fontWeight: '700', color: '#475569' }}>
-                            {isHindi ? '⚡ टेस्ट प्रोफाइल ऑटो-भरें (डेमो)' : '⚡ Quick Test Profiles (Demo)'}
-                          </Text>
-                        </View>
-                        <Ionicons
-                          name={showTestProfiles ? 'chevron-up' : 'chevron-down'}
-                          size={14}
-                          color="#64748B"
-                        />
-                      </TouchableOpacity>
-
-                      {showTestProfiles && (
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-                          <TouchableOpacity
-                            style={[styles.demoFillPill, phone === '9876543210' && { backgroundColor: '#E0E7FF', borderColor: '#4F46E5', borderWidth: 1 }]}
-                            onPress={() => {
-                              setName('अंकित (भोपाल)');
-                              setPhone('9876543210');
-                              setAuthRole('CUSTOMER');
-                            }}
-                          >
-                            <Ionicons name="person" size={11} color="#4F46E5" />
-                            <Text style={styles.demoFillPillText}>👤 ग्राहक</Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            style={[styles.demoFillPill, phone === '9812345678' && { backgroundColor: '#FFEDD5', borderColor: '#EA580C', borderWidth: 1 }]}
-                            onPress={() => {
-                              setName('रमेश शर्मा (कारीगर)');
-                              setPhone('9812345678');
-                              setAuthRole('CONTRACTOR');
-                            }}
-                          >
-                            <Ionicons name="hammer" size={11} color="#EA580C" />
-                            <Text style={[styles.demoFillPillText, { color: '#EA580C' }]}>👷 कारीगर ID</Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            style={[styles.demoFillPill, phone === '9898989898' && { backgroundColor: '#FEF3C7', borderColor: '#D97706', borderWidth: 1 }]}
-                            onPress={() => {
-                              setName('गुप्ता जी (दुकानदार)');
-                              setPhone('9898989898');
-                              setAuthRole('VENDOR');
-                            }}
-                          >
-                            <Ionicons name="storefront" size={11} color="#D97706" />
-                            <Text style={[styles.demoFillPillText, { color: '#D97706' }]}>🏪 दुकानदार ID</Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            style={[styles.demoFillPill, phone === '9999999999' && { backgroundColor: '#FEE2E2', borderColor: '#DC2626', borderWidth: 1 }]}
-                            onPress={() => {
-                              setName('SETU सुपर एडमिन');
-                              setPhone('9999999999');
-                              setAuthRole('CUSTOMER');
-                            }}
-                          >
-                            <Ionicons name="shield-checkmark" size={11} color="#DC2626" />
-                            <Text style={[styles.demoFillPillText, { color: '#DC2626' }]}>🛡️ एडमिन ID</Text>
-                          </TouchableOpacity>
-                        </View>
-                      )}
 
                       <TouchableOpacity
                         style={styles.submitBtn}

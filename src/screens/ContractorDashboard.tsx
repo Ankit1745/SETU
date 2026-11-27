@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Switch,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { Contractor, JobRequest, PortfolioPhoto } from '../data/mockData';
@@ -17,6 +18,8 @@ import { Language } from '../i18n/translations';
 import { showAppAlert } from '../utils/appAlert';
 import { useResponsive } from '../hooks/useResponsive';
 import { getTradeRateProfile } from '../data/tradeRateConfig';
+import { pickImageFromGallery } from '../utils/mediaPicker';
+import { detectLiveGpsLocation } from '../utils/liveLocation';
 
 interface ContractorDashboardProps {
   contractor: Contractor;
@@ -84,6 +87,100 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
   const [newPhotoTitle, setNewPhotoTitle] = useState('');
   const [newPhotoDesc, setNewPhotoDesc] = useState('');
   const [newPhotoUrl, setNewPhotoUrl] = useState('');
+
+  // Editable Profile & Optional Bank Info state
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editName, setEditName] = useState(contractor.name || '');
+  const [editSpecialty, setEditSpecialty] = useState(contractor.specialtyHindi || '');
+  const [editBio, setEditBio] = useState(contractor.bio || '');
+  const [editExperience, setEditExperience] = useState(String(contractor.experienceYears || 0));
+  const [editCity, setEditCity] = useState((contractor as any).city || '');
+  const [editLocality, setEditLocality] = useState((contractor as any).locality || '');
+  const [editAvatar, setEditAvatar] = useState(contractor.avatar || '');
+  const [editAccHolder, setEditAccHolder] = useState((contractor as any).accountHolderName || '');
+  const [editBankAcc, setEditBankAcc] = useState((contractor as any).bankAccount || '');
+  const [editIfsc, setEditIfsc] = useState((contractor as any).ifscCode || '');
+  const [editUpi, setEditUpi] = useState((contractor as any).upiId || '');
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isDetectingProGps, setIsDetectingProGps] = useState(false);
+
+  const handleUploadProAvatar = async () => {
+    setIsUploadingAvatar(true);
+    try {
+      const picked = await pickImageFromGallery();
+      if (!picked || !picked.base64) {
+        setIsUploadingAvatar(false);
+        return;
+      }
+      const res = await ApiService.uploadFile(picked.base64, picked.name || 'avatar.jpg', 'avatar', false);
+      setIsUploadingAvatar(false);
+      if (res && res.success) {
+        const finalUrl = res.fullUrl || res.url;
+        setEditAvatar(finalUrl);
+        showAppAlert('✅ प्रोफाइल फोटो अपलोड हुई', 'प्रोफाइल सेव करते ही नई फोटो लाइव हो जाएगी।');
+      } else {
+        showAppAlert('त्रुटि', res?.error || 'फोटो अपलोड विफल रही।');
+      }
+    } catch (e: any) {
+      setIsUploadingAvatar(false);
+      showAppAlert('त्रुटि', 'फोटो अपलोड में समस्या: ' + e.message);
+    }
+  };
+
+  const handleDetectProGps = async () => {
+    setIsDetectingProGps(true);
+    const res = await detectLiveGpsLocation();
+    setIsDetectingProGps(false);
+    if (res.ok) {
+      if (res.city) setEditCity(res.city);
+      if (res.area) setEditLocality(res.area);
+      showAppAlert('📍 लाइव GPS पहचाना गया', `लोकेशन: ${res.formattedLocation}`);
+    } else {
+      showAppAlert('GPS लोकेशन', res.error || 'GPS लोकेशन नहीं मिल सकी।');
+    }
+  };
+
+  const handleSaveProfileInfo = async () => {
+    if (editName.trim().length < 2) {
+      showAppAlert('अनिवार्य जानकारी (*)', 'कृपया अपना वैध नाम (कम से कम 2 अक्षर) दर्ज करें।');
+      return;
+    }
+    if (editSpecialty.trim().length < 2) {
+      showAppAlert('अनिवार्य जानकारी (*)', 'कृपया अपनी कार्य विशेषज्ञता (Specialty) दर्ज करें।');
+      return;
+    }
+    if (editUpi.trim() && (!editUpi.trim().includes('@') || editUpi.trim().length < 5)) {
+      showAppAlert('अमान्य UPI ID', 'सही UPI ID डालें (उदा. name@okaxis) या खाली छोड़ें।');
+      return;
+    }
+    if (editIfsc.trim() && editIfsc.trim().length !== 11) {
+      showAppAlert('अमान्य IFSC कोड', 'IFSC कोड 11 अक्षर/अंकों का होता है (या खाली छोड़ें)।');
+      return;
+    }
+
+    const updates: any = {
+      name: editName.trim(),
+      specialtyHindi: editSpecialty.trim(),
+      bio: editBio.trim(),
+      experienceYears: Math.max(0, Math.min(70, parseInt(editExperience, 10) || 0)),
+      city: editCity.trim(),
+      locality: editLocality.trim(),
+      avatar: editAvatar.trim(),
+      accountHolderName: editAccHolder.trim(),
+      bankAccount: editBankAcc.trim(),
+      ifscCode: editIfsc.trim().toUpperCase(),
+      upiId: editUpi.trim(),
+    };
+
+    const res = await ApiService.updateContractorProfile(contractor.id, updates);
+    if (res && res.success === false) {
+      showAppAlert('अपडेट विफल', res.error || 'प्रोफाइल सर्वर पर अपडेट नहीं हो सकी।');
+      return;
+    }
+    onUpdateContractorProfile(updates);
+    setIsEditingProfile(false);
+    showAppAlert('✅ प्रोफाइल अपडेट हुई', 'आपकी फोटो, नाम, पता व भुगतान विवरण सफलतापूर्वक सेव हो गए हैं।');
+  };
 
   const handleFieldUpdate = (key: string, val: string, mapsTo?: string) => {
     setTradeFieldValues((prev) => ({ ...prev, [key]: val }));
@@ -253,12 +350,19 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
       showsVerticalScrollIndicator={false}
     >
       <View style={shellStyle}>
-      {/* Contractor Profile Summary Card */}
+      {/* Contractor Profile Summary & Live Editor Card */}
       <View style={styles.profileCard}>
         <View style={styles.profileHeader}>
-          <View style={styles.avatarBox}>
-            <Text style={styles.avatarInitials}>{(contractor.name || 'S').trim().charAt(0)}</Text>
-          </View>
+          {contractor.avatar ? (
+            <Image
+              source={{ uri: contractor.avatar }}
+              style={{ width: 54, height: 54, borderRadius: 27, borderWidth: 2, borderColor: COLORS.primary }}
+            />
+          ) : (
+            <View style={styles.avatarBox}>
+              <Text style={styles.avatarInitials}>{(contractor.name || 'S').trim().charAt(0)}</Text>
+            </View>
+          )}
           <View style={styles.profileInfo}>
             <View style={styles.titleRow}>
               <Text style={styles.nameText}>{contractor.name}</Text>
@@ -277,7 +381,93 @@ export const ContractorDashboard: React.FC<ContractorDashboardProps> = ({
               </Text>
             </View>
           </View>
+          <TouchableOpacity
+            style={styles.editBtn}
+            onPress={() => setIsEditingProfile(!isEditingProfile)}
+          >
+            <Text style={styles.editBtnText}>
+              {isEditingProfile ? 'बंद करें' : 'प्रोफाइल एडिट ✎'}
+            </Text>
+          </TouchableOpacity>
         </View>
+
+        {isEditingProfile && (
+          <View style={{ backgroundColor: '#F8FAFC', borderRadius: 10, padding: 12, marginTop: 10, borderWidth: 1, borderColor: '#E2E8F0' }}>
+            <Text style={{ fontSize: 13, fontWeight: '800', color: COLORS.primary, marginBottom: 8 }}>
+              ✏️ अपनी जानकारी, फोटो व बैंक विवरण अपडेट करें
+            </Text>
+
+            {/* Profile Photo Upload */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              {editAvatar ? (
+                <Image source={{ uri: editAvatar }} style={{ width: 48, height: 48, borderRadius: 24, borderWidth: 1.5, borderColor: '#10B981' }} />
+              ) : null}
+              <TouchableOpacity
+                style={[styles.addPhotoBtn, { paddingVertical: 8, paddingHorizontal: 12 }]}
+                onPress={handleUploadProAvatar}
+                disabled={isUploadingAvatar}
+              >
+                {isUploadingAvatar ? (
+                  <ActivityIndicator size="small" color="#4338CA" />
+                ) : (
+                  <Text style={styles.addPhotoBtnText}>
+                    📷 {editAvatar ? 'प्रोफाइल फोटो बदलें' : 'असली प्रोफाइल फोटो अपलोड करें'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.inputLabel}>नाम <Text style={styles.reqStar}>*</Text></Text>
+            <TextInput style={styles.textInput} value={editName} onChangeText={setEditName} placeholder="आपका नाम" />
+
+            <Text style={styles.inputLabel}>विशेषज्ञता / काम का शीर्षक <Text style={styles.reqStar}>*</Text></Text>
+            <TextInput style={styles.textInput} value={editSpecialty} onChangeText={setEditSpecialty} placeholder="उदा. मॉड्यूलर किचन & वॉर्डरोब" />
+
+            <Text style={styles.inputLabel}>कार्य अनुभव (वर्ष) व परिचय (Bio):</Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TextInput
+                style={[styles.textInput, { width: 80 }]}
+                value={editExperience}
+                onChangeText={setEditExperience}
+                keyboardType="numeric"
+                placeholder="वर्ष"
+              />
+              <TextInput
+                style={[styles.textInput, { flex: 1 }]}
+                value={editBio}
+                onChangeText={setEditBio}
+                placeholder="आपके टूल्स व कार्य गुणवत्ता का संक्षिप्त विवरण"
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+              <Text style={styles.inputLabel}>शहर & इलाका:</Text>
+              <TouchableOpacity onPress={handleDetectProGps} disabled={isDetectingProGps}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: COLORS.primary }}>
+                  {isDetectingProGps ? 'GPS खोज रहा है...' : '📍 लाइव GPS भरें'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TextInput style={[styles.textInput, { flex: 1 }]} value={editCity} onChangeText={setEditCity} placeholder="शहर (उदा. भोपाल)" />
+              <TextInput style={[styles.textInput, { flex: 1 }]} value={editLocality} onChangeText={setEditLocality} placeholder="इलाका (उदा. अरेरा)" />
+            </View>
+
+            <Text style={[styles.inputLabel, { marginTop: 10, color: '#065F46' }]}>
+              🏦 बैंक & UPI विवरण (वैकल्पिक — डायरेक्ट पेमेंट हेतु):
+            </Text>
+            <TextInput style={[styles.textInput, { marginTop: 4 }]} value={editAccHolder} onChangeText={setEditAccHolder} placeholder="खाताधारक का नाम (वैकल्पिक)" />
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+              <TextInput style={[styles.textInput, { flex: 1 }]} value={editBankAcc} onChangeText={setEditBankAcc} placeholder="बैंक खाता नंबर" keyboardType="numeric" />
+              <TextInput style={[styles.textInput, { width: 115 }]} value={editIfsc} onChangeText={setEditIfsc} placeholder="IFSC कोड" autoCapitalize="characters" />
+            </View>
+            <TextInput style={[styles.textInput, { marginTop: 6 }]} value={editUpi} onChangeText={setEditUpi} placeholder="UPI ID (जैसे name@okaxis)" autoCapitalize="none" />
+
+            <TouchableOpacity style={styles.publishPhotoBtn} onPress={handleSaveProfileInfo}>
+              <Text style={styles.publishPhotoBtnText}>सभी बदलाव सेव करें ✓</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Availability Switch */}
         <View style={styles.availabilityRow}>

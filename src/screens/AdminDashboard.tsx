@@ -36,44 +36,9 @@ interface DisputeCase {
   status: 'OPEN' | 'RESOLVED' | 'REFUNDED';
 }
 
-const INITIAL_KYC_APPLICATIONS: KycApplication[] = [
-  {
-    id: 'kyc_1',
-    name: 'दीपक कश्यप',
-    role: 'CONTRACTOR',
-    tradeOrShop: 'राजमिस्त्री & टाइल्स कारीगर (8 साल अनुभव)',
-    phone: '+91 98XXX-XX410',
-    docNumber: 'आधार: XXXX-XXXX-4912 (सत्यापित)',
-    appliedDate: 'आज, 2 घंटे पहले',
-    status: 'PENDING',
-  },
-  {
-    id: 'kyc_2',
-    name: 'अग्रवाल पेंट्स & सेनेटरी हाउस',
-    role: 'VENDOR',
-    tradeOrShop: 'हार्डवेयर & पेंट्स रिटेल स्टोर',
-    phone: '+91 94XXX-XX881',
-    docNumber: 'GSTIN: 09AAACA8821F1ZX',
-    appliedDate: 'आज, 4 घंटे पहले',
-    status: 'PENDING',
-  },
-];
-
-const INITIAL_DISPUTES: DisputeCase[] = [
-  {
-    id: 'disp_1',
-    customerName: 'सुनीता त्रिपाठी (ग्रीन पार्क)',
-    contractorName: 'सोनू वर्मा (पेंटर)',
-    jobTitle: '3BHK बालकनी वाटरप्रूफिंग',
-    escrowAmount: 6400,
-    issueDescription: 'ग्राहक का कहना है कि पुट्टी में एक जगह दरार दिख रही है, पेंटर कह रहा है कि प्लास्टर पुराना था।',
-    status: 'OPEN',
-  },
-];
-
 export const AdminDashboard: React.FC<{ language?: Language }> = ({ language: _language = 'hi' }) => {
-  const [kycList, setKycList] = useState<KycApplication[]>(INITIAL_KYC_APPLICATIONS);
-  const [disputes, setDisputes] = useState<DisputeCase[]>(INITIAL_DISPUTES);
+  const [kycList, setKycList] = useState<KycApplication[]>([]);
+  const [disputes, setDisputes] = useState<DisputeCase[]>([]);
   const [liveMetrics, setLiveMetrics] = useState<any>(null);
 
   const applyAdminPayload = useCallback((data: any) => {

@@ -999,39 +999,185 @@ app.delete('/api/auth/account', requireAuth, async (req, res) => {
   }
 });
 
+// 3c. Authenticated User Profile Update (Name, Location, Profile Photo, Business Name)
+app.post('/api/auth/profile', requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const updates = {};
+    if (typeof body.name === 'string' && body.name.trim().length >= 2) {
+      updates.name = asStr(body.name, 100).trim();
+    }
+    if (typeof body.location === 'string' && body.location.trim().length >= 2) {
+      updates.location = asStr(body.location, 200).trim();
+    }
+    if (typeof body.tradeOrShop === 'string') {
+      updates.tradeOrShop = asStr(body.tradeOrShop, 160).trim();
+    }
+    if (
+      typeof body.avatarUrl === 'string' &&
+      (body.avatarUrl === '' ||
+        body.avatarUrl.startsWith('/uploads/public/') ||
+        body.avatarUrl.startsWith('/uploads/') ||
+        isSafeExternalUrl(body.avatarUrl))
+    ) {
+      updates.avatarUrl = body.avatarUrl;
+    }
+
+    const cleanPhone = (req.user.phone || '').replace(/\D/g, '').slice(-10);
+    let updatedUser = null;
+
+    if (getDbStatus().isMongoConnected) {
+      const query = mongoose.isValidObjectId(req.user.userId)
+        ? { $or: [{ _id: req.user.userId }, { phone: cleanPhone }] }
+        : { phone: cleanPhone };
+      const u = await models.User.findOne(query);
+      if (!u) return res.status(404).json({ error: 'उपयोगकर्ता खाता नहीं मिला।' });
+      Object.assign(u, updates);
+      await u.save();
+      updatedUser = {
+        id: u._id.toString(),
+        phone: u.phone,
+        name: u.name,
+        role: u.role,
+        setuId: u.setuId,
+        tradeOrShop: u.tradeOrShop,
+        kycVerified: u.kycVerified,
+        rewardPoints: u.rewardPoints,
+        location: u.location,
+        avatarUrl: u.avatarUrl || '',
+        contractorId: u.contractorId || '',
+        vendorId: u.vendorId || '',
+      };
+    } else {
+      const localData = readLocalDb();
+      const u = (localData.users || []).find(
+        (item) => item.id === req.user.userId || (cleanPhone && item.phone === cleanPhone)
+      );
+      if (!u) return res.status(404).json({ error: 'उपयोगकर्ता खाता नहीं मिला।' });
+      Object.assign(u, updates);
+      writeLocalDb(localData);
+      updatedUser = u;
+    }
+
+    res.json({ success: true, user: updatedUser });
+  } catch (err) {
+    res.status(500).json({ error: 'प्रोफाइल अपडेट त्रुटि: ' + err.message });
+  }
+});
+
+// 3d. Live GPS Reverse Geocoding Proxy (OpenStreetMap Nominatim with compliant User-Agent)
+app.get('/api/location/reverse', aiRateLimiter('reverse_geo', 30), async (req, res) => {
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return res.status(400).json({ error: 'मान्य अक्षांश व देशांतर (lat/lng) आवश्यक हैं।' });
+  }
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7000);
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&addressdetails=1`;
+    const resp = await fetch(url, {
+      headers: {
+        'User-Agent': 'SETU-Platform/2.0 (live-gps-location)',
+        'Accept-Language': 'hi,en',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (!resp.ok) {
+      return res.json({
+        success: true,
+        area: '',
+        city: '',
+        pincode: '',
+        formattedLocation: `लाइव GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+        lat,
+        lng,
+      });
+    }
+
+    const geo = await resp.json();
+    const addr = geo.address || {};
+    const area =
+      addr.suburb ||
+      addr.neighbourhood ||
+      addr.road ||
+      addr.residential ||
+      addr.village ||
+      addr.town ||
+      '';
+    const city = addr.city || addr.town || addr.state_district || addr.state || '';
+    const pincode = addr.postcode || '';
+    const areaAndCity = [area && area !== city ? area : '', city].filter(Boolean).join(', ');
+    const formattedLocation = areaAndCity
+      ? `${areaAndCity}${pincode ? ` • ${pincode}` : ''}`
+      : `लाइव GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+
+    res.json({
+      success: true,
+      area,
+      city,
+      state: addr.state || '',
+      pincode,
+      formattedLocation,
+      lat,
+      lng,
+    });
+  } catch {
+    res.json({
+      success: true,
+      area: '',
+      city: '',
+      pincode: '',
+      formattedLocation: `लाइव GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+      lat,
+      lng,
+    });
+  }
+});
+
 // 4. Admin Authentication Gate (Rate-limited)
-// Production-hardened: requires ADMIN_SECRET_KEY in env (only allows offline local test fallback when ALLOW_LOCAL_FALLBACK=true)
+// Owner Admin ID: 'setu' (configurable via ADMIN_LOGIN_ID / ADMIN_PASSWORD) + ADMIN_SECRET_KEY support
 app.post(['/api/admin/login', '/api/admin/verify-passcode'], aiRateLimiter('admin_login', 8), async (req, res) => {
   const { loginId, username, email, passcode, password, secretKey } = req.body || {};
   const providedPassword = (password || passcode || secretKey || '').trim();
   const providedUser = (loginId || username || email || '').trim().toLowerCase();
 
   const configuredSecret = cleanSecret(process.env.ADMIN_SECRET_KEY);
+  const ownerLoginId = cleanSecret(process.env.ADMIN_LOGIN_ID || 'setu').toLowerCase();
+  const ownerPassword = cleanSecret(process.env.ADMIN_PASSWORD || 'ankit78');
   const localTestSecret =
     !configuredSecret && process.env.ALLOW_LOCAL_FALLBACK === 'true'
       ? 'SETU_ADMIN_MP_BHOPAL_2026'
       : '';
   const effectiveSecret = configuredSecret || localTestSecret;
-  const ALLOWED_USERS = ['admin', 'setu_admin', 'superadmin'];
+  const ALLOWED_USERS = Array.from(new Set([ownerLoginId, 'setu', 'admin', 'setu_admin', 'superadmin']));
 
-  if (!effectiveSecret) {
-    return res.status(503).json({
-      error: '⛔ सर्वर एडमिन सुरक्षा कुंजी (ADMIN_SECRET_KEY) कॉन्फ़िगर नहीं है।',
-    });
-  }
+  const timingSafeEq = (aStr, bStr) => {
+    if (!aStr || !bStr) return false;
+    const a = Buffer.from(aStr);
+    const b = Buffer.from(bStr);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  };
 
   let isPasswordValid = false;
   if (providedPassword) {
-    const a = Buffer.from(providedPassword);
-    const b = Buffer.from(effectiveSecret);
-    isPasswordValid = a.length === b.length && crypto.timingSafeEqual(a, b);
+    if (providedUser === ownerLoginId || providedUser === 'setu') {
+      isPasswordValid =
+        timingSafeEq(providedPassword, ownerPassword) ||
+        timingSafeEq(providedPassword, effectiveSecret);
+    } else {
+      isPasswordValid = timingSafeEq(providedPassword, effectiveSecret);
+    }
   }
   const allowOmittedLoginId = process.env.ALLOW_LOCAL_FALLBACK === 'true';
   const isUserValid = providedUser ? ALLOWED_USERS.includes(providedUser) : allowOmittedLoginId;
 
   if (!isPasswordValid || !isUserValid) {
     return res.status(403).json({
-      error: '⛔ अनधिकृत प्रवेश: अमान्य एडमिन लॉगिन आईडी या पासवर्ड। केवल अधिकृत सुपर एडमिन ही प्रवेश कर सकते हैं।',
+      error: '⛔ अनधिकृत प्रवेश: अमान्य एडमिन लॉगिन आईडी या पासवर्ड। केवल अधिकृत एडमिन ही प्रवेश कर सकते हैं।',
     });
   }
 
@@ -1040,7 +1186,7 @@ app.post(['/api/admin/login', '/api/admin/verify-passcode'], aiRateLimiter('admi
     role: 'ADMIN',
     setuId: 'SETU-ADMIN-MASTER',
     isAdmin: true,
-    user: providedUser || 'admin',
+    user: providedUser || ownerLoginId,
   }, 12 * 3600);
 
   res.json({
@@ -1238,9 +1384,6 @@ app.post('/api/partners/register', optionalAuth, aiRateLimiter('partner_register
         if (partnerData.noCriminalRecord === false) {
           return res.status(400).json({ error: 'स्वच्छ पृष्ठभूमि स्व-घोषणा स्वीकार करना अनिवार्य है।' });
         }
-        if (!partnerData.accountHolderName || (!partnerData.upiId && (!partnerData.bankAccount || !partnerData.ifscCode))) {
-          return res.status(400).json({ error: 'बैंक खाताधारक नाम व भुगतान हेतु UPI ID या बैंक+IFSC अनिवार्य है।' });
-        }
       }
     }
 
@@ -1340,7 +1483,9 @@ app.post('/api/partners/register', optionalAuth, aiRateLimiter('partner_register
           experienceYears: expYears,
           jobsCompleted: 0,
           verified: false,
-          distance: '0.8 km दूर',
+          distance: '1.0 km दूर',
+          city: asStr(partnerData.city || '', 60).trim(),
+          locality: asStr(partnerData.locality || '', 80).trim(),
           etaMinutes: 20,
           isQuickAvailable: true,
           primaryRateType: asStr(partnerData.primaryRateType || partnerData.unitLabel || 'दिहाड़ी', 60),
@@ -1350,6 +1495,10 @@ app.post('/api/partners/register', optionalAuth, aiRateLimiter('partner_register
           unitLabel: asStr(partnerData.unitLabel || 'प्रति काम', 60),
           additionalRateCards: cleanAdditionalRateCards,
           tradeRateSpec: cleanTradeRateSpec,
+          accountHolderName: asStr(partnerData.accountHolderName || '', 100).trim(),
+          bankAccount: asStr(partnerData.bankAccount || '', 30).trim(),
+          ifscCode: asStr(partnerData.ifscCode || '', 20).trim(),
+          upiId: asStr(partnerData.upiId || '', 80).trim(),
           walletBalance: 0,
           available: true,
           phone: cleanPhone,
@@ -1448,6 +1597,10 @@ app.post('/api/partners/register', optionalAuth, aiRateLimiter('partner_register
           experienceYears: expYears,
           jobsCompleted: 0,
           verified: false,
+          avatar: safeAvatarUrl,
+          city: asStr(partnerData.city || '', 60).trim(),
+          locality: asStr(partnerData.locality || '', 80).trim(),
+          bio: `${safeName} - SETU पंजीकृत कारीगर (${expYears} वर्ष का अनुभव)${partnerData.hasOwnTools ? ' • स्वयं के औज़ार उपलब्ध' : ''}`,
           primaryRateType: asStr(partnerData.primaryRateType || partnerData.unitLabel || 'दिहाड़ी', 60),
           dailyWageRate,
           helperRate,
@@ -1455,6 +1608,10 @@ app.post('/api/partners/register', optionalAuth, aiRateLimiter('partner_register
           unitLabel: asStr(partnerData.unitLabel || 'प्रति काम', 60),
           additionalRateCards: cleanAdditionalRateCards,
           tradeRateSpec: cleanTradeRateSpec,
+          accountHolderName: asStr(partnerData.accountHolderName || '', 100).trim(),
+          bankAccount: asStr(partnerData.bankAccount || '', 30).trim(),
+          ifscCode: asStr(partnerData.ifscCode || '', 20).trim(),
+          upiId: asStr(partnerData.upiId || '', 80).trim(),
           available: true,
           phone: cleanPhone,
           phoneMasked: `+91 ${cleanPhone.slice(0, 2)}XXX-XX${cleanPhone.slice(-3)}`,
@@ -1561,10 +1718,10 @@ app.get('/api/contractors', async (req, res) => {
           { specialtyHindi: { $regex: rx, $options: 'i' } },
         ];
       }
-      contractors = await models.Contractor.find(query).select('-phone -walletBalance').lean();
+      contractors = await models.Contractor.find(query).select('-phone -walletBalance -bankAccount -ifscCode').lean();
     } else {
       const localData = readLocalDb();
-      contractors = (localData.contractors || []).map(({ phone: _p, walletBalance: _w, ...pub }) => pub);
+      contractors = (localData.contractors || []).map(({ phone: _p, walletBalance: _w, bankAccount: _b, ifscCode: _i, ...pub }) => pub);
       if (category && category !== 'all') contractors = contractors.filter((c) => c.category === category);
       if (rateType && rateType !== 'ALL') {
         if (rateType === 'दिहाड़ी') contractors = contractors.filter((c) => c.dailyWageRate > 0);
@@ -1610,10 +1767,27 @@ app.post('/api/contractors/:id/profile', requireAuth, async (req, res) => {
       updates[rateField] = parsed.value;
     }
   }
+  if (typeof rawBody.name === 'string' && rawBody.name.trim().length >= 2) updates.name = asStr(rawBody.name, 120).trim();
   if (typeof rawBody.unitLabel === 'string') updates.unitLabel = asStr(rawBody.unitLabel, 60).trim() || 'प्रति काम';
   if (typeof rawBody.primaryRateType === 'string') updates.primaryRateType = asStr(rawBody.primaryRateType, 60).trim();
   if (typeof rawBody.specialtyHindi === 'string') updates.specialtyHindi = asStr(rawBody.specialtyHindi, 160).trim();
   if (typeof rawBody.bio === 'string') updates.bio = asStr(rawBody.bio, 500).trim();
+  if (typeof rawBody.city === 'string') updates.city = asStr(rawBody.city, 60).trim();
+  if (typeof rawBody.locality === 'string') updates.locality = asStr(rawBody.locality, 80).trim();
+  if (rawBody.experienceYears !== undefined && rawBody.experienceYears !== null && rawBody.experienceYears !== '') {
+    const exp = Number(rawBody.experienceYears);
+    if (Number.isFinite(exp) && exp >= 0) updates.experienceYears = Math.min(70, Math.round(exp));
+  }
+  if (
+    typeof rawBody.avatar === 'string' &&
+    (rawBody.avatar === '' || rawBody.avatar.startsWith('/uploads/') || isSafeExternalUrl(rawBody.avatar))
+  ) {
+    updates.avatar = rawBody.avatar;
+  }
+  if (typeof rawBody.accountHolderName === 'string') updates.accountHolderName = asStr(rawBody.accountHolderName, 100).trim();
+  if (typeof rawBody.bankAccount === 'string') updates.bankAccount = asStr(rawBody.bankAccount, 30).trim();
+  if (typeof rawBody.ifscCode === 'string') updates.ifscCode = asStr(rawBody.ifscCode, 20).trim().toUpperCase();
+  if (typeof rawBody.upiId === 'string') updates.upiId = asStr(rawBody.upiId, 80).trim();
   if (typeof rawBody.available === 'boolean') updates.available = rawBody.available;
   if (Array.isArray(rawBody.additionalRateCards)) {
     updates.additionalRateCards = rawBody.additionalRateCards

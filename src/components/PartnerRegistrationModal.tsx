@@ -18,6 +18,7 @@ import { ApiService } from '../services/api';
 import { Language } from '../i18n/translations';
 import { showAppAlert } from '../utils/appAlert';
 import { useResponsive } from '../hooks/useResponsive';
+import { detectLiveGpsLocation } from '../utils/liveLocation';
 import {
   ORDERED_15_TRADES,
   getTradeRateProfile,
@@ -47,12 +48,14 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
   // STEP 1: Basic Info & Trade / Store
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
   const [selectedTrade, setSelectedTrade] = useState(ORDERED_15_TRADES[0].registrationLabelHi);
   const [storeName, setStoreName] = useState('');
   const [city, setCity] = useState('भोपाल');
   const [locality, setLocality] = useState('एमपी नगर');
+  const [isDetectingGps, setIsDetectingGps] = useState(false);
 
-  // STEP 2: Identity & KYC Verification (Urban Company / Amazon style)
+  // STEP 2: Identity & KYC Verification (SETU Verified Pro)
   const [aadhaarNumber, setAadhaarNumber] = useState('');
   const [panNumber, setPanNumber] = useState('');
   const [gstNumber, setGstNumber] = useState('');
@@ -106,7 +109,7 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
   const [workPhotoTitle, setWorkPhotoTitle] = useState('');
   const [workPhotoUrl, setWorkPhotoUrl] = useState('');
 
-  const handlePickImage = async (type: 'aadhaar' | 'work') => {
+  const handlePickImage = async (type: 'avatar' | 'aadhaar' | 'work') => {
     setIsUploading(true);
     try {
       const picked = await pickImageFromGallery();
@@ -116,10 +119,11 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
       }
 
       const isKyc = type === 'aadhaar';
+      const folder = isKyc ? 'kyc' : type === 'avatar' ? 'avatar' : 'portfolio';
       const uploadRes = await ApiService.uploadFile(
         picked.base64,
-        picked.name || (isKyc ? 'kyc_document.jpg' : 'work_photo.jpg'),
-        isKyc ? 'kyc' : 'portfolio',
+        picked.name || (isKyc ? 'kyc_document.jpg' : type === 'avatar' ? 'profile_photo.jpg' : 'work_photo.jpg'),
+        folder,
         isKyc
       );
 
@@ -129,6 +133,9 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
         if (isKyc) {
           setAadhaarPhotoUrl(fileRef);
           showAppAlert('✅ केवाईसी दस्तावेज सुरक्षित', 'आपका पहचान पत्र सुरक्षित प्राइवेट स्टोरेज में अपलोड हो गया है। केवल अधिकृत एडमिन सत्यापन हेतु देख सकते हैं।');
+        } else if (type === 'avatar') {
+          setAvatarUrl(fileRef);
+          showAppAlert('✅ प्रोफाइल फोटो अपलोड सफल', 'आपकी असली प्रोफाइल फोटो जुड़ चुकी है।');
         } else {
           setWorkPhotoUrl(fileRef);
           showAppAlert('✅ फोटो अपलोड सफल', 'आपकी कार्य फोटो सफलतापूर्वक जुड़ गई है!');
@@ -139,6 +146,22 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
     } catch (err: any) {
       setIsUploading(false);
       showAppAlert('त्रुटि', 'फाइल अपलोड में समस्या: ' + err.message);
+    }
+  };
+
+  const handleDetectPartnerGps = async () => {
+    setIsDetectingGps(true);
+    const res = await detectLiveGpsLocation();
+    setIsDetectingGps(false);
+    if (res.ok) {
+      if (res.city) setCity(res.city);
+      if (res.area) setLocality(res.area);
+      showAppAlert(
+        '📍 लाइव लोकेशन सेट हुई',
+        `आपका वर्तमान पता पहचाना गया: ${res.formattedLocation}`
+      );
+    } else {
+      showAppAlert('GPS लोकेशन', res.error || 'GPS लोकेशन नहीं मिल सकी। कृपया शहर व इलाका हाथ से भरें।');
     }
   };
 
@@ -233,22 +256,20 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
         }
       }
     } else if (currentStep === 4 && partnerType === 'CONTRACTOR') {
-      if (workPhotoTitle.trim().length < 3) {
-        showAppAlert('कार्य विवरण अनिवार्य (*)', 'ग्राहकों के भरोसे के लिए कम से कम 1 पिछले प्रोजेक्ट/काम का नाम लिखना अनिवार्य है।');
+      // Work photo & title are optional during fast onboarding; validate URL if entered
+      const candidateUrl = workPhotoUrl.trim();
+      if (candidateUrl && !candidateUrl.startsWith('/uploads/') && !/^https:\/\//i.test(candidateUrl)) {
+        showAppAlert('अमान्य फोटो लिंक', 'कृपया वैध HTTPS इमेज URL डालें अथवा ऊपर बटन से असली फोटो अपलोड करें।');
         return;
       }
     } else if (currentStep === totalSteps) {
-      if (!accountHolderName.trim()) {
-        showAppAlert('बैंक विवरण अनिवार्य (*)', 'भुगतान प्राप्त करने के लिए खाताधारक का पूरा नाम दर्ज करें।');
+      // Bank details & UPI are OPTIONAL now — only validate format if user partially entered them
+      if (upiId.trim() && (!upiId.trim().includes('@') || upiId.trim().length < 5)) {
+        showAppAlert('अमान्य UPI ID', 'यदि आप UPI जोड़ रहे हैं तो सही UPI ID (उदा. name@okaxis) दर्ज करें या खाली छोड़ दें।');
         return;
       }
-      const hasValidUpi = upiId.trim().includes('@') && upiId.trim().length >= 5;
-      const hasValidBank = bankAccountNumber.replace(/\D/g, '').length >= 9 && ifscCode.trim().length === 11;
-      if (!hasValidUpi && !hasValidBank) {
-        showAppAlert(
-          'भुगतान माध्यम अनिवार्य (*)',
-          'कृपया वैध UPI ID (जैसे name@okaxis) अथवा पूरा बैंक खाता नंबर + 11-अंक IFSC कोड दर्ज करें।'
-        );
+      if (ifscCode.trim() && ifscCode.trim().length !== 11) {
+        showAppAlert('अमान्य IFSC कोड', 'IFSC कोड ठीक 11 अक्षर/अंकों का होता है (या इसे अभी खाली छोड़ें)।');
         return;
       }
     }
@@ -323,6 +344,7 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
       panNumber: panNumber.trim().toUpperCase(),
       gstNumber: gstNumber.trim().toUpperCase(),
       aadhaarDocRef: aadhaarPhotoUrl,
+      avatarUrl: avatarUrl.trim(),
       workPhotoUrl: workPhotoUrl.trim(),
       workPhotoTitle: workPhotoTitle.trim(),
       kycStatus: 'PENDING_APPROVAL',
@@ -463,6 +485,42 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                   />
                 </View>
 
+                {/* Profile Photo / Selfie Upload */}
+                <Text style={styles.label}>आपकी असली प्रोफाइल फोटो / सेल्फी (ऐच्छिक):</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                      backgroundColor: '#EEF2FF',
+                      borderWidth: 1,
+                      borderColor: '#C7D2FE',
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 8,
+                    }}
+                    onPress={() => handlePickImage('avatar')}
+                    disabled={isUploading}
+                  >
+                    <Ionicons name="person-circle-outline" size={18} color="#4F46E5" />
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#4F46E5' }}>
+                      {avatarUrl ? '✓ प्रोफाइल फोटो बदलें' : '📷 प्रोफाइल फोटो चुनें / खींचें'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {isUploading ? (
+                    <ActivityIndicator size="small" color="#4F46E5" />
+                  ) : avatarUrl ? (
+                    <Image
+                      source={{ uri: avatarUrl }}
+                      style={{ width: 42, height: 42, borderRadius: 21, borderWidth: 1.5, borderColor: '#10B981' }}
+                    />
+                  ) : (
+                    <Text style={{ fontSize: 11, color: '#64748B' }}>चेहरे की साफ फोटो से 3x बुकिंग्स</Text>
+                  )}
+                </View>
+
                 {partnerType === 'CONTRACTOR' ? (
                   <>
                     <Text style={styles.label}>
@@ -506,6 +564,64 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                     />
                   </>
                 )}
+
+                {/* Live GPS Quick Autofill */}
+                <TouchableOpacity
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    backgroundColor: '#EFF6FF',
+                    borderWidth: 1,
+                    borderColor: '#BFDBFE',
+                    borderRadius: 8,
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                    marginTop: 10,
+                  }}
+                  onPress={handleDetectPartnerGps}
+                  disabled={isDetectingGps}
+                >
+                  {isDetectingGps ? (
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                  ) : (
+                    <MaterialIcons name="my-location" size={16} color={COLORS.primary} />
+                  )}
+                  <Text style={{ fontSize: 11.5, fontWeight: '800', color: COLORS.primary }}>
+                    {isDetectingGps
+                      ? 'लाइव GPS लोकेशन खोजी जा रही है...'
+                      : '📍 लाइव GPS से मेरा शहर व इलाका स्वतः भरें'}
+                  </Text>
+                </TouchableOpacity>
+
+                {/* Live GPS Quick Autofill */}
+                <TouchableOpacity
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    backgroundColor: '#EFF6FF',
+                    borderWidth: 1,
+                    borderColor: '#BFDBFE',
+                    borderRadius: 8,
+                    paddingHorizontal: 10,
+                    paddingVertical: 8,
+                    marginTop: 10,
+                  }}
+                  onPress={handleDetectPartnerGps}
+                  disabled={isDetectingGps}
+                >
+                  {isDetectingGps ? (
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                  ) : (
+                    <MaterialIcons name="my-location" size={16} color={COLORS.primary} />
+                  )}
+                  <Text style={{ fontSize: 11.5, fontWeight: '800', color: COLORS.primary }}>
+                    {isDetectingGps
+                      ? 'लाइव GPS लोकेशन खोजी जा रही है...'
+                      : '📍 लाइव GPS से मेरा शहर व इलाका स्वतः भरें'}
+                  </Text>
+                </TouchableOpacity>
 
                 <View style={styles.row}>
                   <View style={{ flex: 1 }}>
@@ -645,7 +761,7 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                   <>
                     <Text style={styles.stepHeader}>चरण 3: ट्रेड रेट-कार्ड, अनुभव & टूल्स</Text>
                     <Text style={styles.stepHint}>
-                      Urban Company की तरह आप अपनी दरें और काम का दायरा खुद तय करते हैं।
+                      SETU पर आप अपनी दरें और कार्य का दायरा पूरी पारदर्शिता से खुद तय करते हैं।
                     </Text>
 
                     <Text style={styles.label}>काम का कुल अनुभव (Years):</Text>
@@ -786,7 +902,7 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                   <>
                     <Text style={styles.stepHeader}>चरण 3: दुकान की डिलीवरी दायरा & शर्तें</Text>
                     <Text style={styles.stepHint}>
-                      Flipkart Seller की तरह आप तय करें कि आप कितनी दूरी तक माल डिलीवर करेंगे।
+                      तय करें कि आप कितने किलोमीटर तक निर्माण सामग्री डिलीवर करेंगे।
                     </Text>
 
                     <Text style={styles.label}>अधिकतम डिलीवरी दायरा (Kilometers):</Text>
@@ -814,13 +930,13 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
             {/* ================= STEP 4: WORK PHOTOS (Contractor) OR BANK (Vendor) ================= */}
             {currentStep === 4 && partnerType === 'CONTRACTOR' && (
               <View>
-                <Text style={styles.stepHeader}>चरण 4: पिछले काम की तस्वीरें (Portfolio)</Text>
+                <Text style={styles.stepHeader}>चरण 4: पिछले काम की तस्वीरें (ऐच्छिक / Portfolio)</Text>
                 <Text style={styles.stepHint}>
-                  Upwork / Urban Company की तरह ग्राहक आपके काम की तस्वीरें देखकर ही बड़ा ठेका देंगे।
+                  अपने बेहतरीन कार्यों की वास्तविक तस्वीरें जोड़ने पर ग्राहकों का भरोसा कई गुना बढ़ जाता है।
                 </Text>
 
                 <Text style={styles.label}>
-                  हाल ही में किए गए प्रोजेक्ट का नाम<Text style={styles.reqStar}> * अनिवार्य</Text>
+                  हाल ही में किए गए प्रोजेक्ट का नाम (वैकल्पिक):
                 </Text>
                 <TextInput
                   style={styles.input}
@@ -883,23 +999,21 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
               (currentStep === 5 && partnerType === 'CONTRACTOR')) && (
               <View>
                 <Text style={styles.stepHeader}>
-                  {partnerType === 'CONTRACTOR' ? 'चरण 5' : 'चरण 4'}: बैंक खाता & डायरेक्ट UPI भुगतान
+                  {partnerType === 'CONTRACTOR' ? 'चरण 5' : 'चरण 4'}: बैंक खाता & UPI (वैकल्पिक — बाद में भी जोड़ सकते हैं)
                 </Text>
                 <Text style={styles.stepHint}>
-                  काम पूरा होते ही एस्क्रो से पैसा सीधे इस बैंक खाते या UPI पर ट्रांसफर होगा।
+                  यह विवरण अभी वैकल्पिक है। आप इसे खाली छोड़कर भी सबमिट कर सकते हैं और बाद में अपनी प्रोफाइल से जोड़/एडिट कर सकते हैं।
                 </Text>
 
-                <Text style={styles.label}>
-                  खाताधारक का नाम (Account Holder Name)<Text style={styles.reqStar}> *</Text>
-                </Text>
+                <Text style={styles.label}>खाताधारक का नाम (वैकल्पिक):</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="उदा. रमेश कुमार शर्मा"
+                  placeholder="खाताधारक का पूरा नाम"
                   value={accountHolderName}
                   onChangeText={setAccountHolderName}
                 />
 
-                <Text style={styles.label}>बैंक खाता संख्या (या नीचे UPI ID दर्ज करें)<Text style={styles.reqStar}> *</Text></Text>
+                <Text style={styles.label}>बैंक खाता संख्या (वैकल्पिक):</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="11-16 अंकों का खाता संख्या"
@@ -910,7 +1024,7 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
 
                 <View style={styles.row}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.label}>IFSC कोड (11 अंक):</Text>
+                    <Text style={styles.label}>IFSC कोड (वैकल्पिक):</Text>
                     <TextInput
                       style={styles.input}
                       placeholder="SBIN0001234"
@@ -920,7 +1034,7 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                     />
                   </View>
                   <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={styles.label}>UPI ID (GPay / PhonePe)<Text style={styles.reqStar}> *</Text></Text>
+                    <Text style={styles.label}>UPI ID (वैकल्पिक):</Text>
                     <TextInput
                       style={styles.input}
                       placeholder="name@okaxis"

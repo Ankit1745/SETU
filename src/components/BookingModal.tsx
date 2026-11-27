@@ -113,7 +113,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   );
   const [includeHelper, setIncludeHelper] = useState<boolean>(false); // Default: false (0 helpers)
   const [includeMaterialsCombo, setIncludeMaterialsCombo] = useState<boolean>(initialIncludeMaterials); // Default: false (0 materials)
-  const [hasPriorityVisitPass, setHasPriorityVisitPass] = useState<boolean>(false); // Urban Company style ₹99 Visit Pass
+  const [hasPriorityVisitPass, setHasPriorityVisitPass] = useState<boolean>(false); // Optional Priority Visit Pass (₹99)
   const [customWorkAddress, setCustomWorkAddress] = useState<string | null>(null);
   const workAddress = customWorkAddress ?? (currentLocation || 'एमपी नगर (ज़ोन-1), भोपाल • 462011');
   const [description, setDescription] = useState<string>(initialDescription);
@@ -227,7 +227,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   const escrowAdvanceToken = grandTotal > 0 ? Math.min(grandTotal, Math.max(0, Math.min(1000, Math.round(grandTotal * 0.15)))) : 0;
   const balanceOnOtpRelease = grandTotal - escrowAdvanceToken;
   
-  // 3-Stage Milestone Escrow for Theka Contracts (Brick&Bolt model)
+  // 3-Stage Milestone Escrow for Theka Contracts
   const thekaMilestone1 = Math.round(grandTotal * 0.30);
   const thekaMilestone2 = Math.round(grandTotal * 0.40);
   const thekaMilestone3 = Math.max(0, grandTotal - thekaMilestone1 - thekaMilestone2);
@@ -476,7 +476,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                   {isHindi ? 'छोटा काम / मरम्मत (जैसे नल वाशर, स्विच, छोटा फॉल्ट):' : 'Minor Work or Inspection:'}
                 </Text>
                 
-                {/* Urban Company Model: ₹99 Priority Visit Pass (Adjustable on final bill) */}
+                {/* SETU Adjustable Priority Visit Pass */}
                 <TouchableOpacity
                   style={[
                     styles.visitPassOption,
@@ -664,13 +664,13 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                   </Text>
                 </View>
 
-                {/* Brick&Bolt Model: 3-Stage Milestone Escrow Protection */}
+                {/* 3-Stage Milestone Escrow Protection */}
                 {!activeMode.isDailyLike && grandTotal > 0 && (
                   <View style={styles.milestoneBox}>
                     <View style={styles.milestoneHeader}>
                       <Ionicons name="shield-checkmark" size={15} color="#059669" />
                       <Text style={styles.milestoneTitle}>
-                        {isHindi ? '3-चरण सुरक्षित एस्क्रो रिलीज (Brick&Bolt Protected)' : '3-Stage Milestone Escrow Release'}
+                        {isHindi ? '3-चरण सुरक्षित एस्क्रो रिलीज (SETU Protected)' : '3-Stage Milestone Escrow Release'}
                       </Text>
                     </View>
                     <View style={styles.milestoneStepRow}>
@@ -840,14 +840,14 @@ export const BookingModal: React.FC<BookingModalProps> = ({
               />
             </View>
 
-            {/* 5. भुगतान का तरीका चुनें (Flipkart & Uber Dual Payment Models) */}
+            {/* 5. भुगतान का तरीका चुनें (SETU Dual Payment Models) */}
             <View style={styles.cardBox}>
               <Text style={styles.boxLabel}>
                 {isHindi ? '5. भुगतान का तरीका चुनें (Payment Method):' : '5. Select Payment Method:'}
               </Text>
 
               <View style={styles.paymentOptionsContainer}>
-                {/* 💵 Option 1: Cash on Completion (Flipkart/Uber Style) */}
+                {/* 💵 Option 1: Cash on Completion */}
                 <TouchableOpacity
                   style={[
                     styles.paymentOptionCard,
@@ -1105,11 +1105,11 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                 </Text>
               </View>
 
-              {/* DEMO SIMULATION NOTICE */}
+              {/* SETU ESCROW GUARANTEE NOTICE */}
               <View style={styles.demoSimNoticeBox}>
-                <Ionicons name="information-circle" size={15} color="#B45309" />
-                <Text style={styles.demoSimNoticeText}>
-                  💡 यह सिर्फ़ डेमो सिमुलेशन है, कोई असली पैसा नहीं कटेगा।
+                <Ionicons name="shield-checkmark" size={15} color="#059669" />
+                <Text style={[styles.demoSimNoticeText, { color: '#065F46' }]}>
+                  🛡️ काम की संतुष्टि व OTP सत्यापन के बाद ही भुगतान रिलीज होता है।
                 </Text>
               </View>
             </View>
@@ -1627,7 +1627,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
-  // Dual payment options styles (Flipkart/Uber)
+  // Dual payment options styles
   paymentOptionsContainer: {
     gap: 8,
   },
@@ -1806,7 +1806,7 @@ const styles = StyleSheet.create({
     color: '#92400E',
     flex: 1,
   },
-  // Urban Company ₹99 Visit Pass
+  // Priority ₹99 Visit Pass
   visitPassOption: {
     backgroundColor: '#F8FAFC',
     borderWidth: 1.5,
@@ -1847,7 +1847,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#2563EB',
   },
-  // Brick&Bolt 3-Stage Milestone Escrow
+  // 3-Stage Milestone Escrow
   milestoneBox: {
     backgroundColor: '#F0FDF4',
     borderWidth: 1,

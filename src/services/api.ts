@@ -306,13 +306,32 @@ export const ApiService = {
     });
   },
 
-  // 4. Partner Registration
+  // 4. Partner Registration & User Profile Updates
   registerPartner: async (partnerData: any) => {
     return ApiService.requestJson('/partners/register', {
       method: 'POST',
       headers: ApiService.getHeaders(),
       body: JSON.stringify(partnerData),
     });
+  },
+
+  updateUserProfile: async (updates: {
+    name?: string;
+    location?: string;
+    avatarUrl?: string;
+    tradeOrShop?: string;
+  }) => {
+    return ApiService.requestJson('/auth/profile', {
+      method: 'POST',
+      headers: ApiService.getHeaders(),
+      body: JSON.stringify(updates),
+    });
+  },
+
+  reverseGeocode: async (lat: number, lng: number) => {
+    return ApiService.requestJson(
+      `/location/reverse?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`
+    );
   },
 
   // 5. Bookings CRUD & Quotations
