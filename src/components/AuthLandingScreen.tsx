@@ -84,6 +84,15 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
             ? `📩 Verification code issued: ${data.demoOtp}`
             : `📩 सत्यापन कोड जारी हुआ: ${data.demoOtp}`
         );
+      } else if (data.smsDispatched === false) {
+        const failMsg =
+          data.message ||
+          (language === 'en'
+            ? 'SMS gateway could not deliver OTP right now. Please check Fast2SMS settings.'
+            : 'SMS गेटवे अभी OTP नहीं भेज सका। कृपया Fast2SMS पैनल जांचें।');
+        setSmsNotification(`⚠️ ${failMsg}`);
+        showAppAlert(language === 'en' ? 'SMS Delivery Issue' : '⚠️ SMS नहीं जा सका', failMsg);
+        return;
       } else {
         setSmsNotification(
           language === 'en'

@@ -208,12 +208,19 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
           setRealOtpReceived(data.demoOtp);
           setOtp(data.demoOtp);
           setSmsNotification(data.demoOtp);
+          setLoginStep('OTP');
+        } else if (data.smsDispatched === false) {
+          setRealOtpReceived('');
+          setOtp('');
+          const failMsg = data.message || 'SMS गेटवे अभी OTP नहीं भेज सका। कृपया Fast2SMS वेरिफिकेशन जांचें।';
+          setSmsNotification(failMsg);
+          showAppAlert('⚠️ SMS नहीं जा सका', failMsg);
         } else {
           setRealOtpReceived('');
           setOtp('');
           setSmsNotification(null);
+          setLoginStep('OTP');
         }
-        setLoginStep('OTP');
       } else {
         showAppAlert('त्रुटि', data?.error || 'OTP भेजने में विफल');
       }
