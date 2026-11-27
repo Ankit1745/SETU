@@ -4273,6 +4273,97 @@ app.post('/api/disputes/:id/resolve', requireAuth, requireRole('ADMIN'), async (
   }
 });
 
+// 21. Admin Profile Removal & Clean Production Data Reset (Protected by requireRole('ADMIN'))
+app.delete('/api/admin/contractors/:id', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    if (getDbStatus().isMongoConnected) {
+      const deleted = await models.Contractor.findOneAndDelete(buildIdQuery(id));
+      if (!deleted) return res.status(404).json({ error: 'कारीगर प्रोफ़ाइल नहीं मिली।' });
+      return res.json({ success: true, message: 'कारीगर प्रोफ़ाइल सफलतापूर्वक हटाई गई।', deletedId: deleted.customId || id });
+    }
+    const localData = readLocalDb();
+    const before = (localData.contractors || []).length;
+    localData.contractors = (localData.contractors || []).filter((c) => c.id !== id && c.customId !== id);
+    if (localData.contractors.length === before) {
+      return res.status(404).json({ error: 'कारीगर प्रोफ़ाइल नहीं मिली।' });
+    }
+    writeLocalDb(localData);
+    return res.json({ success: true, message: 'कारीगर प्रोफ़ाइल सफलतापूर्वक हटाई गई।', deletedId: id });
+  } catch (err) {
+    res.status(500).json({ error: 'प्रोफ़ाइल हटाने में त्रुटि: ' + err.message });
+  }
+});
+
+app.delete('/api/admin/materials/:id', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    if (getDbStatus().isMongoConnected) {
+      const deleted = await models.Material.findOneAndDelete(buildIdQuery(id));
+      if (!deleted) return res.status(404).json({ error: 'मटेरियल आइटम नहीं मिला।' });
+      return res.json({ success: true, message: 'मटेरियल सफलतापूर्वक हटाया गया।', deletedId: deleted.customId || id });
+    }
+    const localData = readLocalDb();
+    const before = (localData.materials || []).length;
+    localData.materials = (localData.materials || []).filter((m) => m.id !== id && m.customId !== id);
+    if (localData.materials.length === before) {
+      return res.status(404).json({ error: 'मटेरियल आइटम नहीं मिला।' });
+    }
+    writeLocalDb(localData);
+    return res.json({ success: true, message: 'मटेरियल सफलतापूर्वक हटाया गया।', deletedId: id });
+  } catch (err) {
+    res.status(500).json({ error: 'मटेरियल हटाने में त्रुटि: ' + err.message });
+  }
+});
+
+app.post('/api/admin/purge-data', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  if (req.body?.confirmText !== 'CLEAR_ALL_SETU_DATA') {
+    return res.status(400).json({ error: 'डेटा साफ़ करने के लिए confirmText="CLEAR_ALL_SETU_DATA" आवश्यक है।' });
+  }
+  try {
+    if (getDbStatus().isMongoConnected) {
+      const [uRes, cRes, mRes, bRes, kRes, dRes] = await Promise.all([
+        models.User.deleteMany({}),
+        models.Contractor.deleteMany({}),
+        models.Material.deleteMany({}),
+        models.Booking.deleteMany({}),
+        models.KycApplication.deleteMany({}),
+        models.Dispute.deleteMany({}),
+      ]);
+      return res.json({
+        success: true,
+        engine: 'mongodb',
+        cleared: {
+          users: uRes.deletedCount || 0,
+          contractors: cRes.deletedCount || 0,
+          materials: mRes.deletedCount || 0,
+          bookings: bRes.deletedCount || 0,
+          kycApplications: kRes.deletedCount || 0,
+          disputes: dRes.deletedCount || 0,
+        },
+      });
+    }
+    const emptyDb = {
+      users: [],
+      contractors: [],
+      materials: [],
+      bookings: [],
+      kycApplications: [],
+      disputes: [],
+      financials: {
+        grossPlatformVolume: 0,
+        escrowFundsHeld: 0,
+        platformFeePercent: 5,
+        platformCommissionEarned: 0,
+      },
+    };
+    writeLocalDb(emptyDb);
+    return res.json({ success: true, engine: 'local', cleared: true });
+  } catch (err) {
+    res.status(500).json({ error: 'डेटाबेस साफ़ करने में त्रुटि: ' + err.message });
+  }
+});
+
 // Serve frontend dist if available (NEVER hijack /api or missing /uploads paths!)
 const DIST_DIR = path.join(__dirname, '../dist');
 if (fs.existsSync(DIST_DIR)) {
