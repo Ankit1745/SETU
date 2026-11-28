@@ -40,31 +40,32 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   // Dynamic official brand logo based on active language
   const logoSource = getSetuLogo(language);
-  const { isCompactPhone, isTabletOrDesktop, isDesktop, shellStyle } = useResponsive();
+  const { width, isCompactPhone, isTabletOrDesktop, isDesktop, shellStyle } = useResponsive();
+  const isTightMobile = width < 440;
   const t = TRANSLATIONS[language];
 
   return (
-    <View style={[styles.container, isTabletOrDesktop && styles.containerDesktop]}>
+    <View style={[styles.container, isTightMobile && { paddingHorizontal: 10 }, isTabletOrDesktop && styles.containerDesktop]}>
       <View style={shellStyle}>
         {/* Top Brand & Actions Bar */}
-        <View style={styles.topRow}>
-          {/* 3D Official Brand Identity */}
+        <View style={[styles.topRow, isTightMobile && { gap: 4 }]}>
+          {/* Official Brand Identity */}
           <TouchableOpacity
-            style={styles.brandContainer}
+            style={[styles.brandContainer, isTightMobile && { gap: 6 }]}
             activeOpacity={0.88}
             onPress={() => onTabPress?.('home')}
           >
-            <View style={[styles.logoBadgeContainer, isCompactPhone && styles.logoBadgeCompact]}>
+            <View style={[styles.logoBadgeContainer, (isCompactPhone || isTightMobile) && styles.logoBadgeCompact]}>
               <Image source={logoSource} style={styles.logoImage} resizeMode="cover" />
             </View>
             <View style={styles.brandTextWrap}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <Text style={[styles.brandTitle, isCompactPhone && { fontSize: 15 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={[styles.brandTitle, isTightMobile && { fontSize: 15 }]}>
                   {language === 'hi' ? 'सेतु' : 'SETU'}
                 </Text>
                 <View style={styles.brandVerifiedDot} />
               </View>
-              {!isCompactPhone && (
+              {!isTightMobile && (
                 <Text style={styles.brandSubtitle}>
                   {language === 'en'
                     ? 'Pros • Materials • 15m'
@@ -138,11 +139,11 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           {/* Right Action Icons (Interactive Language Selector, Profile, Partner Hub) */}
-          <View style={[styles.actionsRight, isCompactPhone && { gap: 4 }]}>
+          <View style={[styles.actionsRight, isTightMobile && { gap: 4 }]}>
             {/* Tri-lingual Interactive Language Switcher */}
             <View style={styles.langPillContainer}>
               <TouchableOpacity
-                style={[styles.langChoiceBtn, isCompactPhone && { paddingHorizontal: 4 }, language === 'hi' && styles.langChoiceBtnActive]}
+                style={[styles.langChoiceBtn, isTightMobile && { paddingHorizontal: 4 }, language === 'hi' && styles.langChoiceBtnActive]}
                 onPress={() => onSelectLanguage ? onSelectLanguage('hi') : onToggleLanguage()}
                 activeOpacity={0.8}
               >
@@ -151,7 +152,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.langChoiceBtn, isCompactPhone && { paddingHorizontal: 4 }, language === 'en' && styles.langChoiceBtnActive]}
+                style={[styles.langChoiceBtn, isTightMobile && { paddingHorizontal: 4 }, language === 'en' && styles.langChoiceBtnActive]}
                 onPress={() => onSelectLanguage ? onSelectLanguage('en') : onToggleLanguage()}
                 activeOpacity={0.8}
               >
@@ -160,12 +161,12 @@ export const Header: React.FC<HeaderProps> = ({
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.langChoiceBtn, isCompactPhone && { paddingHorizontal: 4 }, language === 'hinglish' && styles.langChoiceBtnActive]}
+                style={[styles.langChoiceBtn, isTightMobile && { paddingHorizontal: 4 }, language === 'hinglish' && styles.langChoiceBtnActive]}
                 onPress={() => onSelectLanguage ? onSelectLanguage('hinglish') : onToggleLanguage()}
                 activeOpacity={0.8}
               >
                 <Text style={[styles.langChoiceText, language === 'hinglish' && styles.langChoiceTextActive]}>
-                  {isCompactPhone ? 'Hg' : 'Hing'}
+                  {isTightMobile ? 'Hg' : 'Hing'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -173,14 +174,14 @@ export const Header: React.FC<HeaderProps> = ({
             {/* In-App Notification Bell */}
             {onOpenNotifications && (
               <TouchableOpacity
-                style={styles.notifBellBtn}
+                style={[styles.notifBellBtn, isTightMobile && { width: 29, height: 29 }]}
                 onPress={onOpenNotifications}
                 activeOpacity={0.82}
                 accessibilityLabel="Notifications"
               >
                 <Ionicons
                   name={unreadNotifications > 0 ? 'notifications' : 'notifications-outline'}
-                  size={16}
+                  size={15}
                   color={unreadNotifications > 0 ? '#FBBF24' : '#CBD5E1'}
                 />
                 {unreadNotifications > 0 && (
@@ -209,7 +210,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <Text
                     style={[
                       styles.userMiniName,
-                      { maxWidth: isTabletOrDesktop ? 130 : isCompactPhone ? 46 : 72 },
+                      { maxWidth: isTabletOrDesktop ? 130 : isTightMobile ? 46 : 72 },
                     ]}
                     numberOfLines={1}
                   >
@@ -233,7 +234,7 @@ export const Header: React.FC<HeaderProps> = ({
               </View>
             ) : (
               <TouchableOpacity
-                style={styles.loginPillBtn}
+                style={[styles.loginPillBtn, isTightMobile && { paddingHorizontal: 7 }]}
                 onPress={onOpenProfile}
                 activeOpacity={0.85}
               >
@@ -244,15 +245,16 @@ export const Header: React.FC<HeaderProps> = ({
               </TouchableOpacity>
             )}
 
-            {/* 3D Partner Hub Button (compact icon-only label hide only on tiny screens if user logged in) */}
+            {/* Partner Hub Button */}
             {(!isDesktop || !onTabPress) && (
               <TouchableOpacity
-                style={[styles.workWithUsBtn, isCompactPhone && { paddingHorizontal: 6 }]}
+                style={[styles.workWithUsBtn, isTightMobile && { paddingHorizontal: 7 }]}
                 onPress={onOpenWorkWithUs}
                 activeOpacity={0.85}
+                accessibilityLabel="Partner Hub"
               >
                 <MaterialIcons name="business-center" size={12} color="#FFFFFF" />
-                {(!isCompactPhone || !user) && (
+                {(!isTightMobile || !user) && (
                   <Text style={styles.workWithUsText}>
                     {language === 'en' ? 'Partner' : language === 'hinglish' ? 'Partner' : 'पार्टनर'}
                   </Text>

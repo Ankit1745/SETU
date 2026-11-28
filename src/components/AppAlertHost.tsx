@@ -216,12 +216,12 @@ export const AppAlertHost: React.FC = () => {
 
 const styles = StyleSheet.create({
   toastWrapper: {
-    position: 'absolute',
+    position: Platform.OS === 'web' ? ('fixed' as any) : 'absolute',
     top: Platform.OS === 'web' ? 14 : 44,
     left: 12,
     right: 12,
     alignItems: 'center',
-    zIndex: 9999,
+    zIndex: 99999,
   },
   toastCard: {
     width: '100%',
