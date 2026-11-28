@@ -267,7 +267,7 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
     setIsSendingOtp(true);
     setSmsNotification(null);
     try {
-      if (Platform.OS === 'web') {
+      if (Platform.OS === 'web' && process.env.EXPO_PUBLIC_ENABLE_FIREBASE_PHONE === 'true') {
         try {
           const confirmation = await sendFirebasePhoneOtp(cleanPhone, 'setu-landing-recaptcha');
           setFbConfirmation(confirmation);

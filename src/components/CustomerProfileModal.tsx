@@ -332,7 +332,7 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
     setIsSendingOtp(true);
     setSmsNotification(null);
     try {
-      if (Platform.OS === 'web') {
+      if (Platform.OS === 'web' && process.env.EXPO_PUBLIC_ENABLE_FIREBASE_PHONE === 'true') {
         try {
           const confirmation = await sendFirebasePhoneOtp(clean, 'setu-modal-recaptcha');
           setFbConfirmation(confirmation);

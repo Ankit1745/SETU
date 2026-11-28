@@ -364,6 +364,7 @@ function readLocalDb() {
 function writeLocalDb(data) {
   if (!data || typeof data !== 'object') return;
   lastKnownGoodDb = JSON.parse(JSON.stringify(data));
+  const serialized = JSON.stringify(data, null, 2);
   try {
     if (fs.existsSync(DB_FILE)) {
       fs.copyFileSync(DB_FILE, `${DB_FILE}.bak`);
@@ -372,8 +373,21 @@ function writeLocalDb(data) {
     // ignore backup error
   }
   const tmpPath = `${DB_FILE}.${process.pid}.${Date.now()}.${crypto.randomInt(100, 999)}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2));
-  fs.renameSync(tmpPath, DB_FILE);
+  try {
+    fs.writeFileSync(tmpPath, serialized);
+    fs.renameSync(tmpPath, DB_FILE);
+  } catch (err) {
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch {
+      // ignore temp cleanup failure
+    }
+    if (err && (err.code === 'EPERM' || err.code === 'EBUSY')) {
+      fs.writeFileSync(DB_FILE, serialized);
+    } else {
+      throw err;
+    }
+  }
 }
 
 // In-memory sliding-window AI Rate Limiter (prevents quota & serverless exhaustion)
