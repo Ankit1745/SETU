@@ -742,6 +742,236 @@ connectDB();
 
 // ---------------- API ENDPOINTS ---------------- //
 
+const FIREBASE_PROJECT_ID = cleanSecret(process.env.FIREBASE_PROJECT_ID) || 'setu-e786b';
+const FIREBASE_CERTS_URL =
+  'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
+let cachedFirebaseCerts = { certs: null, expiresAt: 0 };
+
+async function getGoogleFirebaseCerts(forceRefresh = false) {
+  if (!forceRefresh && cachedFirebaseCerts.certs && Date.now() < cachedFirebaseCerts.expiresAt) {
+    return cachedFirebaseCerts.certs;
+  }
+  const resp = await fetch(FIREBASE_CERTS_URL, { signal: AbortSignal.timeout(10000) });
+  if (!resp.ok) {
+    throw new Error(`Unable to fetch Google Firebase certificates (HTTP ${resp.status})`);
+  }
+  const certs = await resp.json();
+  const cacheControl = resp.headers.get('cache-control') || '';
+  const maxAgeMatch = cacheControl.match(/max-age=(\d+)/i);
+  const ttlSec = maxAgeMatch ? Math.max(60, Number(maxAgeMatch[1])) : 3600;
+  cachedFirebaseCerts = { certs, expiresAt: Date.now() + ttlSec * 1000 };
+  return certs;
+}
+
+async function verifyFirebaseIdToken(idToken) {
+  if (!idToken || typeof idToken !== 'string') return null;
+  const parts = idToken.trim().split('.');
+  if (parts.length !== 3) return null;
+  const [headerB64, payloadB64, signatureB64] = parts;
+
+  let header;
+  let payload;
+  try {
+    header = JSON.parse(Buffer.from(headerB64, 'base64url').toString('utf8'));
+    payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+
+  if (!header || header.alg !== 'RS256' || typeof header.kid !== 'string' || !header.kid) {
+    return null;
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (
+    !payload ||
+    payload.aud !== FIREBASE_PROJECT_ID ||
+    payload.iss !== `https://securetoken.google.com/${FIREBASE_PROJECT_ID}` ||
+    typeof payload.sub !== 'string' ||
+    !payload.sub ||
+    payload.sub.length > 128 ||
+    typeof payload.exp !== 'number' ||
+    payload.exp <= nowSec ||
+    typeof payload.iat !== 'number' ||
+    payload.iat > nowSec + 300 ||
+    (typeof payload.auth_time === 'number' && payload.auth_time > nowSec + 300)
+  ) {
+    return null;
+  }
+
+  let certs = await getGoogleFirebaseCerts(false);
+  let certPem = certs && certs[header.kid];
+  if (!certPem) {
+    certs = await getGoogleFirebaseCerts(true);
+    certPem = certs && certs[header.kid];
+  }
+  if (!certPem) return null;
+
+  const verifier = crypto.createVerify('RSA-SHA256');
+  verifier.update(`${headerB64}.${payloadB64}`);
+  verifier.end();
+  const isValidSig = verifier.verify(certPem, signatureB64, 'base64url');
+  if (!isValidSig) return null;
+
+  const rawPhone = typeof payload.phone_number === 'string' ? payload.phone_number.replace(/\D/g, '').slice(-10) : '';
+  return {
+    uid: payload.sub,
+    email: typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '',
+    emailVerified: Boolean(payload.email_verified),
+    phone: rawPhone.length === 10 ? rawPhone : '',
+    name: typeof payload.name === 'string' ? asStr(payload.name, 120).trim() : '',
+    avatarUrl:
+      typeof payload.picture === 'string' && isSafeExternalUrl(payload.picture) ? payload.picture : '',
+    signInProvider: payload.firebase?.sign_in_provider || 'firebase',
+  };
+}
+
+async function upsertAuthenticatedUserAndIssueToken({
+  cleanPhone,
+  firebaseUid = '',
+  email = '',
+  safeName = '',
+  normalizedRole = 'CUSTOMER',
+  safeTrade = '',
+  safeAvatar = '',
+  safeIdProof = '',
+  allowNameOverride = false,
+}) {
+  let user = null;
+  const dbStatus = getDbStatus();
+
+  if (dbStatus.isMongoConnected) {
+    if (firebaseUid) user = await models.User.findOne({ firebaseUid });
+    if (!user && email) user = await models.User.findOne({ email });
+    if (!user && cleanPhone) user = await models.User.findOne({ phone: cleanPhone });
+
+    if (!user) {
+      if (!cleanPhone || cleanPhone.length !== 10) return { needsPhone: true };
+      const prefix = normalizedRole === 'CONTRACTOR' ? 'PRO' : normalizedRole === 'VENDOR' ? 'VEN' : 'CUS';
+      const randNum = crypto.randomInt(100000, 1000000);
+      const newSetuId = `SETU-${prefix}-${randNum}`;
+
+      user = await models.User.create({
+        phone: cleanPhone,
+        email: email || '',
+        firebaseUid: firebaseUid || '',
+        name: safeName || 'नया उपयोगकर्ता',
+        role: normalizedRole,
+        setuId: newSetuId,
+        tradeOrShop: safeTrade,
+        category: mapTradeToCategory(safeTrade),
+        kycVerified: false,
+        rewardPoints: 250,
+        location: 'भोपाल, मध्य प्रदेश',
+        avatarUrl: safeAvatar,
+        idProofUrl: safeIdProof,
+        vendorId: normalizedRole === 'VENDOR' ? newSetuId : '',
+      });
+
+      if (normalizedRole === 'CONTRACTOR' || normalizedRole === 'VENDOR') {
+        await models.KycApplication.create({
+          customId: `kyc_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
+          userId: user._id.toString(),
+          name: user.name,
+          role: user.role,
+          tradeOrShop: user.tradeOrShop || (normalizedRole === 'CONTRACTOR' ? 'कुशल कारीगर' : 'दुकानदार'),
+          phone: cleanPhone,
+          docType: 'AADHAAR',
+          docNumber: user.setuId,
+          docFilePath: safeIdProof,
+          status: 'PENDING',
+        });
+      }
+    } else {
+      let modified = false;
+      if (firebaseUid && !user.firebaseUid) { user.firebaseUid = firebaseUid; modified = true; }
+      if (email && !user.email) { user.email = email; modified = true; }
+      if (safeName && (allowNameOverride || !user.name || user.name === 'नया उपयोगकर्ता') && safeName !== user.name) {
+        user.name = safeName;
+        modified = true;
+      }
+      if (safeAvatar && !user.avatarUrl) {
+        user.avatarUrl = safeAvatar;
+        modified = true;
+      }
+      if (safeIdProof && !user.idProofUrl) {
+        user.idProofUrl = safeIdProof;
+        modified = true;
+      }
+      if (modified) await user.save();
+    }
+  } else {
+    const localData = readLocalDb();
+    if (!localData.users) localData.users = [];
+    if (firebaseUid) user = localData.users.find((u) => u.firebaseUid === firebaseUid);
+    if (!user && email) user = localData.users.find((u) => u.email === email);
+    if (!user && cleanPhone) user = localData.users.find((u) => u.phone === cleanPhone);
+
+    if (!user) {
+      if (!cleanPhone || cleanPhone.length !== 10) return { needsPhone: true };
+      const prefix = normalizedRole === 'CONTRACTOR' ? 'PRO' : normalizedRole === 'VENDOR' ? 'VEN' : 'CUS';
+      const randNum = crypto.randomInt(100000, 1000000);
+      const newSetuId = `SETU-${prefix}-${randNum}`;
+      user = {
+        id: `u_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
+        phone: cleanPhone,
+        email: email || '',
+        firebaseUid: firebaseUid || '',
+        name: safeName || 'नया उपयोगकर्ता',
+        role: normalizedRole,
+        setuId: newSetuId,
+        tradeOrShop: safeTrade,
+        category: mapTradeToCategory(safeTrade),
+        kycVerified: false,
+        rewardPoints: 250,
+        location: 'भोपाल, मध्य प्रदेश',
+        avatarUrl: safeAvatar,
+        idProofUrl: safeIdProof,
+        vendorId: normalizedRole === 'VENDOR' ? newSetuId : '',
+      };
+      localData.users.push(user);
+      writeLocalDb(localData);
+    } else {
+      let modified = false;
+      if (firebaseUid && !user.firebaseUid) { user.firebaseUid = firebaseUid; modified = true; }
+      if (email && !user.email) { user.email = email; modified = true; }
+      if (safeName && (allowNameOverride || !user.name || user.name === 'नया उपयोगकर्ता')) { user.name = safeName; modified = true; }
+      if (safeAvatar && !user.avatarUrl) { user.avatarUrl = safeAvatar; modified = true; }
+      if (safeIdProof && !user.idProofUrl) { user.idProofUrl = safeIdProof; modified = true; }
+      if (modified) writeLocalDb(localData);
+    }
+  }
+
+  const token = createToken({
+    userId: user._id ? user._id.toString() : user.id,
+    phone: user.phone,
+    role: user.role,
+    setuId: user.setuId,
+    contractorId: user.contractorId || '',
+    vendorId: user.vendorId || '',
+  });
+
+  return {
+    needsPhone: false,
+    token,
+    user: {
+      id: user._id ? user._id.toString() : user.id,
+      phone: user.phone,
+      email: user.email || '',
+      name: user.name,
+      role: user.role,
+      setuId: user.setuId,
+      tradeOrShop: user.tradeOrShop,
+      kycVerified: user.kycVerified,
+      rewardPoints: user.rewardPoints,
+      location: user.location,
+      avatarUrl: user.avatarUrl || '',
+      idProofUrl: user.idProofUrl || '',
+      contractorId: user.contractorId || '',
+      vendorId: user.vendorId || '',
+    },
+  };
+}
+
 // 1. Health & Readiness check
 app.get('/api/health', (req, res) => {
   const dbStatus = getDbStatus();
@@ -765,6 +995,10 @@ app.get('/api/health', (req, res) => {
     sms: {
       configured: smsConfigured,
       provider: smsConfigured ? 'Fast2SMS' : 'Not Configured',
+    },
+    firebase: {
+      configured: Boolean(FIREBASE_PROJECT_ID),
+      projectId: FIREBASE_PROJECT_ID,
     },
   });
 });
@@ -970,134 +1204,121 @@ app.post('/api/auth/verify-otp', aiRateLimiter('verify_otp_ip', 20), async (req,
   }
 
   try {
-    let user = null;
-    const dbStatus = getDbStatus();
     const safeName = asStr(fullName, 120).trim();
     const safeTrade = asStr(tradeOrShop, 160).trim();
-    const safeAvatar = typeof avatarUrl === 'string' && (avatarUrl.startsWith('/uploads/public/') || isSafeExternalUrl(avatarUrl)) ? avatarUrl : '';
+    const safeAvatar =
+      typeof avatarUrl === 'string' && (avatarUrl.startsWith('/uploads/public/') || isSafeExternalUrl(avatarUrl))
+        ? avatarUrl
+        : '';
     const safeIdProof = typeof idProofUrl === 'string' ? asStr(idProofUrl, 250).trim() : '';
 
-    if (dbStatus.isMongoConnected) {
-      user = await models.User.findOne({ phone: cleanPhone });
-      if (!user) {
-        const prefix = normalizedRole === 'CONTRACTOR' ? 'PRO' : normalizedRole === 'VENDOR' ? 'VEN' : 'CUS';
-        const randNum = crypto.randomInt(100000, 1000000);
-        const newSetuId = `SETU-${prefix}-${randNum}`;
-
-        user = await models.User.create({
-          phone: cleanPhone,
-          name: safeName || 'नया उपयोगकर्ता',
-          role: normalizedRole,
-          setuId: newSetuId,
-          tradeOrShop: safeTrade,
-          category: mapTradeToCategory(safeTrade),
-          kycVerified: false,
-          rewardPoints: 250,
-          location: 'भोपाल, मध्य प्रदेश',
-          avatarUrl: safeAvatar,
-          idProofUrl: safeIdProof,
-          vendorId: normalizedRole === 'VENDOR' ? newSetuId : '',
-        });
-
-        // Automatically create pending KYC application for partners (Contractor / Vendor)
-        if (normalizedRole === 'CONTRACTOR' || normalizedRole === 'VENDOR') {
-          await models.KycApplication.create({
-            customId: `kyc_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
-            userId: user._id.toString(),
-            name: user.name,
-            role: user.role,
-            tradeOrShop: user.tradeOrShop || (normalizedRole === 'CONTRACTOR' ? 'कुशल कारीगर' : 'दुकानदार'),
-            phone: cleanPhone,
-            docType: 'AADHAAR',
-            docNumber: user.setuId,
-            docFilePath: safeIdProof,
-            status: 'PENDING',
-          });
-        }
-      } else {
-        let modified = false;
-        if (safeName && safeName !== user.name) {
-          user.name = safeName;
-          modified = true;
-        }
-        if (safeAvatar) {
-          user.avatarUrl = safeAvatar;
-          modified = true;
-        }
-        if (safeIdProof) {
-          user.idProofUrl = safeIdProof;
-          modified = true;
-        }
-        if (modified) await user.save();
-      }
-    } else {
-      // Local fallback for offline development
-      const localData = readLocalDb();
-      if (!localData.users) localData.users = [];
-      user = localData.users.find((u) => u.phone === cleanPhone);
-      if (!user) {
-        const prefix = normalizedRole === 'CONTRACTOR' ? 'PRO' : normalizedRole === 'VENDOR' ? 'VEN' : 'CUS';
-        const randNum = crypto.randomInt(100000, 1000000);
-        const newSetuId = `SETU-${prefix}-${randNum}`;
-        user = {
-          id: `u_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
-          phone: cleanPhone,
-          name: safeName || 'नया उपयोगकर्ता',
-          role: normalizedRole,
-          setuId: newSetuId,
-          tradeOrShop: safeTrade,
-          category: mapTradeToCategory(safeTrade),
-          kycVerified: false,
-          rewardPoints: 250,
-          location: 'भोपाल, मध्य प्रदेश',
-          avatarUrl: safeAvatar,
-          idProofUrl: safeIdProof,
-          vendorId: normalizedRole === 'VENDOR' ? newSetuId : '',
-        };
-        localData.users.push(user);
-        writeLocalDb(localData);
-      } else {
-        let modified = false;
-        if (safeName) { user.name = safeName; modified = true; }
-        if (safeAvatar) { user.avatarUrl = safeAvatar; modified = true; }
-        if (safeIdProof) { user.idProofUrl = safeIdProof; modified = true; }
-        if (modified) writeLocalDb(localData);
-      }
-    }
-
-    // Generate signed JWT session token
-    const token = createToken({
-      userId: user._id ? user._id.toString() : user.id,
-      phone: user.phone,
-      role: user.role,
-      setuId: user.setuId,
-      contractorId: user.contractorId || '',
-      vendorId: user.vendorId || '',
+    const authResult = await upsertAuthenticatedUserAndIssueToken({
+      cleanPhone,
+      safeName,
+      normalizedRole,
+      safeTrade,
+      safeAvatar,
+      safeIdProof,
+      allowNameOverride: true,
     });
+
+    if (authResult.needsPhone) {
+      return res.status(400).json({ error: 'अमान्य मोबाइल नंबर।' });
+    }
 
     res.json({
       success: true,
       message: 'सफलतापूर्वक सत्यापित और लॉगिन हुआ!',
-      user: {
-        id: user._id ? user._id.toString() : user.id,
-        phone: user.phone,
-        name: user.name,
-        role: user.role,
-        setuId: user.setuId,
-        tradeOrShop: user.tradeOrShop,
-        kycVerified: user.kycVerified,
-        rewardPoints: user.rewardPoints,
-        location: user.location,
-        avatarUrl: user.avatarUrl || '',
-        idProofUrl: user.idProofUrl || '',
-        contractorId: user.contractorId || '',
-        vendorId: user.vendorId || '',
-      },
-      token,
+      user: authResult.user,
+      token: authResult.token,
     });
   } catch (err) {
     console.error('Verify OTP DB Error:', err);
     res.status(500).json({ error: 'लॉगिन प्रक्रिया में त्रुटि: ' + err.message });
+  }
+});
+
+// 3a. Authentication: Firebase ID Token Verification (Google, Email/Password, Phone OTP)
+// Verifies Google RSA-SHA256 public certificate signature cryptographically; blocks ADMIN self-elevation.
+app.post('/api/auth/firebase', aiRateLimiter('firebase_auth_ip', 25), async (req, res) => {
+  const { idToken, phone, fullName, role = 'CUSTOMER', tradeOrShop, avatarUrl, idProofUrl } = req.body || {};
+
+  if (!idToken || typeof idToken !== 'string') {
+    return res.status(400).json({ error: 'Firebase ID टोकन आवश्यक है।' });
+  }
+
+  const normalizedRole = String(role || 'CUSTOMER').toUpperCase();
+  if (normalizedRole === 'ADMIN') {
+    return res.status(403).json({ error: '⛔ एडमिन लॉगिन के लिए केवल आधिकारिक एडमिन सुरक्षा द्वार का उपयोग करें।' });
+  }
+  if (!['CUSTOMER', 'CONTRACTOR', 'VENDOR'].includes(normalizedRole)) {
+    return res.status(400).json({ error: 'अमान्य भूमिका चुनी गई है।' });
+  }
+
+  let decoded;
+  try {
+    decoded = await verifyFirebaseIdToken(idToken);
+  } catch (verifyErr) {
+    console.error('Firebase certificate verification error:', verifyErr.message);
+    return res.status(503).json({ error: 'Firebase सत्यापन सेवा से संपर्क नहीं हो सका।' });
+  }
+
+  if (!decoded) {
+    return res.status(401).json({ error: 'अमान्य या समाप्त हो चुका Firebase लॉगिन टोकन।' });
+  }
+
+  if (!isDbAvailable()) {
+    return res.status(503).json({ error: 'डेटाबेस अनुपलब्ध है। कृपया थोड़ी देर बाद पुनः प्रयास करें।' });
+  }
+
+  try {
+    const reqPhone = String(phone || '').replace(/\D/g, '').slice(-10);
+    const cleanPhone = decoded.phone || (reqPhone.length === 10 ? reqPhone : '');
+    const safeName = asStr(fullName || decoded.name || '', 120).trim();
+    const safeTrade = asStr(tradeOrShop, 160).trim();
+    const candidateAvatar = avatarUrl || decoded.avatarUrl || '';
+    const safeAvatar =
+      typeof candidateAvatar === 'string' &&
+      (candidateAvatar.startsWith('/uploads/public/') || isSafeExternalUrl(candidateAvatar))
+        ? candidateAvatar
+        : '';
+    const safeIdProof = typeof idProofUrl === 'string' ? asStr(idProofUrl, 250).trim() : '';
+
+    const authResult = await upsertAuthenticatedUserAndIssueToken({
+      cleanPhone,
+      firebaseUid: decoded.uid,
+      email: decoded.emailVerified ? decoded.email : decoded.email || '',
+      safeName,
+      normalizedRole,
+      safeTrade,
+      safeAvatar,
+      safeIdProof,
+    });
+
+    if (authResult.needsPhone) {
+      return res.json({
+        success: true,
+        needsPhone: true,
+        message: 'लॉगिन लगभग पूरा हो गया है! कृपया संपर्क के लिए अपना 10-अंकीय मोबाइल नंबर दर्ज करें।',
+        firebaseProfile: {
+          uid: decoded.uid,
+          email: decoded.email,
+          name: safeName || decoded.name,
+          avatarUrl: safeAvatar,
+          signInProvider: decoded.signInProvider,
+        },
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Firebase से सफलतापूर्वक लॉगिन हुआ!',
+      user: authResult.user,
+      token: authResult.token,
+    });
+  } catch (err) {
+    console.error('Firebase Auth DB Error:', err);
+    res.status(500).json({ error: 'Firebase लॉगिन प्रक्रिया में त्रुटि: ' + err.message });
   }
 });
 

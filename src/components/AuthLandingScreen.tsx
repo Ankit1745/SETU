@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,15 @@ import { ApiService } from '../services/api';
 import { getSetuLogo } from '../constants/logos';
 import { showAppAlert } from '../utils/appAlert';
 import { useResponsive } from '../hooks/useResponsive';
+import {
+  signInWithFirebaseGoogle,
+  consumeFirebaseRedirectResult,
+  signInOrRegisterWithFirebaseEmail,
+  sendFirebasePhoneOtp,
+  confirmFirebasePhoneOtp,
+  mapFirebaseErrorMessage,
+  FirebaseSignInOutput,
+} from '../services/firebaseAuth';
 
 interface AuthLandingScreenProps {
   language: Language;
@@ -34,26 +43,159 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
 }) => {
   const t = TRANSLATIONS[language];
   const [authRole, setAuthRole] = useState<'CUSTOMER' | 'CONTRACTOR' | 'VENDOR' | 'ADMIN'>('CUSTOMER');
-  const [step, setStep] = useState<'PHONE' | 'OTP'>('PHONE');
+  const [authChannel, setAuthChannel] = useState<'PHONE' | 'EMAIL'>('PHONE');
+  const [step, setStep] = useState<'PHONE' | 'OTP' | 'COMPLETE_PHONE'>('PHONE');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isEmailSignup, setIsEmailSignup] = useState(false);
   const [name, setName] = useState('');
   const [tradeOrShop, setTradeOrShop] = useState('');
   const [smsNotification, setSmsNotification] = useState<string | null>(null);
   const [isSendingOtp, setIsSendingOtp] = useState<boolean>(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState<boolean>(false);
+  const [isFirebaseBusy, setIsFirebaseBusy] = useState<boolean>(false);
   const [verificationToken, setVerificationToken] = useState<string | null>(null);
+  const [otpProvider, setOtpProvider] = useState<'BACKEND' | 'FIREBASE'>('BACKEND');
+  const [fbConfirmation, setFbConfirmation] = useState<any>(null);
+  const [pendingFirebaseAuth, setPendingFirebaseAuth] = useState<FirebaseSignInOutput | null>(null);
 
   const switchRole = (role: 'CUSTOMER' | 'CONTRACTOR' | 'VENDOR') => {
     setAuthRole(role);
     setTradeOrShop('');
     setOtp('');
     setVerificationToken(null);
+    setFbConfirmation(null);
+    setPendingFirebaseAuth(null);
     setSmsNotification(null);
     setStep('PHONE');
   };
 
-  // Send OTP via centralized ApiService
+  const persistWebUserAndNotify = (userObj: any) => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem('setu_current_user', JSON.stringify(userObj));
+        window.sessionStorage?.setItem('setu_session_active', 'true');
+      } catch {
+        // Ignore private mode quota error
+      }
+    }
+    onLoginSuccess(userObj);
+  };
+
+  const completeBackendFirebaseExchange = async (fbAuth: FirebaseSignInOutput, phoneOverride?: string) => {
+    const safeRole: 'CUSTOMER' | 'CONTRACTOR' | 'VENDOR' = authRole === 'ADMIN' ? 'CUSTOMER' : authRole;
+    const cleanPhone = (phoneOverride || fbAuth.phone || '').replace(/\D/g, '').slice(-10);
+    const data = await ApiService.firebaseAuth({
+      idToken: fbAuth.idToken,
+      phone: cleanPhone.length === 10 ? cleanPhone : undefined,
+      fullName: (name || fbAuth.name || '').trim() || undefined,
+      role: safeRole,
+      tradeOrShop: tradeOrShop.trim() || undefined,
+      avatarUrl: fbAuth.avatarUrl || undefined,
+    });
+
+    if (data && data.success && data.needsPhone) {
+      setPendingFirebaseAuth(fbAuth);
+      if (fbAuth.name && !name) setName(fbAuth.name);
+      setStep('COMPLETE_PHONE');
+      return;
+    }
+
+    if (data && data.success && data.user) {
+      if (data.token) ApiService.setAuthToken(data.token);
+      persistWebUserAndNotify(data.user);
+      return;
+    }
+    throw new Error(data?.error || (language === 'en' ? 'Server verification failed.' : 'सर्वर सत्यापन विफल रहा।'));
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    consumeFirebaseRedirectResult()
+      .then(async (fbOut) => {
+        if (!mounted || !fbOut) return;
+        setIsFirebaseBusy(true);
+        try {
+          await completeBackendFirebaseExchange(fbOut);
+        } catch (err: any) {
+          showAppAlert(language === 'en' ? 'Sign-In Issue' : 'लॉगिन त्रुटि', err.message || 'Authentication failed');
+        } finally {
+          if (mounted) setIsFirebaseBusy(false);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleGoogleSignIn = async () => {
+    setIsFirebaseBusy(true);
+    setSmsNotification(null);
+    try {
+      const fbOut = await signInWithFirebaseGoogle();
+      if (!fbOut) return;
+      await completeBackendFirebaseExchange(fbOut);
+    } catch (err: any) {
+      showAppAlert(
+        language === 'en' ? 'Google Sign-In Issue' : '⚠️ Google लॉगिन त्रुटि',
+        mapFirebaseErrorMessage(err, language)
+      );
+    } finally {
+      setIsFirebaseBusy(false);
+    }
+  };
+
+  const handleEmailAuth = async () => {
+    const cleanEmail = email.trim();
+    if (!cleanEmail.includes('@') || password.length < 6) {
+      showAppAlert(
+        language === 'en' ? 'Invalid Email / Password' : 'अमान्य ईमेल या पासवर्ड',
+        language === 'en'
+          ? 'Please enter a valid email address and a password of at least 6 characters.'
+          : 'कृपया वैध ईमेल और कम से कम 6 अक्षरों का पासवर्ड दर्ज करें।'
+      );
+      return;
+    }
+    setIsFirebaseBusy(true);
+    setSmsNotification(null);
+    try {
+      const fbOut = await signInOrRegisterWithFirebaseEmail(cleanEmail, password, isEmailSignup, name);
+      await completeBackendFirebaseExchange(fbOut, phone);
+    } catch (err: any) {
+      showAppAlert(
+        language === 'en' ? 'Email Auth Error' : 'ईमेल लॉगिन विफल',
+        mapFirebaseErrorMessage(err, language)
+      );
+    } finally {
+      setIsFirebaseBusy(false);
+    }
+  };
+
+  const handleCompleteGooglePhone = async () => {
+    if (!pendingFirebaseAuth) return;
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    if (cleanPhone.length !== 10) {
+      showAppAlert(
+        language === 'en' ? 'Mobile Number Required' : 'मोबाइल नंबर आवश्यक',
+        language === 'en' ? 'Please enter a valid 10-digit mobile number.' : 'कृपया 10 अंकों का वैध मोबाइल नंबर दर्ज करें।'
+      );
+      return;
+    }
+    setIsFirebaseBusy(true);
+    try {
+      await completeBackendFirebaseExchange(pendingFirebaseAuth, cleanPhone);
+    } catch (err: any) {
+      showAppAlert(language === 'en' ? 'Save Failed' : 'त्रुटि', err.message || 'अकाउंट पूरा करने में त्रुटि');
+    } finally {
+      setIsFirebaseBusy(false);
+    }
+  };
+
+  // Send OTP (tries Firebase Phone OTP on Web first when enabled, falls back to Fast2SMS backend OTP)
   const handleSendOtp = async (overridePhone?: string) => {
     const cleanPhone = (overridePhone ?? phone).replace(/\D/g, '').slice(-10);
     if (cleanPhone.length !== 10) {
@@ -67,7 +209,33 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
     }
 
     setIsSendingOtp(true);
+    setSmsNotification(null);
     try {
+      if (Platform.OS === 'web') {
+        try {
+          const confirmation = await sendFirebasePhoneOtp(cleanPhone, 'setu-landing-recaptcha');
+          setFbConfirmation(confirmation);
+          setOtpProvider('FIREBASE');
+          setOtp('');
+          setSmsNotification(
+            language === 'en'
+              ? `📩 Firebase SMS: 6-digit OTP sent to +91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)}`
+              : `📩 Firebase SMS: +91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)} पर 6-अंकीय OTP भेजा गया है।`
+          );
+          setStep('OTP');
+          return;
+        } catch (fbErr: any) {
+          const code = String(fbErr?.code || '');
+          if (
+            code !== 'auth/billing-not-enabled' &&
+            code !== 'auth/operation-not-allowed' &&
+            code !== 'auth/unauthorized-domain'
+          ) {
+            throw new Error(mapFirebaseErrorMessage(fbErr, language));
+          }
+        }
+      }
+
       const data = await ApiService.sendOtp(cleanPhone);
       if (!data || !data.success) {
         throw new Error(data?.error || 'OTP भेजने में विफल');
@@ -76,6 +244,7 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
       if (data.verificationToken) {
         setVerificationToken(data.verificationToken);
       }
+      setOtpProvider('BACKEND');
 
       if (data.demoOtp) {
         setOtp(data.demoOtp);
@@ -86,10 +255,10 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
         );
       } else if (data.smsDispatched === false) {
         const failMsg =
-          data.message ||
+          (data.message || 'SMS गेटवे अभी OTP नहीं भेज सका।') +
           (language === 'en'
-            ? 'SMS gateway could not deliver OTP right now. Please check Fast2SMS settings.'
-            : 'SMS गेटवे अभी OTP नहीं भेज सका। कृपया Fast2SMS पैनल जांचें।');
+            ? ' You can log in immediately using Google or Email above (100% Free).'
+            : ' आप ऊपर दिए "Google से लॉगिन" या "ईमेल से लॉगिन" (100% फ्री) से तुरंत जुड़ सकते हैं!');
         setSmsNotification(`⚠️ ${failMsg}`);
         showAppAlert(language === 'en' ? 'SMS Delivery Issue' : '⚠️ SMS नहीं जा सका', failMsg);
         return;
@@ -111,12 +280,13 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
     }
   };
 
-  // Verify OTP (Never sends ADMIN role via OTP endpoint!)
+  // Verify OTP (Firebase 6-digit OR Backend 4-digit; never sends ADMIN role!)
   const handleVerifyOtp = async () => {
-    if (!otp || otp.trim().length < 4) {
+    const minLen = otpProvider === 'FIREBASE' ? 6 : 4;
+    if (!otp || otp.trim().length < minLen) {
       showAppAlert(
         language === 'en' ? 'Enter OTP' : 'OTP दर्ज करें',
-        language === 'en' ? 'Please enter the 4-digit code.' : 'कृपया 4-अंकीय OTP कोड डालें।'
+        language === 'en' ? `Please enter the ${minLen}-digit code.` : `कृपया ${minLen}-अंकीय OTP कोड डालें।`
       );
       return;
     }
@@ -124,6 +294,12 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
     setIsVerifyingOtp(true);
     try {
       const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+      if (otpProvider === 'FIREBASE' && fbConfirmation) {
+        const fbOut = await confirmFirebasePhoneOtp(fbConfirmation, otp);
+        await completeBackendFirebaseExchange(fbOut, cleanPhone);
+        return;
+      }
+
       const safeRole: 'CUSTOMER' | 'CONTRACTOR' | 'VENDOR' = authRole === 'ADMIN' ? 'CUSTOMER' : authRole;
 
       const data = await ApiService.verifyOtp({
@@ -139,18 +315,14 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
         if (data.token) {
           ApiService.setAuthToken(data.token);
         }
-        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem('setu_current_user', JSON.stringify(data.user));
-          window.sessionStorage?.setItem('setu_session_active', 'true');
-        }
-        onLoginSuccess(data.user);
+        persistWebUserAndNotify(data.user);
       } else {
         throw new Error(data?.error || 'सत्यापन विफल रहा।');
       }
     } catch (err: any) {
       showAppAlert(
         language === 'en' ? 'Verification Failed' : 'सत्यापन विफल',
-        err.message || (language === 'en' ? 'Invalid OTP or server rejection.' : 'अमान्य OTP कोड या सर्वर द्वारा अस्वीकार।')
+        err?.code ? mapFirebaseErrorMessage(err, language) : err.message || (language === 'en' ? 'Invalid OTP or server rejection.' : 'अमान्य OTP कोड या सर्वर द्वारा अस्वीकार।')
       );
     } finally {
       setIsVerifyingOtp(false);
@@ -341,7 +513,172 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
         <View style={styles.formCard}>
           {step === 'PHONE' ? (
             <View>
-              <Text style={styles.inputLabel}>{t.enterMobile}</Text>
+              {Platform.OS === 'web' && (
+                <>
+                  <TouchableOpacity
+                    style={styles.googleBtn}
+                    onPress={handleGoogleSignIn}
+                    disabled={isFirebaseBusy || isSendingOtp}
+                    activeOpacity={0.85}
+                  >
+                    {isFirebaseBusy ? (
+                      <ActivityIndicator color="#0F172A" size="small" />
+                    ) : (
+                      <>
+                        <FontAwesome5 name="google" size={14} color="#EA4335" />
+                        <Text style={styles.googleBtnText}>
+                          {language === 'en'
+                            ? 'Continue with Google (Instant & Free)'
+                            : 'Google से तुरंत लॉगिन करें (100% फ्री)'}
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  <View style={styles.orDividerRow}>
+                    <View style={styles.orDividerLine} />
+                    <Text style={styles.orDividerText}>
+                      {language === 'en' ? 'OR USE PHONE / EMAIL' : 'या फ़ोन / ईमेल से जुड़ें'}
+                    </Text>
+                    <View style={styles.orDividerLine} />
+                  </View>
+                </>
+              )}
+
+              {/* Auth Channel Switcher: Phone OTP vs Free Email/Password */}
+              <View style={styles.channelToggleRow}>
+                <TouchableOpacity
+                  style={[styles.channelPill, authChannel === 'PHONE' && styles.channelPillActive]}
+                  onPress={() => setAuthChannel('PHONE')}
+                >
+                  <Ionicons
+                    name="call-outline"
+                    size={13}
+                    color={authChannel === 'PHONE' ? '#FFFFFF' : '#94A3B8'}
+                  />
+                  <Text style={[styles.channelPillText, authChannel === 'PHONE' && styles.channelPillTextActive]}>
+                    {language === 'en' ? 'Mobile OTP' : 'मोबाइल OTP'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.channelPill, authChannel === 'EMAIL' && styles.channelPillActive]}
+                  onPress={() => setAuthChannel('EMAIL')}
+                >
+                  <Ionicons
+                    name="mail-outline"
+                    size={13}
+                    color={authChannel === 'EMAIL' ? '#FFFFFF' : '#94A3B8'}
+                  />
+                  <Text style={[styles.channelPillText, authChannel === 'EMAIL' && styles.channelPillTextActive]}>
+                    {language === 'en' ? 'Email Login (Free)' : 'ईमेल लॉगिन (फ्री)'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {authChannel === 'PHONE' ? (
+                <>
+                  <Text style={styles.inputLabel}>{t.enterMobile}</Text>
+                  <View style={styles.phoneInputRow}>
+                    <View style={styles.flagBox}>
+                      <Text style={styles.flagText}>🇮🇳 +91</Text>
+                    </View>
+                    <TextInput
+                      style={styles.phoneInput}
+                      placeholder="98XXXXXXXX"
+                      placeholderTextColor="#94A3B8"
+                      keyboardType="phone-pad"
+                      maxLength={10}
+                      value={phone}
+                      onChangeText={setPhone}
+                    />
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.submitBtn}
+                    onPress={() => handleSendOtp()}
+                    disabled={isSendingOtp || isFirebaseBusy}
+                    activeOpacity={0.85}
+                  >
+                    {isSendingOtp ? (
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                    ) : (
+                      <Text style={styles.submitBtnText}>{t.getOtp}</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.inputLabel}>
+                    {language === 'en' ? 'Email Address' : 'ईमेल पता (Email ID)'}
+                  </Text>
+                  <TextInput
+                    style={styles.nameInput}
+                    placeholder="name@example.com"
+                    placeholderTextColor="#94A3B8"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={email}
+                    onChangeText={setEmail}
+                  />
+
+                  <Text style={styles.inputLabel}>
+                    {language === 'en' ? 'Password (min 6 chars)' : 'पासवर्ड (कम से कम 6 अक्षर)'}
+                  </Text>
+                  <TextInput
+                    style={styles.nameInput}
+                    placeholder="••••••••"
+                    placeholderTextColor="#94A3B8"
+                    secureTextEntry
+                    value={password}
+                    onChangeText={setPassword}
+                  />
+
+                  <TouchableOpacity
+                    style={styles.submitBtn}
+                    onPress={handleEmailAuth}
+                    disabled={isFirebaseBusy}
+                    activeOpacity={0.85}
+                  >
+                    {isFirebaseBusy ? (
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                    ) : (
+                      <Text style={styles.submitBtnText}>
+                        {isEmailSignup
+                          ? language === 'en'
+                            ? 'Create Account with Email'
+                            : 'ईमेल से नया खाता बनाएं'
+                          : language === 'en'
+                          ? 'Sign In with Email'
+                          : 'ईमेल से लॉगिन करें'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.emailModeSwitchBtn}
+                    onPress={() => setIsEmailSignup(!isEmailSignup)}
+                  >
+                    <Text style={styles.emailModeSwitchText}>
+                      {isEmailSignup
+                        ? language === 'en'
+                          ? 'Already have an account? Sign In'
+                          : 'पहले से खाता है? लॉगिन करें'
+                        : language === 'en'
+                        ? 'New here? Create Email Account'
+                        : 'नए यूज़र हैं? ईमेल से नया खाता बनाएं'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
+              {Platform.OS === 'web' && <View nativeID="setu-landing-recaptcha" style={{ height: 0, width: 0 }} />}
+            </View>
+          ) : step === 'COMPLETE_PHONE' ? (
+            <View>
+              <Text style={styles.inputLabel}>
+                {language === 'en'
+                  ? '✅ Verified via Firebase! Enter your 10-digit mobile number to continue:'
+                  : '✅ अकाउंट सत्यापित! संपर्क व ऑर्डर अलर्ट के लिए अपना 10-अंकीय नंबर डालें:'}
+              </Text>
               <View style={styles.phoneInputRow}>
                 <View style={styles.flagBox}>
                   <Text style={styles.flagText}>🇮🇳 +91</Text>
@@ -358,16 +695,58 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
                 />
               </View>
 
+              <TextInput
+                style={styles.nameInput}
+                placeholder={
+                  language === 'en'
+                    ? 'Your Full Name (e.g. Amit Singh)'
+                    : 'आपका पूरा नाम (जैसे: अमित सिंह)'
+                }
+                placeholderTextColor="#94A3B8"
+                value={name}
+                onChangeText={setName}
+              />
+
+              {authRole === 'CONTRACTOR' && (
+                <TextInput
+                  style={styles.nameInput}
+                  placeholder={
+                    language === 'en'
+                      ? 'Trade / Skill (e.g. Carpenter, Plumber, Mason)'
+                      : 'कारीगरी विधा (जैसे: बढ़ई, प्लंबर, राजमिस्त्री)'
+                  }
+                  placeholderTextColor="#94A3B8"
+                  value={tradeOrShop}
+                  onChangeText={setTradeOrShop}
+                />
+              )}
+
+              {authRole === 'VENDOR' && (
+                <TextInput
+                  style={styles.nameInput}
+                  placeholder={
+                    language === 'en'
+                      ? 'Shop / Business Name (e.g. Gupta Hardware)'
+                      : 'दुकान या व्यापार का नाम (जैसे: गुप्ता हार्डवेयर)'
+                  }
+                  placeholderTextColor="#94A3B8"
+                  value={tradeOrShop}
+                  onChangeText={setTradeOrShop}
+                />
+              )}
+
               <TouchableOpacity
                 style={styles.submitBtn}
-                onPress={() => handleSendOtp()}
-                disabled={isSendingOtp}
+                onPress={handleCompleteGooglePhone}
+                disabled={isFirebaseBusy}
                 activeOpacity={0.85}
               >
-                {isSendingOtp ? (
+                {isFirebaseBusy ? (
                   <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
-                  <Text style={styles.submitBtnText}>{t.getOtp}</Text>
+                  <Text style={styles.submitBtnText}>
+                    {language === 'en' ? 'Save & Enter SETU ➔' : 'नंबर सेव करें और आगे बढ़ें ➔'}
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -376,8 +755,8 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
               <View style={styles.otpHeaderRow}>
                 <Text style={styles.inputLabel}>
                   {language === 'en'
-                    ? `Enter 4-Digit OTP sent to +91 ${phone}:`
-                    : `+91 ${phone} पर आया 4-अंकीय OTP दर्ज करें:`}
+                    ? `Enter ${otpProvider === 'FIREBASE' ? 6 : 4}-Digit OTP sent to +91 ${phone}:`
+                    : `+91 ${phone} पर आया ${otpProvider === 'FIREBASE' ? 6 : 4}-अंकीय OTP दर्ज करें:`}
                 </Text>
                 <TouchableOpacity onPress={() => setStep('PHONE')}>
                   <Text style={styles.changePhoneText}>
@@ -388,10 +767,10 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
 
               <TextInput
                 style={styles.otpInput}
-                placeholder="• • • •"
+                placeholder={otpProvider === 'FIREBASE' ? '• • • • • •' : '• • • •'}
                 placeholderTextColor="#94A3B8"
                 keyboardType="number-pad"
-                maxLength={4}
+                maxLength={otpProvider === 'FIREBASE' ? 6 : 4}
                 value={otp}
                 onChangeText={setOtp}
                 autoFocus
@@ -885,37 +1264,81 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  fastTestBox: {
-    width: '100%',
-    maxWidth: 440,
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
-    padding: 14,
+  googleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  googleBtnText: {
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  orDividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  orDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#334155',
+  },
+  orDividerText: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  channelToggleRow: {
+    flexDirection: 'row',
+    backgroundColor: '#0F172A',
+    borderRadius: 10,
+    padding: 4,
+    gap: 4,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: '#334155',
   },
-  fastTestTitle: {
-    color: '#94A3B8',
-    fontSize: 11,
-    fontWeight: '800',
-    marginBottom: 8,
-  },
-  fastTestButtons: {
+  channelPill: {
+    flex: 1,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    borderRadius: 7,
   },
-  fastTestPill: {
-    backgroundColor: '#273549',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 8,
+  channelPillActive: {
+    backgroundColor: '#1E293B',
     borderWidth: 1,
-    borderColor: '#475569',
+    borderColor: '#3B82F6',
   },
-  fastTestPillText: {
-    color: '#F8FAFC',
-    fontSize: 11,
+  channelPillText: {
+    color: '#94A3B8',
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  channelPillTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  emailModeSwitchBtn: {
+    alignItems: 'center',
+    paddingVertical: 6,
+    marginBottom: 4,
+  },
+  emailModeSwitchText: {
+    color: '#60A5FA',
+    fontSize: 11.5,
     fontWeight: '700',
   },
 });

@@ -228,6 +228,22 @@ export const ApiService = {
     });
   },
 
+  firebaseAuth: async (payload: {
+    idToken: string;
+    phone?: string;
+    fullName?: string;
+    role?: 'CUSTOMER' | 'CONTRACTOR' | 'VENDOR';
+    tradeOrShop?: string;
+    avatarUrl?: string;
+    idProofUrl?: string;
+  }) => {
+    return ApiService.requestJson('/auth/firebase', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  },
+
   adminLogin: async (loginId: string, password: string) => {
     return ApiService.requestJson('/admin/login', {
       method: 'POST',

@@ -9,6 +9,7 @@ import {
   ScrollView,
   Image,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
@@ -18,6 +19,14 @@ import { ApiService } from '../services/api';
 import { showAppAlert } from '../utils/appAlert';
 import { useResponsive } from '../hooks/useResponsive';
 import { detectLiveGpsLocation } from '../utils/liveLocation';
+import {
+  signInWithFirebaseGoogle,
+  signInOrRegisterWithFirebaseEmail,
+  sendFirebasePhoneOtp,
+  confirmFirebasePhoneOtp,
+  mapFirebaseErrorMessage,
+  FirebaseSignInOutput,
+} from '../services/firebaseAuth';
 
 interface CustomerProfileModalProps {
   visible: boolean;
@@ -89,10 +98,14 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
 }) => {
   const isHindi = language !== 'en';
 
-  // Login steps: 'PHONE' -> 'OTP' -> 'LOCATION_PERMISSION'
+  // Login steps: 'PHONE' -> 'OTP' | 'COMPLETE_PHONE' -> 'LOCATION_PERMISSION'
   const [authRole, setAuthRole] = useState<'CUSTOMER' | 'CONTRACTOR' | 'VENDOR'>('CUSTOMER');
-  const [loginStep, setLoginStep] = useState<'PHONE' | 'OTP' | 'LOCATION_PERMISSION'>('PHONE');
+  const [authChannel, setAuthChannel] = useState<'PHONE' | 'EMAIL'>('PHONE');
+  const [loginStep, setLoginStep] = useState<'PHONE' | 'OTP' | 'COMPLETE_PHONE' | 'LOCATION_PERMISSION'>('PHONE');
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isEmailSignup, setIsEmailSignup] = useState(false);
 
   // Account Edit State (Logged-in users can update name, photo, and location anytime)
   const [isEditingAccount, setIsEditingAccount] = useState(false);
@@ -109,6 +122,10 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
   const [smsNotification, setSmsNotification] = useState<string | null>(null);
   const [isSendingOtp, setIsSendingOtp] = useState<boolean>(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState<boolean>(false);
+  const [isFirebaseBusy, setIsFirebaseBusy] = useState<boolean>(false);
+  const [otpProvider, setOtpProvider] = useState<'BACKEND' | 'FIREBASE'>('BACKEND');
+  const [fbConfirmation, setFbConfirmation] = useState<any>(null);
+  const [pendingFirebaseAuth, setPendingFirebaseAuth] = useState<FirebaseSignInOutput | null>(null);
   const [isDetectingGps, setIsDetectingGps] = useState<boolean>(false);
   const [verifiedUser, setVerifiedUser] = useState<any>(null);
 
@@ -186,7 +203,83 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
     }
   };
 
-  // 1. Send Real OTP via centralized ApiService
+  const completeBackendFirebaseExchange = async (fbAuth: FirebaseSignInOutput, phoneOverride?: string) => {
+    const cleanPhone = (phoneOverride || phone || fbAuth.phone || '').replace(/\D/g, '').slice(-10);
+    const data = await ApiService.firebaseAuth({
+      idToken: fbAuth.idToken,
+      phone: cleanPhone.length === 10 ? cleanPhone : undefined,
+      fullName: (name || fbAuth.name || '').trim() || undefined,
+      role: authRole,
+      avatarUrl: avatarUrl || fbAuth.avatarUrl || undefined,
+      idProofUrl: idProofUrl || undefined,
+    });
+
+    if (data && data.success && data.needsPhone) {
+      setPendingFirebaseAuth(fbAuth);
+      if (fbAuth.name && !name) setName(fbAuth.name);
+      if (fbAuth.avatarUrl && !avatarUrl) setAvatarUrl(fbAuth.avatarUrl);
+      setLoginStep('COMPLETE_PHONE');
+      return;
+    }
+
+    if (data && data.success && data.user) {
+      if (data.token) ApiService.setAuthToken(data.token);
+      setVerifiedUser(data.user);
+      setLoginStep('LOCATION_PERMISSION');
+      return;
+    }
+
+    showAppAlert('त्रुटि', data?.error || 'सर्वर सत्यापन विफल रहा।');
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsFirebaseBusy(true);
+    setSmsNotification(null);
+    try {
+      const fbOut = await signInWithFirebaseGoogle();
+      if (!fbOut) return;
+      await completeBackendFirebaseExchange(fbOut);
+    } catch (err: any) {
+      showAppAlert('⚠️ Google लॉगिन त्रुटि', mapFirebaseErrorMessage(err, isHindi ? 'hi' : 'en'));
+    } finally {
+      setIsFirebaseBusy(false);
+    }
+  };
+
+  const handleEmailAuth = async () => {
+    const cleanEmail = email.trim();
+    if (!cleanEmail.includes('@') || password.length < 6) {
+      showAppAlert('अमान्य जानकारी', 'कृपया वैध ईमेल और कम से कम 6 अक्षरों का पासवर्ड दर्ज करें।');
+      return;
+    }
+    setIsFirebaseBusy(true);
+    setSmsNotification(null);
+    try {
+      const fbOut = await signInOrRegisterWithFirebaseEmail(cleanEmail, password, isEmailSignup, name);
+      await completeBackendFirebaseExchange(fbOut, phone);
+    } catch (err: any) {
+      showAppAlert('ईमेल लॉगिन विफल', mapFirebaseErrorMessage(err, isHindi ? 'hi' : 'en'));
+    } finally {
+      setIsFirebaseBusy(false);
+    }
+  };
+
+  const handleCompleteGooglePhone = async () => {
+    if (!pendingFirebaseAuth) return;
+    const clean = phone.replace(/\D/g, '').slice(-10);
+    if (clean.length < 10) {
+      showAppAlert('मोबाइल नंबर आवश्यक', 'कृपया 10 अंकों का वैध भारतीय मोबाइल नंबर दर्ज करें।');
+      return;
+    }
+    setIsFirebaseBusy(true);
+    try {
+      await completeBackendFirebaseExchange(pendingFirebaseAuth, clean);
+    } finally {
+      setIsFirebaseBusy(false);
+    }
+  };
+
+  // 1. Send OTP (tries Firebase Phone OTP on Web when enabled, falls back to Fast2SMS backend OTP)
   const handleSendOtp = async () => {
     const clean = phone.replace(/\D/g, '').slice(-10);
     if (clean.length < 10) {
@@ -198,12 +291,36 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
     }
 
     setIsSendingOtp(true);
+    setSmsNotification(null);
     try {
+      if (Platform.OS === 'web') {
+        try {
+          const confirmation = await sendFirebasePhoneOtp(clean, 'setu-modal-recaptcha');
+          setFbConfirmation(confirmation);
+          setOtpProvider('FIREBASE');
+          setRealOtpReceived('');
+          setOtp('');
+          setLoginStep('OTP');
+          return;
+        } catch (fbErr: any) {
+          const code = String(fbErr?.code || '');
+          if (
+            code !== 'auth/billing-not-enabled' &&
+            code !== 'auth/operation-not-allowed' &&
+            code !== 'auth/unauthorized-domain'
+          ) {
+            showAppAlert('OTP त्रुटि', mapFirebaseErrorMessage(fbErr, isHindi ? 'hi' : 'en'));
+            return;
+          }
+        }
+      }
+
       const data = await ApiService.sendOtp(clean);
       if (data && data.success) {
         if (data.verificationToken) {
           setVerificationToken(data.verificationToken);
         }
+        setOtpProvider('BACKEND');
         if (data.demoOtp) {
           setRealOtpReceived(data.demoOtp);
           setOtp(data.demoOtp);
@@ -212,7 +329,9 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
         } else if (data.smsDispatched === false) {
           setRealOtpReceived('');
           setOtp('');
-          const failMsg = data.message || 'SMS गेटवे अभी OTP नहीं भेज सका। कृपया Fast2SMS वेरिफिकेशन जांचें।';
+          const failMsg =
+            (data.message || 'SMS गेटवे अभी OTP नहीं भेज सका।') +
+            ' आप ऊपर "Google से लॉगिन" या "ईमेल लॉगिन (फ्री)" से तुरंत जुड़ सकते हैं!';
           setSmsNotification(failMsg);
           showAppAlert('⚠️ SMS नहीं जा सका', failMsg);
         } else {
@@ -231,12 +350,13 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
     }
   };
 
-  // 2. Verify Real OTP (Strictly server-verified; NO offline bypass)
+  // 2. Verify Real OTP (Firebase 6-digit OR Backend 4-digit; NO offline bypass)
   const handleVerifyOtp = async () => {
-    if (!otp || otp.trim().length < 4) {
+    const minLen = otpProvider === 'FIREBASE' ? 6 : 4;
+    if (!otp || otp.trim().length < minLen) {
       showAppAlert(
         isHindi ? 'OTP आवश्यक' : 'OTP Required',
-        isHindi ? 'कृपया SMS में आया 4 अंकों का कोड दर्ज करें।' : 'Please enter 4-digit code.'
+        isHindi ? `कृपया SMS में आया ${minLen} अंकों का कोड दर्ज करें।` : `Please enter ${minLen}-digit code.`
       );
       return;
     }
@@ -245,6 +365,12 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
     const clean = phone.replace(/\D/g, '').slice(-10);
 
     try {
+      if (otpProvider === 'FIREBASE' && fbConfirmation) {
+        const fbOut = await confirmFirebasePhoneOtp(fbConfirmation, otp);
+        await completeBackendFirebaseExchange(fbOut, clean);
+        return;
+      }
+
       const data = await ApiService.verifyOtp({
         phone: clean,
         otp: otp.trim(),
@@ -264,8 +390,11 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
       } else {
         showAppAlert('सत्यापन विफल', data?.error || 'अमान्य या समाप्त OTP कोड।');
       }
-    } catch {
-      showAppAlert('सत्यापन त्रुटि', 'सर्वर से सत्यापन नहीं हो सका। कृपया पुनः प्रयास करें।');
+    } catch (err: any) {
+      showAppAlert(
+        'सत्यापन त्रुटि',
+        err?.code ? mapFirebaseErrorMessage(err, isHindi ? 'hi' : 'en') : 'सर्वर से सत्यापन नहीं हो सका। कृपया पुनः प्रयास करें।'
+      );
     } finally {
       setIsVerifyingOtp(false);
     }
@@ -820,17 +949,62 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                   </TouchableOpacity>
                 </View>
 
-                {/* STEP 1: PHONE NUMBER & REAL PHOTO UPLOAD */}
+                {/* STEP 1: GOOGLE / EMAIL / PHONE LOGIN & REAL PHOTO UPLOAD */}
                 {loginStep === 'PHONE' && (
                   <View>
                     <Text style={styles.loginTitle}>
-                      {isHindi ? 'मोबाइल नंबर से 10 सेकंड में लॉगिन करें' : 'Sign In in 10 Seconds'}
+                      {isHindi ? '10 सेकंड में सुरक्षित लॉगिन करें' : 'Sign In in 10 Seconds'}
                     </Text>
                     <Text style={styles.loginSub}>
                       {isHindi
                         ? 'लॉगिन करते ही आपको 250 SETU कॉइन्स मिलेंगे, जिनका इस्तेमाल काम पर छूट के लिए कर सकते हैं।'
                         : 'Instant login gets you 250 SETU coins for discounts on all services.'}
                     </Text>
+
+                    {smsNotification ? (
+                      <View style={styles.smsWarnBanner}>
+                        <Text style={styles.smsWarnText}>⚠️ {smsNotification}</Text>
+                      </View>
+                    ) : null}
+
+                    {Platform.OS === 'web' && (
+                      <TouchableOpacity
+                        style={styles.googleSignInBtn}
+                        onPress={handleGoogleSignIn}
+                        disabled={isFirebaseBusy || isSendingOtp}
+                        activeOpacity={0.85}
+                      >
+                        {isFirebaseBusy ? (
+                          <ActivityIndicator size="small" color="#0F172A" />
+                        ) : (
+                          <>
+                            <FontAwesome5 name="google" size={14} color="#EA4335" />
+                            <Text style={styles.googleSignInText}>
+                              {isHindi ? 'Google से तुरंत लॉगिन करें (100% फ्री)' : 'Continue with Google (Free)'}
+                            </Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    )}
+
+                    <View style={styles.channelSwitchRow}>
+                      <TouchableOpacity
+                        style={[styles.channelBtn, authChannel === 'PHONE' && styles.channelBtnActive]}
+                        onPress={() => setAuthChannel('PHONE')}
+                      >
+                        <Text style={[styles.channelBtnText, authChannel === 'PHONE' && styles.channelBtnTextActive]}>
+                          {isHindi ? '📱 मोबाइल OTP' : '📱 Mobile OTP'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.channelBtn, authChannel === 'EMAIL' && styles.channelBtnActive]}
+                        onPress={() => setAuthChannel('EMAIL')}
+                      >
+                        <Text style={[styles.channelBtnText, authChannel === 'EMAIL' && styles.channelBtnTextActive]}>
+                          {isHindi ? '📧 ईमेल लॉगिन (फ्री)' : '📧 Email Login (Free)'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
 
                     <View style={styles.inputBox}>
                       <Text style={styles.inputLabel}>{isHindi ? 'पूरा नाम:' : 'Full Name:'}</Text>
@@ -841,18 +1015,54 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                         onChangeText={setName}
                       />
 
-                      <Text style={styles.inputLabel}>{isHindi ? 'मोबाइल नंबर:' : 'Mobile Number:'}</Text>
-                      <View style={styles.phoneRow}>
-                        <Text style={styles.countryCode}>🇮🇳 +91</Text>
-                        <TextInput
-                          style={styles.phoneInput}
-                          placeholder={isHindi ? '10 अंकों का फोन नंबर' : '10-digit mobile number'}
-                          keyboardType="phone-pad"
-                          maxLength={10}
-                          value={phone}
-                          onChangeText={setPhone}
-                        />
-                      </View>
+                      {authChannel === 'PHONE' ? (
+                        <>
+                          <Text style={styles.inputLabel}>{isHindi ? 'मोबाइल नंबर:' : 'Mobile Number:'}</Text>
+                          <View style={styles.phoneRow}>
+                            <Text style={styles.countryCode}>🇮🇳 +91</Text>
+                            <TextInput
+                              style={styles.phoneInput}
+                              placeholder={isHindi ? '10 अंकों का फोन नंबर' : '10-digit mobile number'}
+                              keyboardType="phone-pad"
+                              maxLength={10}
+                              value={phone}
+                              onChangeText={setPhone}
+                            />
+                          </View>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={styles.inputLabel}>{isHindi ? 'ईमेल पता:' : 'Email:'}</Text>
+                          <TextInput
+                            style={styles.textInput}
+                            placeholder="name@example.com"
+                            keyboardType="email-address"
+                            autoCapitalize="none"
+                            value={email}
+                            onChangeText={setEmail}
+                          />
+                          <Text style={styles.inputLabel}>{isHindi ? 'पासवर्ड (कम से कम 6 अक्षर):' : 'Password:'}</Text>
+                          <TextInput
+                            style={styles.textInput}
+                            placeholder="••••••••"
+                            secureTextEntry
+                            value={password}
+                            onChangeText={setPassword}
+                          />
+                          <Text style={styles.inputLabel}>{isHindi ? 'मोबाइल नंबर (संपर्क हेतु):' : 'Mobile Number:'}</Text>
+                          <View style={styles.phoneRow}>
+                            <Text style={styles.countryCode}>🇮🇳 +91</Text>
+                            <TextInput
+                              style={styles.phoneInput}
+                              placeholder={isHindi ? '10 अंकों का फोन नंबर' : '10-digit mobile number'}
+                              keyboardType="phone-pad"
+                              maxLength={10}
+                              value={phone}
+                              onChangeText={setPhone}
+                            />
+                          </View>
+                        </>
+                      )}
 
                       {/* REAL PHOTO UPLOAD SECTION */}
                       <View style={styles.uploadSectionBox}>
@@ -904,17 +1114,97 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                         </View>
                       </View>
 
+                      {authChannel === 'PHONE' ? (
+                        <TouchableOpacity
+                          style={styles.submitBtn}
+                          onPress={handleSendOtp}
+                          activeOpacity={0.8}
+                          disabled={isSendingOtp || isFirebaseBusy}
+                        >
+                          {isSendingOtp ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : (
+                            <Text style={styles.submitBtnText}>
+                              {isHindi ? 'OTP भेजें ➔' : 'Send OTP ➔'}
+                            </Text>
+                          )}
+                        </TouchableOpacity>
+                      ) : (
+                        <>
+                          <TouchableOpacity
+                            style={styles.submitBtn}
+                            onPress={handleEmailAuth}
+                            activeOpacity={0.8}
+                            disabled={isFirebaseBusy}
+                          >
+                            {isFirebaseBusy ? (
+                              <ActivityIndicator size="small" color="#FFFFFF" />
+                            ) : (
+                              <Text style={styles.submitBtnText}>
+                                {isEmailSignup
+                                  ? isHindi
+                                    ? 'ईमेल से नया खाता बनाएं ➔'
+                                    : 'Sign Up with Email ➔'
+                                  : isHindi
+                                  ? 'ईमेल से लॉगिन करें ➔'
+                                  : 'Sign In with Email ➔'}
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.resendBtn}
+                            onPress={() => setIsEmailSignup(!isEmailSignup)}
+                          >
+                            <Text style={styles.resendText}>
+                              {isEmailSignup
+                                ? isHindi
+                                  ? 'पहले से खाता है? लॉगिन करें'
+                                  : 'Already have an account? Sign In'
+                                : isHindi
+                                ? 'नए यूज़र हैं? नया ईमेल खाता बनाएं'
+                                : 'New user? Create account'}
+                            </Text>
+                          </TouchableOpacity>
+                        </>
+                      )}
+                      {Platform.OS === 'web' && <View nativeID="setu-modal-recaptcha" style={{ height: 0, width: 0 }} />}
+                    </View>
+                  </View>
+                )}
+
+                {/* STEP 1B: COMPLETE PHONE FOR FIRST-TIME GOOGLE/EMAIL ACCOUNT */}
+                {loginStep === 'COMPLETE_PHONE' && (
+                  <View>
+                    <Text style={styles.loginTitle}>
+                      {isHindi ? '✅ ईमेल सत्यापित — मोबाइल नंबर जोड़ें' : '✅ Account Verified — Add Phone'}
+                    </Text>
+                    <Text style={styles.loginSub}>
+                      {isHindi
+                        ? 'पहली बार SETU से जुड़ने के लिए अपना 10-अंकीय संपर्क नंबर दर्ज करें।'
+                        : 'Enter your 10-digit Indian phone number to complete setup.'}
+                    </Text>
+                    <View style={styles.inputBox}>
+                      <View style={styles.phoneRow}>
+                        <Text style={styles.countryCode}>🇮🇳 +91</Text>
+                        <TextInput
+                          style={styles.phoneInput}
+                          placeholder="98XXXXXXXX"
+                          keyboardType="phone-pad"
+                          maxLength={10}
+                          value={phone}
+                          onChangeText={setPhone}
+                        />
+                      </View>
                       <TouchableOpacity
                         style={styles.submitBtn}
-                        onPress={handleSendOtp}
-                        activeOpacity={0.8}
-                        disabled={isSendingOtp}
+                        onPress={handleCompleteGooglePhone}
+                        disabled={isFirebaseBusy}
                       >
-                        {isSendingOtp ? (
+                        {isFirebaseBusy ? (
                           <ActivityIndicator size="small" color="#FFFFFF" />
                         ) : (
                           <Text style={styles.submitBtnText}>
-                            {isHindi ? 'OTP भेजें ➔' : 'Send OTP ➔'}
+                            {isHindi ? 'नंबर सेव करें & लोकेशन चुनें ➔' : 'Save & Continue ➔'}
                           </Text>
                         )}
                       </TouchableOpacity>
@@ -926,20 +1216,20 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                 {loginStep === 'OTP' && (
                   <View>
                     <Text style={styles.loginTitle}>
-                      {isHindi ? 'OTP सत्यापन (Verification)' : 'Enter 4-Digit OTP'}
+                      {isHindi ? 'OTP सत्यापन (Verification)' : `Enter ${otpProvider === 'FIREBASE' ? 6 : 4}-Digit OTP`}
                     </Text>
                     <Text style={styles.loginSub}>
                       {isHindi
-                        ? `+91 ${phone} पर 4 अंकों का कोड भेजा गया है:`
-                        : `Enter the 4-digit verification code sent to +91 ${phone}:`}
+                        ? `+91 ${phone} पर ${otpProvider === 'FIREBASE' ? 6 : 4} अंकों का कोड भेजा गया है:`
+                        : `Enter the ${otpProvider === 'FIREBASE' ? 6 : 4}-digit verification code sent to +91 ${phone}:`}
                     </Text>
 
                     <View style={styles.inputBox}>
                       <TextInput
                         style={styles.otpInput}
-                        placeholder="• • • •"
+                        placeholder={otpProvider === 'FIREBASE' ? '• • • • • •' : '• • • •'}
                         keyboardType="numeric"
-                        maxLength={4}
+                        maxLength={otpProvider === 'FIREBASE' ? 6 : 4}
                         value={otp}
                         onChangeText={setOtp}
                       />
@@ -1574,5 +1864,65 @@ const styles = StyleSheet.create({
   workLinkText: {
     fontSize: 11.5,
     color: COLORS.textSecondary,
+  },
+  smsWarnBanner: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+  },
+  smsWarnText: {
+    fontSize: 11.5,
+    color: '#92400E',
+    fontWeight: '700',
+    lineHeight: 16,
+  },
+  googleSignInBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+  },
+  googleSignInText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  channelSwitchRow: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 9,
+    padding: 3,
+    gap: 4,
+    marginBottom: 12,
+  },
+  channelBtn: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 7,
+    alignItems: 'center',
+  },
+  channelBtnActive: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  channelBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  channelBtnTextActive: {
+    color: '#1E293B',
+    fontWeight: '800',
   },
 });
