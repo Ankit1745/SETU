@@ -18,6 +18,8 @@ interface HeaderProps {
   onSelectLanguage?: (lang: Language) => void;
   activeTab?: 'home' | 'quick' | 'estimator' | 'partner' | 'profile';
   onTabPress?: (tab: 'home' | 'quick' | 'estimator' | 'partner' | 'profile') => void;
+  unreadNotifications?: number;
+  onOpenNotifications?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -33,8 +35,10 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectLanguage,
   activeTab = 'home',
   onTabPress,
+  unreadNotifications = 0,
+  onOpenNotifications,
 }) => {
-  // Dynamic official 3D logo based on active language
+  // Dynamic official brand logo based on active language
   const logoSource = getSetuLogo(language);
   const { isCompactPhone, isTabletOrDesktop, isDesktop, shellStyle } = useResponsive();
   const t = TRANSLATIONS[language];
@@ -54,13 +58,11 @@ export const Header: React.FC<HeaderProps> = ({
               <Image source={logoSource} style={styles.logoImage} resizeMode="cover" />
             </View>
             <View style={styles.brandTextWrap}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Text style={[styles.brandTitle, isCompactPhone && { fontSize: 14 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Text style={[styles.brandTitle, isCompactPhone && { fontSize: 15 }]}>
                   {language === 'hi' ? 'सेतु' : 'SETU'}
                 </Text>
-                <View style={styles.proOfficialTag}>
-                  <Text style={styles.proOfficialTagText}>3D</Text>
-                </View>
+                <View style={styles.brandVerifiedDot} />
               </View>
               {!isCompactPhone && (
                 <Text style={styles.brandSubtitle}>
@@ -168,7 +170,30 @@ export const Header: React.FC<HeaderProps> = ({
               </TouchableOpacity>
             </View>
 
-            {/* User Profile or High-Contrast 3D Login Pill */}
+            {/* In-App Notification Bell */}
+            {onOpenNotifications && (
+              <TouchableOpacity
+                style={styles.notifBellBtn}
+                onPress={onOpenNotifications}
+                activeOpacity={0.82}
+                accessibilityLabel="Notifications"
+              >
+                <Ionicons
+                  name={unreadNotifications > 0 ? 'notifications' : 'notifications-outline'}
+                  size={16}
+                  color={unreadNotifications > 0 ? '#FBBF24' : '#CBD5E1'}
+                />
+                {unreadNotifications > 0 && (
+                  <View style={styles.notifBadgeCount}>
+                    <Text style={styles.notifBadgeCountText}>
+                      {unreadNotifications > 9 ? '9+' : unreadNotifications}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            )}
+
+            {/* User Profile or High-Contrast Login Pill */}
             {user ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <TouchableOpacity
@@ -285,18 +310,18 @@ export const Header: React.FC<HeaderProps> = ({
 const styles = StyleSheet.create({
   container: {
     backgroundColor: '#0F172A',
-    paddingTop: Platform.OS === 'web' ? 12 : 8,
-    paddingBottom: 8,
+    paddingTop: Platform.OS === 'web' ? 8 : 8,
+    paddingBottom: 9,
     paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    borderBottomColor: 'rgba(148, 163, 184, 0.16)',
     ...Platform.select({
       web: {
         position: 'sticky' as any,
         top: 0,
         zIndex: 100,
-        backdropFilter: 'blur(16px)',
-        boxShadow: '0 4px 20px -2px rgba(0, 0, 0, 0.4)',
+        backdropFilter: 'blur(18px)',
+        boxShadow: '0 6px 24px -4px rgba(2, 6, 23, 0.45)',
       },
     }),
   },
@@ -409,17 +434,43 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: 0.5,
   },
-  proOfficialTag: {
-    backgroundColor: '#FF7A00',
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+  brandVerifiedDot: {
+    width: 7,
+    height: 7,
     borderRadius: 4,
+    backgroundColor: '#22C55E',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
   },
-  proOfficialTagText: {
+  notifBellBtn: {
+    position: 'relative',
+    width: 31,
+    height: 31,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notifBadgeCount: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#0F172A',
+  },
+  notifBadgeCountText: {
     color: '#FFFFFF',
-    fontSize: 8,
+    fontSize: 8.5,
     fontWeight: '900',
-    letterSpacing: 0.5,
   },
   brandSubtitle: {
     fontSize: 9,

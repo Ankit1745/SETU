@@ -452,6 +452,20 @@ function getLearningInsightsSnapshot() {
   };
 }
 
+function resetAllProviderCircuits() {
+  for (const key of Object.keys(memoryState.engineMetrics || {})) {
+    const m = memoryState.engineMetrics[key];
+    if (m) {
+      m.cooldownUntil = 0;
+      m.consecutiveFailures = 0;
+      m.lastStatus = 'READY';
+      m.lastError = '';
+    }
+  }
+  schedulePersistLearningState();
+  return getLearningInsightsSnapshot();
+}
+
 module.exports = {
   recordProviderOutcome,
   getOrderedProviders,
@@ -461,4 +475,5 @@ module.exports = {
   getPopularMaterialIds,
   getLearnedPromptHints,
   getLearningInsightsSnapshot,
+  resetAllProviderCircuits,
 };

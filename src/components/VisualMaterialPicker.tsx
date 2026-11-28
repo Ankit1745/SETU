@@ -16,11 +16,16 @@ import {
   PriceTier,
   normalizeProjectType,
   PROJECT_TYPE_LABELS,
+  buildLiveSupplierShowroomGroup,
 } from '../data/supplierShowroom';
+import { MaterialItem } from '../data/mockData';
 
 interface VisualMaterialPickerProps {
   projectType: ShowroomProjectType | string;
   customGroups?: ShowroomGroup[] | null;
+  livePlatformMaterials?: MaterialItem[];
+  tradeCategory?: string;
+  locality?: string;
   initialSelected?: ShowroomProduct[];
   popularMaterialIds?: string[];
   budget?: number | null;
@@ -39,6 +44,9 @@ const TIER_META: Record<PriceTier, { hi: string; en: string; bg: string; border:
 export const VisualMaterialPicker: React.FC<VisualMaterialPickerProps> = ({
   projectType,
   customGroups = null,
+  livePlatformMaterials = [],
+  tradeCategory,
+  locality = '',
   initialSelected = [],
   popularMaterialIds = [],
   budget = null,
@@ -51,9 +59,23 @@ export const VisualMaterialPicker: React.FC<VisualMaterialPickerProps> = ({
   const normalizedType = useMemo(() => normalizeProjectType(projectType), [projectType]);
 
   const groups = useMemo<ShowroomGroup[]>(() => {
-    if (customGroups && customGroups.length > 0) return customGroups;
-    return SUPPLIER_SHOWROOM[normalizedType] || SUPPLIER_SHOWROOM.custom;
-  }, [customGroups, normalizedType]);
+    const baseGroups =
+      customGroups && customGroups.length > 0
+        ? customGroups
+        : SUPPLIER_SHOWROOM[normalizedType] || SUPPLIER_SHOWROOM.custom;
+    if (Array.isArray(livePlatformMaterials) && livePlatformMaterials.length > 0) {
+      const liveGroup = buildLiveSupplierShowroomGroup({
+        materials: livePlatformMaterials,
+        tradeCategory,
+        projectType: normalizedType,
+        locality,
+      });
+      if (liveGroup && liveGroup.items.length > 0) {
+        return [liveGroup, ...baseGroups];
+      }
+    }
+    return baseGroups;
+  }, [customGroups, normalizedType, livePlatformMaterials, tradeCategory, locality]);
 
   // Sparse user selection overrides so switching categories/budgets never causes stale state or effect loops
   const [userOverrides, setUserOverrides] = useState<Record<string, ShowroomProduct>>({});

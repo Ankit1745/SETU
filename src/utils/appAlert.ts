@@ -1,38 +1,106 @@
-import { Alert, AlertButton, Platform } from 'react-native';
-
 /**
- * Cross-platform alert helper: react-native-web leaves Alert.alert() as a no-op,
- * so Web callers fall back to native browser confirm/alert dialogs while mobile
- * platforms use React Native Alert.alert directly.
+ * Branded SETU In-App Alert, Confirmation & Toast System
+ * Replaces native browser window.alert / window.confirm dialogs everywhere
+ * so alerts render cleanly inside SETU's own themed UI across Web, Android, and iOS.
  */
+
+export interface AlertButton {
+  text?: string;
+  onPress?: () => void;
+  style?: 'default' | 'cancel' | 'destructive';
+}
+
+export type AlertTone = 'info' | 'success' | 'warning' | 'error';
+
+export interface AppAlertPayload {
+  id: string;
+  title: string;
+  message?: string;
+  buttons: AlertButton[];
+  tone: AlertTone;
+}
+
+export interface AppToastPayload {
+  id: string;
+  title: string;
+  message?: string;
+  tone: AlertTone;
+}
+
+type Listener = {
+  onAlert: (payload: AppAlertPayload) => void;
+  onToast: (payload: AppToastPayload) => void;
+};
+
+const listeners = new Set<Listener>();
+const pendingAlerts: AppAlertPayload[] = [];
+const pendingToasts: AppToastPayload[] = [];
+
+function detectTone(title: string, message = ''): AlertTone {
+  const combined = `${title} ${message}`;
+  if (/✅|🎉|सफल|स्वीकृत|approved|success|welcome|कन्फर्म/i.test(combined)) return 'success';
+  if (/❌|⛔|त्रुटि|अस्वीकार|error|failed|blocked|denied|अवैध|अमान्य/i.test(combined)) return 'error';
+  if (/⚠|🔒|🚨|अनिवार्य|प्रतीक्षा|caution|warning|required|security|जरूरी/i.test(combined)) return 'warning';
+  return 'info';
+}
+
+export function subscribeAppAlerts(listener: Listener): () => void {
+  listeners.add(listener);
+  while (pendingAlerts.length > 0) {
+    const item = pendingAlerts.shift();
+    if (item) listener.onAlert(item);
+  }
+  while (pendingToasts.length > 0) {
+    const item = pendingToasts.shift();
+    if (item) listener.onToast(item);
+  }
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
 export function showAppAlert(
   title: string,
   message?: string,
   buttons?: AlertButton[]
 ): void {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') {
-    Alert.alert(title, message, buttons);
+  const resolvedButtons: AlertButton[] =
+    Array.isArray(buttons) && buttons.length > 0
+      ? buttons
+      : [{ text: 'ठीक है', style: 'default' }];
+
+  const payload: AppAlertPayload = {
+    id: `alert_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    title: String(title || 'SETU सूचना'),
+    message: message ? String(message) : undefined,
+    buttons: resolvedButtons,
+    tone: detectTone(title, message),
+  };
+
+  if (listeners.size === 0) {
+    pendingAlerts.push(payload);
     return;
   }
 
-  const fullText = message ? `${title}\n\n${message}` : title;
-  const actionButtons = (buttons || []).filter((b) => b && b.style !== 'cancel');
+  listeners.forEach((l) => l.onAlert(payload));
+}
 
-  if (buttons && buttons.length > 1 && actionButtons.length > 0 && typeof window.confirm === 'function') {
-    const confirmed = window.confirm(fullText);
-    if (confirmed) {
-      actionButtons[0]?.onPress?.();
-    } else {
-      const cancelBtn = buttons.find((b) => b.style === 'cancel');
-      cancelBtn?.onPress?.();
-    }
+export function showAppToast(
+  title: string,
+  message?: string,
+  tone?: AlertTone
+): void {
+  const payload: AppToastPayload = {
+    id: `toast_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    title: String(title || 'SETU'),
+    message: message ? String(message) : undefined,
+    tone: tone || detectTone(title, message),
+  };
+
+  if (listeners.size === 0) {
+    pendingToasts.push(payload);
     return;
   }
 
-  if (typeof window.alert === 'function') {
-    window.alert(fullText);
-  }
-  if (actionButtons.length === 1) {
-    actionButtons[0]?.onPress?.();
-  }
+  listeners.forEach((l) => l.onToast(payload));
 }

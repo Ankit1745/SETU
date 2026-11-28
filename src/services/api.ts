@@ -1435,4 +1435,145 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
       return null;
     }
   },
+
+  // 19. In-App Notification Center & Python Quantitative BOQ Helper
+  getNotifications: async () => {
+    try {
+      const res = await fetchWithTimeout(
+        `${API_BASE_URL}/notifications`,
+        { headers: ApiService.getHeaders() },
+        8000
+      );
+      return await res.json().catch(() => ({ success: false, notifications: [], unreadCount: 0 }));
+    } catch {
+      return { success: false, notifications: [], unreadCount: 0 };
+    }
+  },
+
+  markNotificationsRead: async (id?: string) => {
+    try {
+      const res = await fetchWithTimeout(
+        `${API_BASE_URL}/notifications/read`,
+        {
+          method: 'POST',
+          headers: ApiService.getHeaders(),
+          body: JSON.stringify(id ? { id } : {}),
+        },
+        8000
+      );
+      return await res.json().catch(() => ({ success: false }));
+    } catch {
+      return { success: false };
+    }
+  },
+
+  runPythonBoqAudit: async (params: { projectType: string; areaSqFt: number; tier?: string }) => {
+    try {
+      const res = await fetchWithTimeout(
+        `${API_BASE_URL}/ai/python-boq`,
+        {
+          method: 'POST',
+          headers: ApiService.getHeaders(),
+          body: JSON.stringify(params),
+        },
+        10000
+      );
+      return await res.json().catch(() => ({ success: false }));
+    } catch {
+      return { success: false };
+    }
+  },
+
+  // 20. Unified Admin Control Hub & Private Exclusive Admin Personal AI ("SETU-HERO")
+  getAdminSystemControl: async () => {
+    const res = await fetchWithTimeout(
+      `${API_BASE_URL}/admin/system-control`,
+      { headers: ApiService.getHeaders() },
+      12000
+    );
+    return await res.json().catch(() => ({ success: false }));
+  },
+
+  getAdminSmsStatus: async () => {
+    const res = await fetchWithTimeout(
+      `${API_BASE_URL}/admin/sms-status`,
+      { headers: ApiService.getHeaders() },
+      10000
+    );
+    return await res.json().catch(() => ({ success: false }));
+  },
+
+  resetAdminAiCircuits: async () => {
+    const res = await fetchWithTimeout(
+      `${API_BASE_URL}/admin/ai/reset-circuits`,
+      {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+      },
+      10000
+    );
+    return await res.json().catch(() => ({ success: false }));
+  },
+
+  broadcastAdminNotification: async (params: { title: string; message: string; targetRole?: string }) => {
+    const res = await fetchWithTimeout(
+      `${API_BASE_URL}/admin/notifications/broadcast`,
+      {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+        body: JSON.stringify(params),
+      },
+      10000
+    );
+    return await res.json().catch(() => ({ success: false }));
+  },
+
+  getAdminAuditReport: async () => {
+    const res = await fetchWithTimeout(
+      `${API_BASE_URL}/admin/audit-report`,
+      { headers: ApiService.getHeaders() },
+      12000
+    );
+    return await res.json().catch(() => ({ success: false }));
+  },
+
+  askAdminHeroAI: async (command: string, executeAction?: string) => {
+    const res = await fetchWithTimeout(
+      `${API_BASE_URL}/admin/ai/command`,
+      {
+        method: 'POST',
+        headers: ApiService.getHeaders(),
+        body: JSON.stringify({ command, executeAction }),
+      },
+      15000
+    );
+    return await res.json().catch(() => ({ success: false }));
+  },
+
+  deleteAdminContractor: async (id: string) => {
+    const res = await fetchWithTimeout(
+      `${API_BASE_URL}/admin/contractors/${encodeURIComponent(id)}`,
+      { method: 'DELETE', headers: ApiService.getHeaders() },
+      10000
+    );
+    return await res.json().catch(() => ({ success: false }));
+  },
+
+  deleteAdminMaterial: async (id: string) => {
+    const res = await fetchWithTimeout(
+      `${API_BASE_URL}/admin/materials/${encodeURIComponent(id)}`,
+      { method: 'DELETE', headers: ApiService.getHeaders() },
+      10000
+    );
+    return await res.json().catch(() => ({ success: false }));
+  },
+
+  deleteAdminUser: async (id: string) => {
+    const res = await fetchWithTimeout(
+      `${API_BASE_URL}/admin/users/${encodeURIComponent(id)}`,
+      { method: 'DELETE', headers: ApiService.getHeaders() },
+      10000
+    );
+    return await res.json().catch(() => ({ success: false }));
+  },
 };

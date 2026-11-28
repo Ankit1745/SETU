@@ -20,7 +20,13 @@ export const MaterialCard: React.FC<MaterialCardProps> = ({ item, onAddToCart })
   return (
     <View style={styles.card}>
       <View style={styles.imageContainer}>
-        <Image source={{ uri: item.image }} style={styles.image} resizeMode="cover" />
+        {item.image ? (
+          <Image source={{ uri: item.image }} style={styles.image} resizeMode="cover" />
+        ) : (
+          <View style={[styles.image, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#EFF6FF' }]}>
+            <MaterialCommunityIcons name="package-variant-closed" size={32} color="#2563EB" />
+          </View>
+        )}
         {discountPercent > 0 && (
           <View style={styles.discountBadge}>
             <Text style={styles.discountText}>{discountPercent}% छूट</Text>

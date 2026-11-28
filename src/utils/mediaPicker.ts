@@ -1,5 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
-import { Platform, Alert } from 'react-native';
+import { Platform } from 'react-native';
+import { showAppAlert } from './appAlert';
 
 export interface PickedMedia {
   uri: string;
@@ -80,7 +81,7 @@ async function normalizePickedImageBase64(uri: string, rawBase64?: string | null
 function checkNativeMediaSize(base64Data: string, fileSize?: number): boolean {
   const approxBytes = fileSize || Math.round((base64Data.length * 3) / 4);
   if (approxBytes > 4.9 * 1024 * 1024) {
-    Alert.alert(
+    showAppAlert(
       'फ़ोटो का आकार बड़ा है',
       'कृपया 5MB से छोटी या कम रिज़ॉल्यूशन की फ़ोटो चुनें ताकि AI तेजी से जांच कर सके।'
     );
@@ -97,7 +98,7 @@ export async function pickImageFromGallery(): Promise<PickedMedia | null> {
   try {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert(
+      showAppAlert(
         'अनुमति आवश्यक',
         'फोटो चुनने के लिए कृपया सेटिंग्स में जाकर फोटो लाइब्रेरी की अनुमति दें।'
       );
@@ -131,7 +132,7 @@ export async function pickImageFromGallery(): Promise<PickedMedia | null> {
     };
   } catch (error: any) {
     console.error('Gallery pick error:', error);
-    Alert.alert('त्रुटि', 'गैलरी से फोटो चुनने में असमर्थ: ' + error.message);
+    showAppAlert('त्रुटि', 'गैलरी से फोटो चुनने में असमर्थ: ' + error.message);
     return null;
   }
 }
@@ -143,7 +144,7 @@ export async function capturePhotoFromCamera(): Promise<PickedMedia | null> {
   try {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert(
+      showAppAlert(
         'कैमरा अनुमति आवश्यक',
         'समस्या की लाइव फोटो लेने के लिए कृपया कैमरा एक्सेस की अनुमति दें।'
       );
@@ -177,7 +178,7 @@ export async function capturePhotoFromCamera(): Promise<PickedMedia | null> {
     };
   } catch (error: any) {
     console.error('Camera capture error:', error);
-    Alert.alert('त्रुटि', 'कैमरे से फोटो लेने में असमर्थ: ' + error.message);
+    showAppAlert('त्रुटि', 'कैमरे से फोटो लेने में असमर्थ: ' + error.message);
     return null;
   }
 }

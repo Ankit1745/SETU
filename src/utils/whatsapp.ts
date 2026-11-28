@@ -105,7 +105,7 @@ export function format3DStudioWhatsAppMessage(params: {
   userLocation: string;
 }): string {
   return `नमस्ते ${params.contractorName} जी,
-मैंने SETU 3D स्टूडियो में अपने घर का डिज़ाइन तैयार किया है:
+मैंने SETU AI स्टूडियो में अपने घर का डिज़ाइन तैयार किया है:
 
 🎨 *प्रोजेक्ट:* ${params.projectType}
 📐 *लेआउट:* ${params.layoutName} (${params.dimensions})

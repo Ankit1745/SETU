@@ -22,6 +22,7 @@ import {
 } from '../data/mockData';
 import { showAppAlert } from '../utils/appAlert';
 import { ContractorCard } from '../components/ContractorCard';
+import { MaterialCard } from '../components/MaterialCard';
 import { BookingModal } from '../components/BookingModal';
 import { ContractorDetailModal } from '../components/ContractorDetailModal';
 import { QuickServiceModal } from '../components/QuickServiceModal';
@@ -432,8 +433,8 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
                   </View>
                   <Text style={styles.heroSpotlightSub}>
                     {language === 'hi'
-                      ? 'भोपाल का 3D स्मार्ट नेटवर्क: 15 मिनट में सत्यापित कारीगर • उचित दरें'
-                      : 'Bhopal’s 3D Smart Network: 15-min verified contractors • Fixed Rates'}
+                      ? 'स्मार्ट होम नेटवर्क: 15 मिनट में सत्यापित कारीगर • पारदर्शी मानक दरें'
+                      : 'Verified Smart Home Network: 15-min Pros • Transparent Standard Rates'}
                   </Text>
                 </View>
               </View>
@@ -443,7 +444,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
                 <View style={styles.heroMetricItem}>
                   <Ionicons name="shield-checkmark" size={13} color="#22C55E" />
                   <Text style={styles.heroMetricText}>
-                    {language === 'hi' ? '0% धोखाधड़ी' : '0% Fraud Risk'}
+                    {language === 'hi' ? 'आधार सत्यापित' : 'Aadhaar Verified'}
                   </Text>
                 </View>
                 <View style={styles.heroMetricDivider} />
@@ -748,14 +749,14 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
               <Ionicons name={contractors.length === 0 ? 'construct-outline' : 'search-outline'} size={36} color={COLORS.primary} />
               <Text style={styles.emptyTitle}>
                 {contractors.length === 0
-                  ? (language === 'hi' ? 'अभी कोई असली कारीगर प्रोफाइल लाइव नहीं है' : 'No Verified Pros Listed Yet')
+                  ? (language === 'hi' ? 'आपके क्षेत्र में सत्यापित कारीगर जुड़ रहे हैं' : 'Verified Pros Joining Your Area')
                   : (language === 'hi' ? 'कोई कारीगर नहीं मिला' : 'No Pros Found')}
               </Text>
               <Text style={styles.emptySub}>
                 {contractors.length === 0
                   ? (language === 'hi'
-                      ? 'सभी पुरानी सैंपल प्रोफाइल हटा दी गई हैं। अब आप अपना काम पोस्ट कर सकते हैं या पार्टनर के रूप में असली ID जोड़ सकते हैं।'
-                      : 'All sample profiles are cleared. Post your job requirement or join with your verified partner profile.')
+                      ? 'अभी अपना काम व बजट पोस्ट करें — पास के सत्यापित कारीगर व पार्टनर तुरंत संपर्क करेंगे।'
+                      : 'Post your work & budget now — verified nearby contractors will reach out promptly.')
                   : (language === 'hi'
                       ? 'कृपया सर्च शब्द बदलें या अन्य श्रेणी चुनें।'
                       : 'Please adjust your search or clear filters.')}
@@ -804,6 +805,80 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
               ))}
             </View>
           )}
+
+          {/* 6. LIVE SUPPLIER RAW MATERIALS SHOWROOM (Auto-updated as shops add stock) */}
+          {materials.length > 0 && (() => {
+            const visibleMaterials = materials.filter((m) => {
+              if (m.inStock === false) return false;
+              if (selectedCategory !== 'all') {
+                const rawMatCat = String(m.category || 'general').toLowerCase();
+                if (rawMatCat !== 'general') {
+                  const normSel = normalizeTradeCategory(selectedCategory);
+                  const matCat = normalizeTradeCategory(rawMatCat);
+                  if (matCat !== normSel) return false;
+                }
+              }
+              if (searchQuery.trim()) {
+                const q = searchQuery.toLowerCase();
+                return (
+                  (m.name || '').toLowerCase().includes(q) ||
+                  (m.brand || '').toLowerCase().includes(q) ||
+                  (m.storeName || '').toLowerCase().includes(q)
+                );
+              }
+              return true;
+            });
+            if (visibleMaterials.length === 0) return null;
+            return (
+              <View style={{ marginTop: 22 }}>
+                <View style={styles.prosHeaderRow}>
+                  <View>
+                    <Text style={styles.prosSectionTitle}>
+                      {language === 'hi' ? '🏪 लाइव सप्लायर कच्चा माल (सीधे दुकान से)' : '🏪 Live Supplier Raw Materials'}
+                    </Text>
+                    <Text style={styles.prosSectionSub}>
+                      {language === 'hi'
+                        ? `${visibleMaterials.length} थोक आइटम उपलब्ध • दुकानदार द्वारा जोड़ा गया लाइव स्टॉक`
+                        : `${visibleMaterials.length} wholesale items live from verified stores`}
+                    </Text>
+                  </View>
+                </View>
+                <View style={proCols > 1 ? styles.prosGridContainer : undefined}>
+                  {visibleMaterials.map((item) => (
+                    <View
+                      key={item.id}
+                      style={proCols > 1 ? { width: proCardWidth as any } : undefined}
+                    >
+                      <MaterialCard
+                        item={item}
+                        onAddToCart={(mat) => {
+                          onNewBookingCreated({
+                            id: 'mat_ord_' + Date.now(),
+                            contractorId: mat.vendorId || 'v1',
+                            contractorName: mat.storeName || 'SETU सप्लायर',
+                            category: mat.category || 'general',
+                            bookingMode: 'भाव_पूछें',
+                            workType: `सामग्री ऑर्डर: ${mat.name}`,
+                            totalLaborAmount: 0,
+                            finalMaterialAmount: mat.sellingPrice,
+                            workAddress: currentLocation,
+                            description: `${mat.name} (${mat.brand || 'मानक'}) — ₹${mat.sellingPrice} / ${mat.unit}`,
+                            date: 'आज / डिलीवरी अनुरोध',
+                          });
+                          showAppAlert(
+                            language === 'hi' ? '🛒 सामग्री अनुरोध भेजा गया!' : '🛒 Material Request Sent!',
+                            language === 'hi'
+                              ? `"${mat.name}" (₹${mat.sellingPrice} / ${mat.unit}) के लिए ${mat.storeName} को ऑर्डर अनुरोध भेज दिया गया है।`
+                              : `Order inquiry for "${mat.name}" sent to ${mat.storeName}.`
+                          );
+                        }}
+                      />
+                    </View>
+                  ))}
+                </View>
+              </View>
+            );
+          })()}
         </View>
         </View>
       </ScrollView>
@@ -813,8 +888,8 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
         style={[
           styles.floatingAIFab,
           {
-            bottom: isDesktop ? 24 : 14,
-            right: isTabletOrDesktop ? 24 : 12,
+            bottom: isDesktop ? 24 : 20,
+            right: isTabletOrDesktop ? 24 : 14,
           },
         ]}
         onPress={() => {
@@ -1957,30 +2032,30 @@ const styles = StyleSheet.create({
   },
   floatingAIFab: {
     position: 'absolute',
-    bottom: 74,
+    bottom: 20,
     right: 14,
-    paddingHorizontal: 14,
-    height: 46,
-    borderRadius: 23,
+    paddingHorizontal: 13,
+    height: 40,
+    borderRadius: 20,
     flexDirection: 'row',
     gap: 5,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#0F172A',
     shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
     elevation: 8,
     zIndex: 99,
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#F59E0B',
   },
   floatingFabLabel: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
-    letterSpacing: 0.8,
+    letterSpacing: 0.7,
   },
   floatingFabBadgePulse: {
     position: 'absolute',

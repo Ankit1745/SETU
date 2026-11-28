@@ -37,7 +37,23 @@ const {
   getPopularMaterialIds,
   getLearnedPromptHints,
   getLearningInsightsSnapshot,
+  resetAllProviderCircuits,
 } = require('./aiLearningEngine');
+const {
+  emitNotification,
+  listNotificationsForActor,
+  markActorNotificationsRead,
+} = require('./notificationEngine');
+const { invokePythonEngine } = require('./pythonBridge');
+const {
+  matchDomainKnowledgeReply,
+  summarizeLiveMatchesForChat,
+  renderSovereignSvgBlueprint,
+} = require('./setuSelfEngine');
+const {
+  buildAdminSecurityAndAuditReport,
+  handleAdminHeroCommand,
+} = require('./adminHeroEngine');
 const {
   mapTradeToCanonicalCategory,
   validateContractorTradeRates,
@@ -56,6 +72,17 @@ const aiTelemetry = {
   editRequests: 0,
   rateLimited: 0,
 };
+
+// Admin-only non-PII runtime diagnostics ring buffer
+const runtimeErrorLogs = [];
+function recordRuntimeLog(route, message) {
+  runtimeErrorLogs.unshift({
+    time: new Date().toLocaleTimeString('en-IN', { hour12: false }),
+    route: String(route || 'system').slice(0, 60),
+    message: String(message || 'Error').slice(0, 220),
+  });
+  if (runtimeErrorLogs.length > 40) runtimeErrorLogs.length = 40;
+}
 
 function asStr(v, maxLen = 10000000) {
   if (typeof v !== 'string') return '';
@@ -585,7 +612,7 @@ async function fetchGeminiJsonWithCascade({ apiKey, parts, timeoutMs = 12000, la
 
   // Order Gemini candidates dynamically by live success rate & latency
   const orderedGemini = getOrderedProviders('chat', STANDARD_GEMINI_MODELS);
-  if (apiKey) {
+  if (apiKey && process.env.SETU_SELF_AI_ONLY !== 'true') {
     for (const modelName of orderedGemini) {
       const isGemma = modelName.startsWith('gemma');
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
@@ -2136,6 +2163,20 @@ app.post('/api/partners/register', optionalAuth, aiRateLimiter('partner_register
       vendorId: savedUser.vendorId || '',
     });
 
+    await emitNotification(
+      { getDbStatus, models, readLocalDb, writeLocalDb },
+      {
+        type: targetRole === 'VENDOR' ? 'NEW_MATERIAL' : 'NEW_CONTRACTOR',
+        title:
+          targetRole === 'VENDOR'
+            ? `🏪 नया सप्लायर स्टोर जुड़ा: ${safeName}`
+            : `👷 नए कारीगर प्रोफ़ाइल जुड़े: ${safeName}`,
+        message: `${safeTradeOrShop || targetRole} • ${asStr(partnerData.city || 'भोपाल', 40)} — अब SETU AI व होम खोज में उपलब्ध!`,
+        targetRole: 'ALL',
+        meta: { setuId: savedUser.setuId, category },
+      }
+    );
+
     res.json({
       success: true,
       message: 'पार्टनर सफलतापूर्वक पंजीकृत हुआ। दस्तावेज सत्यापन के लिए भेज दिए गए हैं।',
@@ -2537,6 +2578,18 @@ app.post('/api/bookings', requireAuth, async (req, res) => {
       writeLocalDb(localData);
     }
 
+    await emitNotification(
+      { getDbStatus, models, readLocalDb, writeLocalDb },
+      {
+        type: 'BOOKING_CREATED',
+        title: `📋 नई बुकिंग: ${bookingPayload.workType}`,
+        message: `${bookingPayload.customerName} ने ${bookingPayload.contractorName} के साथ ₹${grandTotal.toLocaleString('en-IN')} का अनुरोध भेजा।`,
+        targetRole: 'ALL',
+        targetPhone: bookingPayload.contractorPhone || '',
+        meta: { bookingId: customBookingId },
+      }
+    );
+
     res.json({
       success: true,
       message: 'बुकिंग सफलतापूर्वक दर्ज की गई।',
@@ -2617,6 +2670,18 @@ app.post('/api/bookings/:id/quote', requireAuth, async (req, res) => {
 
     if (isMongo) await booking.save();
     else writeLocalDb(localData);
+
+    await emitNotification(
+      { getDbStatus, models, readLocalDb, writeLocalDb },
+      {
+        type: 'BOOKING_QUOTED',
+        title: `💬 नया कोटेशन प्राप्त: ₹${grandTotal.toLocaleString('en-IN')}`,
+        message: `${booking.contractorName} ने "${booking.workType}" के लिए कोटेशन भेजा है। कृपया समीक्षा करें।`,
+        targetRole: 'CUSTOMER',
+        targetPhone: booking.customerPhone || '',
+        meta: { bookingId: booking.customId || booking.id },
+      }
+    );
 
     return res.json({ success: true, message: 'कोटेशन ग्राहक को भेज दिया गया है।', booking: sanitizeBookingForActor(booking, req.user) });
   } catch (err) {
@@ -3892,18 +3957,35 @@ Return ONLY valid JSON:
     const heardSummaryPrefix = listeningProfile.summaryChips.length > 0
       ? `आपकी बात बिल्कुल ध्यान से सुनी (${listeningProfile.summaryChips.join(' • ')})! `
       : '';
+    const domainKnowledgeBlock = matchDomainKnowledgeReply(latestUserMsg, language);
+    const liveMatchesSummary = summarizeLiveMatchesForChat(
+      liveContractors,
+      liveMaterials,
+      cfg.tradeCategory,
+      safeLocality,
+      language
+    );
+
+    const sovereignReplyText = [
+      domainKnowledgeBlock ||
+        (cleanSelectedProducts.length > 0
+          ? `${heardSummaryPrefix}आपके चुने हुए कच्चे माल (${joinedNames}) से तैयार ${cfg.titleHi} का नया मॉडल ऊपर देखें। आप चाहें तो और भी अलग क्वालिटी/रेट का कच्चा माल बदलकर या "बदलाव बताएं" दबाकर अपने मन के हिसाब से डिज़ाइन बदलवा सकते हैं!`
+          : `${heardSummaryPrefix}मैं आपका अनुभवी SETU मास्टर कारीगर हूँ। आपके "${latestUserMsg.slice(0, 60)}" के लिए शुरुआती असली मॉडल ऊपर तैयार है। अब नीचे अलग-अलग क्वालिटी और रेट वाले **कच्चे माल** चुनें या अपनी पसंद बताकर मॉडल बदलें — पसंद आने पर ही कोटेशन मांगें!`),
+      liveMatchesSummary,
+      extraWorkNote.trim(),
+    ]
+      .filter(Boolean)
+      .join('\n\n');
 
     return res.json({
       success: true,
-      engine: 'SETU Design & Raw-Material Playground',
+      engine: 'SETU Sovereign Master Engine (Self-AI)',
       data: {
         unreadable: false,
         intentMode: 'build_design',
         interactionStage: 'explore_design',
         tradeCategory: cfg.tradeCategory,
-        replyText: cleanSelectedProducts.length > 0
-          ? `${heardSummaryPrefix}आपके चुने हुए कच्चे माल (${joinedNames}) से तैयार ${cfg.titleHi} का नया मॉडल ऊपर देखें। आप चाहें तो और भी अलग क्वालिटी/रेट का कच्चा माल बदलकर या "बदलाव बताएं" दबाकर अपने मन के हिसाब से डिज़ाइन बदलवा सकते हैं!${extraWorkNote}`
-          : `${heardSummaryPrefix}मैं आपका अनुभवी SETU मास्टर कारीगर हूँ। आपके "${latestUserMsg.slice(0, 60)}" के लिए शुरुआती असली मॉडल ऊपर तैयार है। अब नीचे अलग-अलग क्वालिटी और रेट वाले **कच्चे माल** चुनें या अपनी पसंद बताकर मॉडल बदलें — पसंद आने पर ही कोटेशन मांगें!${extraWorkNote}`,
+        replyText: sovereignReplyText,
         showMaterialPicker: true,
         productPickerProjectType: heuristicProjectType,
         customMaterialGroups: customGroupsFallback,
@@ -4240,14 +4322,17 @@ app.post('/api/ai/render-design', aiRateLimiter('render', 15), async (req, res) 
       return res.status(400).json({ success: false, error: 'डिज़ाइन प्रॉम्प्ट आवश्यक है।' });
     }
 
+    const selfOnlyMode = process.env.SETU_SELF_AI_ONLY === 'true' || body.preferSelfEngine === true;
     const pollKey = cleanSecret(process.env.POLLINATIONS_API_KEY);
-    const renderCandidates = [
-      ...(pollKey ? ['pollinations-pro-flux'] : []),
-      'hf-flux-1-schnell',
-      'ai-horde-photon',
-      'pollinations-anon-verified',
-      'hf-sd35-turbo',
-    ];
+    const renderCandidates = selfOnlyMode
+      ? []
+      : [
+          ...(pollKey ? ['pollinations-pro-flux'] : []),
+          'hf-flux-1-schnell',
+          'ai-horde-photon',
+          'pollinations-anon-verified',
+          'hf-sd35-turbo',
+        ];
     const orderedRenderers = getOrderedProviders('render', renderCandidates);
 
     for (const renderId of orderedRenderers) {
@@ -4366,13 +4451,23 @@ app.post('/api/ai/render-design', aiRateLimiter('render', 15), async (req, res) 
       }
     }
 
-    return res.status(503).json({
-      success: false,
-      busy: true,
-      error: 'AI इमेज रेंडर सर्वर अभी व्यस्त है।',
+    // Guaranteed self-dependent SETU Blueprint Visual Fallback (zero reliance on external sites)
+    const blueprintUri = renderSovereignSvgBlueprint({
+      prompt: safePrompt,
+      projectType: asStr(body.projectType || '', 40),
+      title: asStr(body.title || 'SETU Architectural Model', 80),
+      dimensions: asStr(body.dimensions || 'Standard Pro Spec', 40),
+      locality: asStr(body.locality || 'भोपाल', 40),
+      finishNotes: safePrompt,
+    });
+    return res.json({
+      success: true,
+      engine: 'SETU Sovereign Architectural Blueprint (Self-AI)',
+      renderedImageBase64: blueprintUri,
     });
   } catch (err) {
     console.error('[RenderDesign] Error:', err.message);
+    recordRuntimeLog('/api/ai/render-design', err.message);
     return res.status(500).json({ success: false, busy: true, error: 'रेंडर त्रुटि।' });
   }
 });
@@ -4419,12 +4514,32 @@ app.post('/api/materials', requireAuth, requireRole('VENDOR', 'ADMIN'), async (r
     };
     if (getDbStatus().isMongoConnected) {
       const created = await models.Material.create(payload);
+      await emitNotification(
+        { getDbStatus, models, readLocalDb, writeLocalDb },
+        {
+          type: 'NEW_MATERIAL',
+          title: `🧱 नया कच्चा माल जुड़ा: ${payload.name}`,
+          message: `${payload.storeName} ने ₹${payload.sellingPrice}/${payload.unit} पर नया स्टॉक जोड़ा — अब AI शोरूम में उपलब्ध!`,
+          targetRole: 'ALL',
+          meta: { category: payload.category, materialId: payload.customId },
+        }
+      );
       return res.json({ success: true, material: created });
     }
     const localData = readLocalDb();
     if (!localData.materials) localData.materials = [];
     localData.materials.unshift(payload);
     writeLocalDb(localData);
+    await emitNotification(
+      { getDbStatus, models, readLocalDb, writeLocalDb },
+      {
+        type: 'NEW_MATERIAL',
+        title: `🧱 नया कच्चा माल जुड़ा: ${payload.name}`,
+        message: `${payload.storeName} ने ₹${payload.sellingPrice}/${payload.unit} पर नया स्टॉक जोड़ा — अब AI शोरूम में उपलब्ध!`,
+        targetRole: 'ALL',
+        meta: { category: payload.category, materialId: payload.customId },
+      }
+    );
     return res.json({ success: true, material: payload });
   } catch (err) {
     res.status(500).json({ error: 'मटेरियल जोड़ने में त्रुटि: ' + err.message });
@@ -4652,6 +4767,19 @@ app.post('/api/admin/kyc/action', requireAuth, requireRole('ADMIN'), async (req,
       await models.User.updateOne({ phone: kyc.phone }, { $set: { kycVerified: isVerified } });
       await models.Contractor.updateOne({ phone: kyc.phone }, { $set: { verified: isVerified } });
 
+      await emitNotification(
+        { getDbStatus, models, readLocalDb, writeLocalDb },
+        {
+          type: isVerified ? 'KYC_APPROVED' : 'KYC_REJECTED',
+          title: isVerified ? '✅ आपकी KYC सत्यापित हो गई!' : '⚠️ KYC आवेदन अस्वीकृत',
+          message: isVerified
+            ? 'बधाई हो! आपका SETU ब्लू टिक सक्रिय हो गया है और आपकी प्रोफाइल सबसे ऊपर दिखेगी।'
+            : 'कृपया अपने दस्तावेज जांचें और पुनः सबमिट करें।',
+          targetRole: kyc.role || 'CONTRACTOR',
+          targetPhone: kyc.phone || '',
+        }
+      );
+
       return res.json({ success: true, message: `केवाईसी ${isVerified ? 'स्वीकृत' : 'अस्वीकृत'} किया गया।`, kyc });
     } else {
       const localData = readLocalDb();
@@ -4684,6 +4812,18 @@ app.post('/api/admin/kyc/action', requireAuth, requireRole('ADMIN'), async (req,
       if (c) c.verified = isVerified;
 
       writeLocalDb(localData);
+      await emitNotification(
+        { getDbStatus, models, readLocalDb, writeLocalDb },
+        {
+          type: isVerified ? 'KYC_APPROVED' : 'KYC_REJECTED',
+          title: isVerified ? '✅ आपकी KYC सत्यापित हो गई!' : '⚠️ KYC आवेदन अस्वीकृत',
+          message: isVerified
+            ? 'बधाई हो! आपका SETU ब्लू टिक सक्रिय हो गया है और आपकी प्रोफाइल सबसे ऊपर दिखेगी।'
+            : 'कृपया अपने दस्तावेज जांचें और पुनः सबमिट करें।',
+          targetRole: kyc.role || 'CONTRACTOR',
+          targetPhone: kyc.phone || '',
+        }
+      );
       return res.json({ success: true, message: `केवाईसी ${isVerified ? 'स्वीकृत' : 'अस्वीकृत'} किया गया।`, kyc });
     }
   } catch (err) {
@@ -4802,13 +4942,14 @@ app.post('/api/admin/purge-data', requireAuth, requireRole('ADMIN'), async (req,
         },
       });
     }
-    const emptyDb = {
+      const emptyDb = {
       users: [],
       contractors: [],
       materials: [],
       bookings: [],
       kycApplications: [],
       disputes: [],
+      notifications: [],
       financials: {
         grossPlatformVolume: 0,
         escrowFundsHeld: 0,
@@ -4820,6 +4961,306 @@ app.post('/api/admin/purge-data', requireAuth, requireRole('ADMIN'), async (req,
     return res.json({ success: true, engine: 'local', cleared: true });
   } catch (err) {
     res.status(500).json({ error: 'डेटाबेस साफ़ करने में त्रुटि: ' + err.message });
+  }
+});
+
+// 21. In-App Notification Center Routes + Python Quantitative BOQ Helper
+app.get('/api/notifications', optionalAuth, async (req, res) => {
+  try {
+    const out = await listNotificationsForActor(
+      { getDbStatus, models, readLocalDb, writeLocalDb },
+      req.user || null,
+      40
+    );
+    return res.json({ success: true, ...out });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/notifications/read', optionalAuth, async (req, res) => {
+  try {
+    const notifId = req.body?.id ? String(req.body.id).slice(0, 80) : undefined;
+    await markActorNotificationsRead(
+      { getDbStatus, models, readLocalDb, writeLocalDb },
+      req.user || null,
+      notifId
+    );
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/ai/python-boq', aiRateLimiter('boq_py', 25), async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const out = await invokePythonEngine('boq_audit', {
+      projectType: asStr(body.projectType || 'custom', 40),
+      areaSqFt: Number(body.areaSqFt) || 120,
+      tier: asStr(body.tier || 'standard', 20),
+    });
+    return res.json({ success: true, ...out });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Helper to build Admin Control Snapshot safely (NEVER leaks raw secret keys!)
+function maskSecretSafe(val) {
+  const s = cleanSecret(val);
+  if (!s) return '';
+  if (s.length <= 8) return '****';
+  return `${s.slice(0, 4)}****${s.slice(-4)}`;
+}
+
+async function gatherAdminControlState() {
+  const dbStatus = getDbStatus();
+  const cloudinaryCfg = getCloudinaryConfig();
+  const smsKey = cleanSecret(process.env.SMS_API_KEY);
+  const twoFactorKey = cleanSecret(process.env.TWOFACTOR_API_KEY);
+  const geminiKey = cleanSecret(process.env.GEMINI_API_KEY);
+  const pollKey = cleanSecret(process.env.POLLINATIONS_API_KEY);
+  const hfToken = cleanSecret(process.env.HF_TOKEN);
+
+  let users = [];
+  let contractors = [];
+  let materials = [];
+  let bookings = [];
+  let kycApplications = [];
+  let disputes = [];
+
+  if (dbStatus.isMongoConnected) {
+    [users, contractors, materials, bookings, kycApplications, disputes] = await Promise.all([
+      models.User.find().select('-passwordHash').sort({ createdAt: -1 }).limit(60).lean(),
+      models.Contractor.find().select('-bankAccount -ifscCode').sort({ createdAt: -1 }).limit(60).lean(),
+      models.Material.find().sort({ createdAt: -1 }).limit(60).lean(),
+      models.Booking.find().select('-completionOtp').sort({ createdAt: -1 }).limit(60).lean(),
+      models.KycApplication.find().sort({ createdAt: -1 }).limit(50).lean(),
+      models.Dispute.find().sort({ createdAt: -1 }).limit(30).lean(),
+    ]);
+  } else {
+    const localData = readLocalDb();
+    users = (localData.users || []).map(({ passwordHash: _p, ...u }) => u);
+    contractors = localData.contractors || [];
+    materials = localData.materials || [];
+    bookings = (localData.bookings || []).map(({ completionOtp: _o, ...b }) => b);
+    kycApplications = localData.kycApplications || [];
+    disputes = localData.disputes || [];
+  }
+
+  let grossPlatformVolume = 0;
+  let escrowFundsHeld = 0;
+  let platformCommissionEarned = 0;
+  for (const b of bookings) {
+    grossPlatformVolume += Number(b.grandTotal ?? b.totalLaborAmount) || 0;
+    if (!['COMPLETED', 'CANCELLED', 'REJECTED'].includes(b.status)) {
+      escrowFundsHeld += Number(b.escrowAdvanceToken) || 0;
+    }
+    platformCommissionEarned += Number(b.contractorPlatformFee) || 0;
+  }
+
+  const pyProbe = await invokePythonEngine('boq_audit', { projectType: 'house', areaSqFt: 100 });
+  const integrations = {
+    mongodb: {
+      configured: Boolean(cleanSecret(process.env.MONGODB_URI)),
+      connected: dbStatus.isMongoConnected,
+      host: dbStatus.host,
+      engine: dbStatus.activeEngine,
+    },
+    cloudinary: {
+      configured: Boolean(cloudinaryCfg),
+      cloudName: cloudinaryCfg ? cloudinaryCfg.cloudName : 'Not Set',
+      maskedKey: cloudinaryCfg ? maskSecretSafe(cloudinaryCfg.apiKey) : '',
+    },
+    firebase: {
+      configured: Boolean(FIREBASE_PROJECT_ID),
+      projectId: FIREBASE_PROJECT_ID,
+    },
+    sms: {
+      configured: Boolean((smsKey && !/your_fast2sms/i.test(smsKey)) || (twoFactorKey && !/your_2factor/i.test(twoFactorKey))),
+      provider: twoFactorKey ? '2Factor.in + Fast2SMS' : smsKey ? 'Fast2SMS' : 'Not Set',
+      route: cleanSecret(process.env.FAST2SMS_ROUTE) === 'q' ? 'Quick (q)' : 'OTP (otp)',
+      maskedKey: maskSecretSafe(smsKey || twoFactorKey),
+    },
+    ai: {
+      selfEngineActive: true,
+      geminiConfigured: Boolean(geminiKey && !/your_gemini/i.test(geminiKey)),
+      geminiMasked: maskSecretSafe(geminiKey),
+      pollinationsConfigured: Boolean(pollKey),
+      hfConfigured: Boolean(hfToken),
+      selfOnlyMode: process.env.SETU_SELF_AI_ONLY === 'true',
+      cacheEntries: aiChatCache.size,
+    },
+    python: {
+      runtime: pyProbe.runtime || 'Python / Parity Engine',
+      ok: Boolean(pyProbe.ok),
+    },
+    jwt: {
+      strong: Boolean(JWT_SECRET && String(JWT_SECRET).length >= 32),
+    },
+  };
+
+  return {
+    dbStatus,
+    integrations,
+    metrics: {
+      totalBookings: bookings.length,
+      totalUsers: users.length,
+      grossPlatformVolume,
+      escrowFundsHeld,
+      platformCommissionEarned,
+      aiTelemetry: { ...aiTelemetry },
+    },
+    aiLearning: getLearningInsightsSnapshot(),
+    users,
+    contractors,
+    materials,
+    bookings,
+    kycApplications,
+    disputes,
+    runtimeErrors: runtimeErrorLogs.slice(0, 20),
+  };
+}
+
+// 22. Admin Unified System & API Access Hub (STRICTLY ADMIN ONLY)
+app.get('/api/admin/system-control', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const state = await gatherAdminControlState();
+    return res.json({ success: true, ...state });
+  } catch (err) {
+    recordRuntimeLog('/api/admin/system-control', err.message);
+    return res.status(500).json({ error: 'सिस्टम कंट्रोल डेटा लोड करने में त्रुटि: ' + err.message });
+  }
+});
+
+app.get('/api/admin/sms-status', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  const smsKey = cleanSecret(process.env.SMS_API_KEY);
+  const twoFactorKey = cleanSecret(process.env.TWOFACTOR_API_KEY);
+  const result = {
+    success: true,
+    fast2sms: { configured: Boolean(smsKey && !/your_fast2sms/i.test(smsKey)), balance: null, error: '' },
+    twoFactor: { configured: Boolean(twoFactorKey && !/your_2factor/i.test(twoFactorKey)), balance: null, error: '' },
+  };
+  if (result.fast2sms.configured) {
+    try {
+      const resp = await fetch('https://www.fast2sms.com/dev/wallet', {
+        method: 'POST',
+        headers: { authorization: smsKey },
+        signal: AbortSignal.timeout(6000),
+      });
+      const json = await resp.json().catch(() => null);
+      if (json && json.return === true) {
+        result.fast2sms.balance = json.wallet;
+      } else {
+        result.fast2sms.error = json?.message || `HTTP ${resp.status}`;
+      }
+    } catch (e) {
+      result.fast2sms.error = e.message;
+    }
+  }
+  if (result.twoFactor.configured) {
+    try {
+      const resp = await fetch(`https://2factor.in/API/V1/${encodeURIComponent(twoFactorKey)}/BAL/SMS`, {
+        signal: AbortSignal.timeout(6000),
+      });
+      const json = await resp.json().catch(() => null);
+      if (json && String(json.Status || '').toLowerCase() === 'success') {
+        result.twoFactor.balance = json.Details;
+      } else {
+        result.twoFactor.error = json?.Details || `HTTP ${resp.status}`;
+      }
+    } catch (e) {
+      result.twoFactor.error = e.message;
+    }
+  }
+  return res.json(result);
+});
+
+app.post('/api/admin/ai/reset-circuits', requireAuth, requireRole('ADMIN'), (req, res) => {
+  aiChatCache.clear();
+  const insights = resetAllProviderCircuits();
+  return res.json({
+    success: true,
+    message: 'सभी बाहरी व इन-हाउस AI सर्किट व रिस्पॉन्स कैश रीसेट कर दिए गए।',
+    aiLearning: insights,
+  });
+});
+
+app.post('/api/admin/notifications/broadcast', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  const { title, message, targetRole = 'ALL' } = req.body || {};
+  if (!title || !String(title).trim() || !message || !String(message).trim()) {
+    return res.status(400).json({ error: 'नोटिफिकेशन शीर्षक और संदेश दोनों अनिवार्य हैं।' });
+  }
+  const safeTarget = ['ALL', 'CUSTOMER', 'CONTRACTOR', 'VENDOR'].includes(String(targetRole).toUpperCase())
+    ? String(targetRole).toUpperCase()
+    : 'ALL';
+  const created = await emitNotification(
+    { getDbStatus, models, readLocalDb, writeLocalDb },
+    {
+      type: 'ADMIN_BROADCAST',
+      title: asStr(title, 120).trim(),
+      message: asStr(message, 400).trim(),
+      targetRole: safeTarget,
+      meta: { byAdmin: req.user.setuId || 'ADMIN' },
+    }
+  );
+  return res.json({ success: true, notification: created });
+});
+
+app.delete('/api/admin/users/:id', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  const { id } = req.params;
+  try {
+    if (getDbStatus().isMongoConnected) {
+      const target = await models.User.findOne(
+        mongoose.isValidObjectId(id) ? { $or: [{ _id: id }, { setuId: id }] } : { setuId: id }
+      );
+      if (!target) return res.status(404).json({ error: 'उपयोगकर्ता नहीं मिला।' });
+      if (target.role === 'ADMIN') return res.status(403).json({ error: 'एडमिन खाता नहीं हटाया जा सकता।' });
+      await models.User.deleteOne({ _id: target._id });
+      return res.json({ success: true, deletedId: id });
+    }
+    const localData = readLocalDb();
+    const before = (localData.users || []).length;
+    localData.users = (localData.users || []).filter(
+      (u) => !(u.role !== 'ADMIN' && (u.id === id || u.setuId === id))
+    );
+    if (localData.users.length === before) return res.status(404).json({ error: 'उपयोगकर्ता नहीं मिला।' });
+    writeLocalDb(localData);
+    return res.json({ success: true, deletedId: id });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 23. EXCLUSIVE PRIVATE ADMIN PERSONAL AI ("SETU-HERO") — Strictly ADMIN Role Only!
+app.get('/api/admin/audit-report', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const state = await gatherAdminControlState();
+    const audit = await buildAdminSecurityAndAuditReport({ ...state, runPython: true });
+    return res.json({ success: true, audit, integrations: state.integrations });
+  } catch (err) {
+    recordRuntimeLog('/api/admin/audit-report', err.message);
+    return res.status(500).json({ error: 'ऑडिट रिपोर्ट बनाने में त्रुटि: ' + err.message });
+  }
+});
+
+app.post('/api/admin/ai/command', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const command = asStr(req.body?.command || '', 600);
+    const executeAction = asStr(req.body?.executeAction || '', 60);
+
+    if (executeAction === 'RESET_AI_CIRCUITS') {
+      aiChatCache.clear();
+      resetAllProviderCircuits();
+    }
+
+    const state = await gatherAdminControlState();
+    const result = await handleAdminHeroCommand(command, state);
+    return res.json(result);
+  } catch (err) {
+    recordRuntimeLog('/api/admin/ai/command', err.message);
+    return res.status(500).json({ success: false, error: 'SETU-HERO AI त्रुटि: ' + err.message });
   }
 });
 

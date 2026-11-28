@@ -30,13 +30,13 @@ export const TRANSLATIONS = {
     contractRate: 'ठेका (Sq.ft/Unit)',
     quickAvailable: 'अभी उपलब्ध 🟢',
 
-    // AI Ustad Live Doctor & 3D Studio
+    // AI Ustad Live Designer
     aiHeroLive: 'LIVE AI उस्ताद वीडियो कॉल',
     aiHeroFree: '100% फ्री परामर्श',
     aiHeroTitle: 'कैमरे पर समस्या दिखाएं, AI उस्ताद लाइव रेट व सामान बताएगा!',
-    aiHeroSub: 'नल टपकना, सीलन, या 3D किचन डिज़ाइन • तुरंत समाधान व भोपाल का मानक रेट',
+    aiHeroSub: 'नल टपकना, सीलन, या AI किचन डिज़ाइन • तुरंत समाधान व भोपाल का मानक रेट',
     aiScanBtn: 'फ्री वीडियो स्कैन शुरू करें ➔',
-    ai3dStudioBtn: '3D किचन डिज़ाइन',
+    ai3dStudioBtn: 'AI किचन डिज़ाइन',
     aiDoctorTitle: 'AI उस्ताद 📹',
     aiDoctorSub: 'लाइव वीडियो समाधान',
 
@@ -132,13 +132,13 @@ export const TRANSLATIONS = {
     contractRate: 'Turnkey (Sq.ft)',
     quickAvailable: 'Available Now 🟢',
 
-    // AI Ustad Live Doctor & 3D Studio
+    // AI Ustad Live Designer
     aiHeroLive: 'LIVE AI DOCTOR VIDEO CALL',
     aiHeroFree: '100% Free Consultation',
     aiHeroTitle: 'Show the defect on camera, AI analyzes root cause & fair cost live!',
-    aiHeroSub: 'Leaking tap, wall seepage, or 3D kitchen design • Instant diagnosis & Bhopal rates',
+    aiHeroSub: 'Leaking tap, wall seepage, or AI kitchen design • Instant diagnosis & Bhopal rates',
     aiScanBtn: 'Start Free Video Scan ➔',
-    ai3dStudioBtn: '3D Kitchen Studio',
+    ai3dStudioBtn: 'AI Kitchen Studio',
     aiDoctorTitle: 'AI Doctor 📹',
     aiDoctorSub: 'Live Video Fix',
 
@@ -234,13 +234,13 @@ export const TRANSLATIONS = {
     contractRate: 'Theka (Sq.ft/Lumpsum)',
     quickAvailable: 'Abhi Available 🟢',
 
-    // AI Ustad Live Doctor & 3D Studio
+    // AI Ustad Live Designer
     aiHeroLive: 'LIVE AI USTAD VIDEO CALL',
     aiHeroFree: '100% Free Consultation',
     aiHeroTitle: 'Camera pe problem dikhao, AI Ustad live rate aur samaan batayega!',
-    aiHeroSub: 'Nal tapakna, seelan, ya 3D kitchen design • Turant solution aur Bhopal market rates',
+    aiHeroSub: 'Nal tapakna, seelan, ya AI kitchen design • Turant solution aur Bhopal market rates',
     aiScanBtn: 'Free Video Scan Shuru Karein ➔',
-    ai3dStudioBtn: '3D Kitchen Studio',
+    ai3dStudioBtn: 'AI Kitchen Studio',
     aiDoctorTitle: 'AI Ustad 📹',
     aiDoctorSub: 'Live Video Solution',
 

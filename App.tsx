@@ -8,7 +8,9 @@ import {
   TouchableOpacity,
   Platform,
 } from 'react-native';
-import { showAppAlert } from './src/utils/appAlert';
+import { showAppAlert, showAppToast } from './src/utils/appAlert';
+import { AppAlertHost } from './src/components/AppAlertHost';
+import { NotificationCenterModal, SetuNotificationItem } from './src/components/NotificationCenterModal';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Header } from './src/components/Header';
 import { CustomerHome } from './src/screens/CustomerHome';
@@ -186,8 +188,23 @@ export default function App() {
   const [contractors, setContractors] = useState<Contractor[]>(INITIAL_CONTRACTORS);
   const [materials, setMaterials] = useState<MaterialItem[]>(INITIAL_MATERIALS);
   const [jobRequests, setJobRequests] = useState<JobRequest[]>(INITIAL_JOB_REQUESTS);
+  const [notifications, setNotifications] = useState<SetuNotificationItem[]>([]);
+  const [unreadNotifications, setUnreadNotifications] = useState<number>(0);
+  const [showNotificationsModal, setShowNotificationsModal] = useState<boolean>(false);
 
-  // Sync auth header and hydrate live backend catalog on mount (non-blocking)
+  const refreshNotifications = React.useCallback(async () => {
+    try {
+      const res = await ApiService.getNotifications();
+      if (res && res.success) {
+        setNotifications(Array.isArray(res.notifications) ? res.notifications : []);
+        setUnreadNotifications(Number(res.unreadCount) || 0);
+      }
+    } catch {
+      // non-fatal notification poll
+    }
+  }, []);
+
+  // Sync auth header and hydrate live backend catalog + notifications on mount
   React.useEffect(() => {
     let cancelled = false;
     const savedToken = safeWebGet('setu_session_token');
@@ -220,12 +237,18 @@ export default function App() {
           return [...normalized, ...prev.filter((p) => !seen.has(p.id))];
         });
       }
+      void refreshNotifications();
     })();
+
+    const notifTimer = setInterval(() => {
+      if (!cancelled) void refreshNotifications();
+    }, 25000);
 
     return () => {
       cancelled = true;
+      clearInterval(notifTimer);
     };
-  }, []);
+  }, [refreshNotifications]);
 
   // Contractor updates (updates contractor card + syncs logged-in user identity)
   const handleUpdateContractorProfile = (updatedFields: Partial<Contractor>) => {
@@ -269,6 +292,7 @@ export default function App() {
           { ...res.material, id: res.material.id || res.material.customId },
           ...prev.filter((m) => m.id !== newItem.id),
         ]);
+        void refreshNotifications();
       }
     }
   };
@@ -370,6 +394,7 @@ export default function App() {
       setCurrentRole('VENDOR');
       safeWebSet('setu_current_role', 'VENDOR');
     }
+    void refreshNotifications();
     return true;
   };
 
@@ -420,6 +445,8 @@ export default function App() {
     });
     if (res && !res.success && res.status === 401) {
       showAppAlert('लॉगिन आवश्यक', 'कृपया लाइव बुकिंग सेव करने के लिए पुनः लॉगिन करें।');
+    } else if (res?.success) {
+      void refreshNotifications();
     }
   };
 
@@ -574,7 +601,7 @@ export default function App() {
   // 🚪 0. APP OPENS WITH LOGIN SCREEN FIRST (If not logged in & not guest)
   if (!currentUser && !isGuestBrowsing) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#0F172A', paddingTop: Platform.OS === 'web' ? 14 : 0 }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#0F172A', paddingTop: 0 }}>
         <StatusBar barStyle="light-content" />
         <AuthLandingScreen
           language={language}
@@ -589,6 +616,7 @@ export default function App() {
               setIsAdminAuthenticated(true);
               setCurrentRole('ADMIN');
             } else setCurrentRole('CUSTOMER');
+            void refreshNotifications();
           }}
           onContinueAsGuest={() => setIsGuestBrowsing(true)}
           onRequestAdmin={() => setShowAdminSecurityModal(true)}
@@ -608,6 +636,7 @@ export default function App() {
             safeSessionSet('setu_session_active', 'true');
           }}
         />
+        <AppAlertHost />
       </SafeAreaView>
     );
   }
@@ -699,6 +728,11 @@ export default function App() {
           onSelectLanguage={handleSetLanguage}
           activeTab={bottomTab}
           onTabPress={handleBottomTabPress}
+          unreadNotifications={unreadNotifications}
+          onOpenNotifications={() => {
+            void refreshNotifications();
+            setShowNotificationsModal(true);
+          }}
         />
       )}
 
@@ -866,9 +900,29 @@ export default function App() {
         onSelectLocation={(loc) => {
           setCurrentLocation(loc);
           safeWebSet('setu_current_location', loc);
-          showAppAlert('📍 लोकेशन अपडेट हुई', `अब आपको ${loc} के पास के कारीगर और दुकानें दिखेंगी।`);
+          showAppToast('📍 लोकेशन अपडेट हुई', `अब आपको ${loc} के पास के कारीगर और दुकानें दिखेंगी।`, 'success');
         }}
       />
+
+      {/* In-App SETU Notification Center Drawer */}
+      <NotificationCenterModal
+        visible={showNotificationsModal}
+        onClose={() => setShowNotificationsModal(false)}
+        notifications={notifications}
+        language={language}
+        onRefresh={refreshNotifications}
+        onMarkRead={async (notifId) => {
+          await ApiService.markNotificationsRead(notifId);
+          setNotifications((prev) =>
+            prev.map((n) => (!notifId || n.id === notifId ? { ...n, read: true } : n))
+          );
+          if (!notifId) setUnreadNotifications(0);
+          else setUnreadNotifications((c) => Math.max(0, c - 1));
+        }}
+      />
+
+      {/* Global SETU Branded Dialog & Toast Host */}
+      <AppAlertHost />
     </SafeAreaView>
   );
 }
@@ -876,8 +930,8 @@ export default function App() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : (Platform.OS === 'web' ? 12 : 0),
+    backgroundColor: '#0F172A',
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0,
   },
   screenContainer: {
     flex: 1,

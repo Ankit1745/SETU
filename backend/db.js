@@ -19,6 +19,7 @@ const Material = require('./models/Material');
 const Booking = require('./models/Booking');
 const KycApplication = require('./models/KycApplication');
 const Dispute = require('./models/Dispute');
+const Notification = require('./models/Notification');
 
 const DB_FILE = path.join(__dirname, 'database.json');
 
@@ -159,7 +160,7 @@ function getDbStatus() {
     mongoConnectionError,
     activeEngine: isConnected ? 'MongoDB (Cloud/Atlas)' : 'Persistent Local DB (database.json)',
     host: isConnected ? mongoose.connection.host : 'localhost (file)',
-    modelsLoaded: ['User', 'Contractor', 'Material', 'Booking', 'KycApplication', 'Dispute'],
+    modelsLoaded: ['User', 'Contractor', 'Material', 'Booking', 'KycApplication', 'Dispute', 'Notification'],
   };
 }
 
@@ -173,5 +174,6 @@ module.exports = {
     Booking,
     KycApplication,
     Dispute,
+    Notification,
   },
 };

@@ -144,6 +144,7 @@ export const BottomNavBar: React.FC<BottomNavBarProps> = ({
 const styles = StyleSheet.create({
   outerWrap: {
     width: '100%',
+    backgroundColor: '#0F172A',
     ...Platform.select({
       web: {
         position: 'sticky' as any,
@@ -163,16 +164,18 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: '#0F172A',
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
-    paddingTop: 6,
-    paddingBottom: Platform.OS === 'web' ? 8 : 4,
-    paddingHorizontal: 6,
+    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'web' ? 12 : 8,
+    paddingHorizontal: 8,
+    minHeight: 62,
     justifyContent: 'space-around',
     alignItems: 'center',
     ...Platform.select({
       web: {
-        backdropFilter: 'blur(16px)',
-        boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.4)',
+        backdropFilter: 'blur(18px)',
+        paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))' as any,
+        boxShadow: '0 -6px 24px rgba(2, 6, 23, 0.45)',
       },
       default: {
         shadowColor: '#000',
@@ -217,10 +220,11 @@ const styles = StyleSheet.create({
     }),
   },
   tabLabel: {
-    fontSize: 9.5,
+    fontSize: 10.5,
+    lineHeight: 13,
     color: '#94A3B8',
     fontWeight: '700',
-    marginTop: 2,
+    marginTop: 3,
   },
   tabLabelActive: {
     color: '#60A5FA',

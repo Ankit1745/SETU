@@ -1768,7 +1768,44 @@ export function buildThreeWayQuotation(params: {
 }
 
 /**
+ * Converts newly added VendorDashboard materials matching a project into an interactive
+ * AI Showroom Group so customer AI designs & 3-way quotations automatically use real live shop stock first.
+ */
+export function buildLiveSupplierShowroomGroup(params: {
+  materials: MaterialItem[];
+  tradeCategory?: string;
+  projectType?: ShowroomProjectType;
+  locality?: string;
+}): ShowroomGroup | null {
+  const ranked = rankSupplierMaterialsForProject(params);
+  if (!ranked || ranked.length === 0) return null;
+
+  return {
+    groupId: 'live_supplier_stock',
+    groupTitle: '🏪 लाइव सप्लायर स्टॉक (आपके शहर की दुकानों से सीधे जुड़े रेट)',
+    items: ranked.map((m, idx) => {
+      const price = Number(m.sellingPrice) || Number(m.mrp) || 500;
+      const tier: PriceTier = price >= 2800 ? 'luxury' : price <= 1300 ? 'budget' : 'standard';
+      return {
+        id: m.id || `live_mat_${idx}`,
+        name: m.name,
+        brand: m.brand || m.storeName || 'वेरिफाइड सप्लायर',
+        qualitySpec: `${m.brand ? `${m.brand} • ` : ''}${m.bulkOffer || (m.inStock !== false ? 'तुरंत स्टॉक उपलब्ध' : 'ऑर्डर पर उपलब्ध')}`,
+        tier,
+        price,
+        unit: m.unit || 'प्रति नग',
+        approxQtyMultiplier: 2,
+        supplierName: m.storeName || 'लोकल SETU सप्लायर',
+        imageUrl: m.image || 'https://images.unsplash.com/photo-1581244277943-fe4a9c777189?auto=format&fit=crop&w=400&q=80',
+        visualDescriptor: `${m.brand || ''} ${m.name} (${m.category}) authentic Indian construction raw material`.trim(),
+      };
+    }),
+  };
+}
+
+/**
  * Filters & ranks platform contractors strictly matching requested trade, availability, customer locality & budget.
+ * Automatically boosts newly registered verified/live contractors to the top as profiles join.
  */
 export function rankContractorsForProject(params: {
   contractors: Contractor[];
@@ -1790,7 +1827,7 @@ export function rankContractorsForProject(params: {
     : 'carpenter';
   const targetTrade = (tradeCategory && tradeCategory !== 'all' ? tradeCategory : fallbackTrade).toLowerCase();
 
-  // Map tiling/welder/ac_repair onto exact or closest mockData categories if exact ID isn't present in pool
+  // Map tiling/welder/ac_repair onto exact or closest categories
   const acceptableCategories = new Set([targetTrade]);
   if (targetTrade === 'tiling') acceptableCategories.add('mason');
   if (targetTrade === 'welder') {
@@ -1812,7 +1849,7 @@ export function rankContractorsForProject(params: {
     );
   }
   if (matched.length === 0) {
-    matched = contractors.slice(0, 5);
+    matched = contractors.slice(0, 6);
   }
 
   const areaWords = locality
@@ -1820,8 +1857,15 @@ export function rankContractorsForProject(params: {
     .split(/[,•\s()]+/)
     .filter((w) => w.length >= 3);
 
-  const scoreContractor = (c: Contractor) => {
-    const profileText = `${c.bio || ''} ${c.distance || ''} ${c.name || ''} ${c.specialtyHindi || ''} ${(c.skills || []).join(' ')}`.toLowerCase();
+  const scoreContractor = (c: Contractor, idx: number) => {
+    const profileText = `${c.bio || ''} ${c.distance || ''} ${(c as any).city || ''} ${(c as any).locality || ''} ${c.name || ''} ${c.specialtyHindi || ''} ${(c.skills || []).join(' ')}`.toLowerCase();
+    const isExactCategory = (c.category || '').toLowerCase() === targetTrade;
+    const isFreshRegistered = !String(c.id || '').startsWith('c_seed_');
+    const createdTs = (c as any).createdAt ? new Date((c as any).createdAt).getTime() : 0;
+    const recencyScore = Number.isFinite(createdTs) && createdTs > 0
+      ? Math.max(0, 12 - Math.floor((Date.now() - createdTs) / (1000 * 60 * 60 * 24 * 3)))
+      : Math.max(0, 8 - idx);
+
     const skillBonus =
       (targetTrade === 'ac_repair' && /(ac|कूलिंग|एसी|split|compressor)/i.test(profileText) ? 25 : 0) +
       (targetTrade === 'welder' && /(weld|वेल्ड|लोहा|iron|gate|grill)/i.test(profileText) ? 25 : 0) +
@@ -1836,23 +1880,29 @@ export function rankContractorsForProject(params: {
         : 0;
 
     return (
+      (isExactCategory ? 35 : 10) +
+      (isFreshRegistered ? 20 : 0) +
+      recencyScore +
       (c.available !== false ? 30 : -40) +
-      (c.verified ? 25 : 0) +
+      (c.verified ? 30 : 0) +
       (c.rating || 0) * 8 +
       skillBonus +
-      (areaWords.some((w) => profileText.includes(w)) ? 15 : 0) +
+      (areaWords.some((w) => profileText.includes(w)) ? 22 : 0) +
       (fitsContract || fitsDaily) +
       (c.etaMinutes ? Math.max(0, 15 - Math.floor(c.etaMinutes / 4)) : 0)
     );
   };
 
   return [...matched]
-    .sort((a, b) => scoreContractor(b) - scoreContractor(a))
-    .slice(0, 3);
+    .map((c, idx) => ({ c, s: scoreContractor(c, idx) }))
+    .sort((a, b) => b.s - a.s)
+    .map((x) => x.c)
+    .slice(0, 5);
 }
 
 /**
  * Filters platform vendor materials strictly matching trade/project + customer budget & locality.
+ * Automatically boosts newly added live supplier inventory to surface real merchant rates first.
  */
 export function rankSupplierMaterialsForProject(params: {
   materials: MaterialItem[];
@@ -1869,18 +1919,22 @@ export function rankSupplierMaterialsForProject(params: {
 
   const matchingTrades = new Set([target]);
   if (target === 'tiling') matchingTrades.add('mason');
-  if (target === 'welder') matchingTrades.add('carpenter');
+  if (target === 'welder') {
+    matchingTrades.add('carpenter');
+    matchingTrades.add('mason');
+  }
   if (target === 'ac_repair') matchingTrades.add('electrician');
+  matchingTrades.add('general');
 
   // Exclude unrelated wedding/catering vendors strictly
   let filtered = materials.filter(
     (m) => matchingTrades.has((m.category || '').toLowerCase()) &&
-      !['wedding_makeup', 'wedding_catering'].includes((m.category || '').toLowerCase())
+      !['wedding_makeup', 'wedding_catering', 'caterer', 'wedding_tent', 'wedding_photo', 'event_dj'].includes((m.category || '').toLowerCase())
   );
 
   if (filtered.length === 0) {
     filtered = materials.filter(
-      (m) => ['carpenter', 'mason', 'plumber', 'electrician', 'painter'].includes((m.category || '').toLowerCase())
+      (m) => !['wedding_makeup', 'wedding_catering', 'caterer', 'wedding_tent', 'wedding_photo', 'event_dj'].includes((m.category || '').toLowerCase())
     );
   }
 
@@ -1890,13 +1944,19 @@ export function rankSupplierMaterialsForProject(params: {
     .filter((w) => w.length >= 3);
 
   filtered.sort((a, b) => {
-    const aArea = areaWords.some((w) => `${a.storeName || ''} ${a.name || ''}`.toLowerCase().includes(w)) ? 2 : 0;
-    const bArea = areaWords.some((w) => `${b.storeName || ''} ${b.name || ''}`.toLowerCase().includes(w)) ? 2 : 0;
-    const aFits = customerBudget && customerBudget > 0 && a.sellingPrice <= customerBudget ? 1 : 0;
-    const bFits = customerBudget && customerBudget > 0 && b.sellingPrice <= customerBudget ? 1 : 0;
-    if (aArea + aFits !== bArea + bFits) return (bArea + bFits) - (aArea + aFits);
+    const aExact = (a.category || '').toLowerCase() === target ? 4 : 0;
+    const bExact = (b.category || '').toLowerCase() === target ? 4 : 0;
+    const aStock = a.inStock !== false ? 5 : -10;
+    const bStock = b.inStock !== false ? 5 : -10;
+    const aArea = areaWords.some((w) => `${a.storeName || ''} ${a.name || ''}`.toLowerCase().includes(w)) ? 3 : 0;
+    const bArea = areaWords.some((w) => `${b.storeName || ''} ${b.name || ''}`.toLowerCase().includes(w)) ? 3 : 0;
+    const aFits = customerBudget && customerBudget > 0 && a.sellingPrice <= customerBudget ? 2 : 0;
+    const bFits = customerBudget && customerBudget > 0 && b.sellingPrice <= customerBudget ? 2 : 0;
+    const scoreA = aExact + aStock + aArea + aFits;
+    const scoreB = bExact + bStock + bArea + bFits;
+    if (scoreA !== scoreB) return scoreB - scoreA;
     return a.sellingPrice - b.sellingPrice;
   });
 
-  return filtered.slice(0, 4);
+  return filtered.slice(0, 6);
 }

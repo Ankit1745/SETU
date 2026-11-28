@@ -10,8 +10,8 @@ import {
   Image,
   ActivityIndicator,
   Platform,
-  Alert,
 } from 'react-native';
+import { showAppAlert } from '../utils/appAlert';
 import { Ionicons, FontAwesome5, MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../theme/colors';
 import { Language } from '../i18n/translations';
@@ -249,7 +249,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
 
   const speakText = (msgId: string, text: string) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      Alert.alert(
+      showAppAlert(
         isEn ? 'Audio Playback' : 'ऑडियो सूचना',
         isEn
           ? 'Voice reading is available on supported browsers.'
@@ -795,7 +795,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
       }
     }
 
-    Alert.alert(
+    showAppAlert(
       isEn ? 'Voice Assistant' : 'बोलकर बताएं',
       isEn
         ? 'Microphone is not supported in this browser view. Please type your need below.'
@@ -1201,6 +1201,9 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                         key={`${normalizedType}_${activeCustomTopic || 'std'}_${(p?.customMaterialGroups || []).map((g) => g.groupId).join('_')}`}
                         projectType={normalizedType}
                         customGroups={p?.customMaterialGroups}
+                        livePlatformMaterials={materials}
+                        tradeCategory={p?.tradeCategory}
+                        locality={p?.locality || currentLocation || cityLabel}
                         initialSelected={lastSelectedProducts}
                         popularMaterialIds={p?.popularMaterialIds || []}
                         budget={customerBudget > 0 ? customerBudget : p?.customerBudget}
