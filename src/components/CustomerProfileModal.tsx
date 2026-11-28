@@ -22,6 +22,8 @@ import { detectLiveGpsLocation } from '../utils/liveLocation';
 import {
   signInWithFirebaseGoogle,
   signInOrRegisterWithFirebaseEmail,
+  checkCurrentFirebaseEmailVerified,
+  resendCurrentFirebaseVerificationEmail,
   sendFirebasePhoneOtp,
   confirmFirebasePhoneOtp,
   mapFirebaseErrorMessage,
@@ -98,10 +100,10 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
 }) => {
   const isHindi = language !== 'en';
 
-  // Login steps: 'PHONE' -> 'OTP' | 'COMPLETE_PHONE' -> 'LOCATION_PERMISSION'
+  // Login steps: 'PHONE' -> 'OTP' | 'COMPLETE_PHONE' | 'VERIFY_EMAIL' -> 'LOCATION_PERMISSION'
   const [authRole, setAuthRole] = useState<'CUSTOMER' | 'CONTRACTOR' | 'VENDOR'>('CUSTOMER');
   const [authChannel, setAuthChannel] = useState<'PHONE' | 'EMAIL'>('PHONE');
-  const [loginStep, setLoginStep] = useState<'PHONE' | 'OTP' | 'COMPLETE_PHONE' | 'LOCATION_PERMISSION'>('PHONE');
+  const [loginStep, setLoginStep] = useState<'PHONE' | 'OTP' | 'COMPLETE_PHONE' | 'VERIFY_EMAIL' | 'LOCATION_PERMISSION'>('PHONE');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -256,9 +258,46 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
     setSmsNotification(null);
     try {
       const fbOut = await signInOrRegisterWithFirebaseEmail(cleanEmail, password, isEmailSignup, name);
+      if (fbOut.needsEmailVerification) {
+        setSmsNotification(`📩 ${cleanEmail} पर सत्यापन लिंक भेजा गया है! लिंक पर क्लिक किए बिना लॉगिन नहीं होगा।`);
+        setLoginStep('VERIFY_EMAIL');
+        return;
+      }
       await completeBackendFirebaseExchange(fbOut, phone);
     } catch (err: any) {
       showAppAlert('ईमेल लॉगिन विफल', mapFirebaseErrorMessage(err, isHindi ? 'hi' : 'en'));
+    } finally {
+      setIsFirebaseBusy(false);
+    }
+  };
+
+  const handleConfirmEmailVerified = async () => {
+    setIsFirebaseBusy(true);
+    try {
+      const verified = await checkCurrentFirebaseEmailVerified();
+      if (!verified) {
+        showAppAlert(
+          '⏳ अभी ईमेल सत्यापित नहीं है',
+          'कृपया अपने Gmail / Email के Inbox (या Spam फ़ोल्डर) में आए वेरिफिकेशन लिंक पर क्लिक करें और फिर यहाँ क्लिक करें।'
+        );
+        return;
+      }
+      setSmsNotification(null);
+      await completeBackendFirebaseExchange(verified, phone);
+    } catch (err: any) {
+      showAppAlert('सत्यापन त्रुटि', mapFirebaseErrorMessage(err, isHindi ? 'hi' : 'en'));
+    } finally {
+      setIsFirebaseBusy(false);
+    }
+  };
+
+  const handleResendEmailVerification = async () => {
+    setIsFirebaseBusy(true);
+    try {
+      await resendCurrentFirebaseVerificationEmail();
+      showAppAlert('✅ लिंक दोबारा भेजा गया', `कृपया ${email.trim()} का इनबॉक्स/Spam जांचें।`);
+    } catch (err: any) {
+      showAppAlert('त्रुटि', mapFirebaseErrorMessage(err, isHindi ? 'hi' : 'en'));
     } finally {
       setIsFirebaseBusy(false);
     }
@@ -1032,6 +1071,25 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                         </>
                       ) : (
                         <>
+                          <View style={[styles.channelSwitchRow, { marginBottom: 10 }]}>
+                            <TouchableOpacity
+                              style={[styles.channelBtn, !isEmailSignup && styles.channelBtnActive]}
+                              onPress={() => setIsEmailSignup(false)}
+                            >
+                              <Text style={[styles.channelBtnText, !isEmailSignup && styles.channelBtnTextActive]}>
+                                {isHindi ? 'लॉगिन करें' : 'Sign In'}
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.channelBtn, isEmailSignup && styles.channelBtnActive]}
+                              onPress={() => setIsEmailSignup(true)}
+                            >
+                              <Text style={[styles.channelBtnText, isEmailSignup && styles.channelBtnTextActive]}>
+                                {isHindi ? 'नया खाता बनाएं' : 'Create Account'}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+
                           <Text style={styles.inputLabel}>{isHindi ? 'ईमेल पता:' : 'Email:'}</Text>
                           <TextInput
                             style={styles.textInput}
@@ -1167,7 +1225,58 @@ export const CustomerProfileModal: React.FC<CustomerProfileModalProps> = ({
                           </TouchableOpacity>
                         </>
                       )}
-                      {Platform.OS === 'web' && <View nativeID="setu-modal-recaptcha" style={{ height: 0, width: 0 }} />}
+                          {Platform.OS === 'web' && (
+                            <View
+                              nativeID="setu-modal-recaptcha"
+                              style={{ position: 'absolute', left: -9999, top: -9999, width: 1, height: 1, overflow: 'hidden', opacity: 0, pointerEvents: 'none' }}
+                            />
+                          )}
+                        </View>
+                      </View>
+                    )}
+
+                {/* STEP 1A: MANDATORY EMAIL LINK VERIFICATION */}
+                {loginStep === 'VERIFY_EMAIL' && (
+                  <View>
+                    <Text style={styles.loginTitle}>
+                      {isHindi ? '📩 ईमेल सत्यापन लिंक भेजा गया' : '📩 Verify Your Email Address'}
+                    </Text>
+                    <Text style={styles.loginSub}>
+                      {isHindi
+                        ? `हमने ${email.trim()} पर वेरिफिकेशन लिंक भेजा है। पहले Gmail / Inbox (या Spam) खोलकर उस लिंक पर क्लिक करें — बिना सत्यापन के लॉगिन नहीं होगा।`
+                        : `We sent a verification link to ${email.trim()}. Please open your Inbox/Spam and click the link before continuing.`}
+                    </Text>
+                    <View style={styles.inputBox}>
+                      <TouchableOpacity
+                        style={[styles.submitBtn, { backgroundColor: '#16A34A' }]}
+                        onPress={handleConfirmEmailVerified}
+                        disabled={isFirebaseBusy}
+                      >
+                        {isFirebaseBusy ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <Text style={styles.submitBtnText}>
+                            {isHindi ? '✅ ईमेल सत्यापित हो गया — आगे बढ़ें ➔' : '✅ I Verified My Email — Continue ➔'}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.resendBtn}
+                        onPress={handleResendEmailVerification}
+                        disabled={isFirebaseBusy}
+                      >
+                        <Text style={styles.resendText}>
+                          {isHindi ? '🔄 वेरिफिकेशन लिंक दोबारा भेजें' : '🔄 Resend Verification Link'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.resendBtn}
+                        onPress={() => setLoginStep('PHONE')}
+                      >
+                        <Text style={styles.resendText}>
+                          {isHindi ? '← ईमेल / विकल्प बदलें' : '← Change Login Method'}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                   </View>
                 )}

@@ -20,6 +20,8 @@ import {
   signInWithFirebaseGoogle,
   consumeFirebaseRedirectResult,
   signInOrRegisterWithFirebaseEmail,
+  checkCurrentFirebaseEmailVerified,
+  resendCurrentFirebaseVerificationEmail,
   sendFirebasePhoneOtp,
   confirmFirebasePhoneOtp,
   mapFirebaseErrorMessage,
@@ -44,7 +46,7 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
   const t = TRANSLATIONS[language];
   const [authRole, setAuthRole] = useState<'CUSTOMER' | 'CONTRACTOR' | 'VENDOR' | 'ADMIN'>('CUSTOMER');
   const [authChannel, setAuthChannel] = useState<'PHONE' | 'EMAIL'>('PHONE');
-  const [step, setStep] = useState<'PHONE' | 'OTP' | 'COMPLETE_PHONE'>('PHONE');
+  const [step, setStep] = useState<'PHONE' | 'OTP' | 'COMPLETE_PHONE' | 'VERIFY_EMAIL'>('PHONE');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [email, setEmail] = useState('');
@@ -164,10 +166,64 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
     setSmsNotification(null);
     try {
       const fbOut = await signInOrRegisterWithFirebaseEmail(cleanEmail, password, isEmailSignup, name);
+      if (fbOut.needsEmailVerification) {
+        setSmsNotification(
+          language === 'en'
+            ? `📩 Verification link sent to ${cleanEmail}. Verify via email link before login.`
+            : `📩 ${cleanEmail} पर वेरिफिकेशन लिंक भेजा गया है! लिंक से ईमेल सत्यापित किए बिना लॉगिन नहीं होगा।`
+        );
+        setStep('VERIFY_EMAIL');
+        return;
+      }
       await completeBackendFirebaseExchange(fbOut, phone);
     } catch (err: any) {
       showAppAlert(
         language === 'en' ? 'Email Auth Error' : 'ईमेल लॉगिन विफल',
+        mapFirebaseErrorMessage(err, language)
+      );
+    } finally {
+      setIsFirebaseBusy(false);
+    }
+  };
+
+  const handleConfirmEmailVerified = async () => {
+    setIsFirebaseBusy(true);
+    try {
+      const verified = await checkCurrentFirebaseEmailVerified();
+      if (!verified) {
+        showAppAlert(
+          language === 'en' ? 'Email Not Verified Yet' : '⏳ अभी ईमेल सत्यापित नहीं है',
+          language === 'en'
+            ? 'Please open your Gmail/Inbox (and check Spam) and click the verification link first.'
+            : 'कृपया अपने ईमेल इनबॉक्स (या Spam) में भेजे गए सत्यापन लिंक पर क्लिक करें, फिर यहाँ क्लिक करें।'
+        );
+        return;
+      }
+      setSmsNotification(null);
+      await completeBackendFirebaseExchange(verified, phone);
+    } catch (err: any) {
+      showAppAlert(
+        language === 'en' ? 'Verification Error' : 'सत्यापन त्रुटि',
+        mapFirebaseErrorMessage(err, language)
+      );
+    } finally {
+      setIsFirebaseBusy(false);
+    }
+  };
+
+  const handleResendEmailVerification = async () => {
+    setIsFirebaseBusy(true);
+    try {
+      await resendCurrentFirebaseVerificationEmail();
+      showAppAlert(
+        language === 'en' ? 'Verification Email Sent' : '✅ लिंक दोबारा भेजा गया',
+        language === 'en'
+          ? `Please check ${email.trim()} inbox/spam folder.`
+          : `कृपया ${email.trim()} का इनबॉक्स या Spam फ़ोल्डर देखें।`
+      );
+    } catch (err: any) {
+      showAppAlert(
+        language === 'en' ? 'Resend Failed' : 'त्रुटि',
         mapFirebaseErrorMessage(err, language)
       );
     } finally {
@@ -390,12 +446,14 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
           <View
             style={[
               styles.welcomeCard,
+              isCompactPhone && { paddingVertical: 8, marginBottom: 8 },
               isSplitDesktop && styles.welcomeCardDesktop,
             ]}
           >
             <View
               style={[
                 styles.welcomeLogo3DContainer,
+                isCompactPhone && { width: 64, height: 64, borderRadius: 16, marginBottom: 8 },
                 isSplitDesktop && { width: 96, height: 96, borderRadius: 24, marginBottom: 18 },
               ]}
             >
@@ -608,6 +666,25 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
                 </>
               ) : (
                 <>
+                  <View style={[styles.channelToggleRow, { marginBottom: 10 }]}>
+                    <TouchableOpacity
+                      style={[styles.channelPill, !isEmailSignup && styles.channelPillActive]}
+                      onPress={() => setIsEmailSignup(false)}
+                    >
+                      <Text style={[styles.channelPillText, !isEmailSignup && styles.channelPillTextActive]}>
+                        {language === 'en' ? 'Sign In' : 'लॉगिन करें'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.channelPill, isEmailSignup && styles.channelPillActive]}
+                      onPress={() => setIsEmailSignup(true)}
+                    >
+                      <Text style={[styles.channelPillText, isEmailSignup && styles.channelPillTextActive]}>
+                        {language === 'en' ? 'Create Account' : 'नया खाता बनाएं'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
                   <Text style={styles.inputLabel}>
                     {language === 'en' ? 'Email Address' : 'ईमेल पता (Email ID)'}
                   </Text>
@@ -670,7 +747,48 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
                   </TouchableOpacity>
                 </>
               )}
-              {Platform.OS === 'web' && <View nativeID="setu-landing-recaptcha" style={{ height: 0, width: 0 }} />}
+            </View>
+          ) : step === 'VERIFY_EMAIL' ? (
+            <View>
+              <Text style={styles.inputLabel}>
+                {language === 'en'
+                  ? `📩 Verification link sent to ${email.trim()}! Click the link in your Inbox/Spam before logging in.`
+                  : `📩 ${email.trim()} पर सत्यापन लिंक भेजा गया है! पहले अपने Gmail / Inbox (या Spam) में जाकर लिंक पर क्लिक करें — बिना सत्यापन के लॉगिन नहीं होगा।`}
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.submitBtn, { backgroundColor: '#16A34A', marginTop: 8 }]}
+                onPress={handleConfirmEmailVerified}
+                disabled={isFirebaseBusy}
+                activeOpacity={0.85}
+              >
+                {isFirebaseBusy ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.submitBtnText}>
+                    {language === 'en' ? '✅ I Verified My Email — Continue ➔' : '✅ मैंने ईमेल सत्यापित कर लिया — आगे बढ़ें ➔'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.emailModeSwitchBtn}
+                onPress={handleResendEmailVerification}
+                disabled={isFirebaseBusy}
+              >
+                <Text style={styles.emailModeSwitchText}>
+                  {language === 'en' ? '🔄 Resend Verification Email' : '🔄 वेरिफिकेशन लिंक दोबारा भेजें'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.emailModeSwitchBtn}
+                onPress={() => setStep('PHONE')}
+              >
+                <Text style={styles.emailModeSwitchText}>
+                  {language === 'en' ? '← Change Login Method' : '← ईमेल या विकल्प बदलें'}
+                </Text>
+              </TouchableOpacity>
             </View>
           ) : step === 'COMPLETE_PHONE' ? (
             <View>
@@ -854,6 +972,12 @@ export const AuthLandingScreen: React.FC<AuthLandingScreenProps> = ({
         </View>
           </View>
         </View>
+        {Platform.OS === 'web' && (
+          <View
+            nativeID="setu-landing-recaptcha"
+            style={{ position: 'absolute', left: -9999, top: -9999, width: 1, height: 1, overflow: 'hidden', opacity: 0, pointerEvents: 'none' }}
+          />
+        )}
       </ScrollView>
     </View>
   );

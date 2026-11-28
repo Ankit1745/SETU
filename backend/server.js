@@ -1043,30 +1043,60 @@ app.post('/api/auth/send-otp', aiRateLimiter('send_otp_ip', 15), async (req, res
   }
 
   // SMS Dispatch strictly via environment key (NO hardcoded third-party keys!)
+  // Supports Fast2SMS (SMS_API_KEY + optional FAST2SMS_ROUTE=otp|q) and 2Factor.in (TWOFACTOR_API_KEY)
+  const twoFactorKey = cleanSecret(process.env.TWOFACTOR_API_KEY);
   const smsApiKey = cleanSecret(process.env.SMS_API_KEY);
-  const hasSmsKey = Boolean(smsApiKey && !/your_fast2sms/i.test(smsApiKey));
+  const fast2SmsRoute = cleanSecret(process.env.FAST2SMS_ROUTE) === 'q' ? 'q' : 'otp';
+  const hasSmsKey = Boolean((smsApiKey && !/your_fast2sms/i.test(smsApiKey)) || twoFactorKey);
   let smsSentSuccessfully = false;
   let smsGatewayError = '';
 
-  if (hasSmsKey) {
+  if (twoFactorKey && !/your_2factor/i.test(twoFactorKey)) {
     try {
+      const tfRes = await fetch(
+        `https://2factor.in/API/V1/${encodeURIComponent(twoFactorKey)}/SMS/${encodeURIComponent('+91' + cleanPhone)}/${encodeURIComponent(generatedOtp)}/AUTOGEN`,
+        { signal: AbortSignal.timeout(8000) }
+      );
+      const tfData = await tfRes.json().catch(() => null);
+      if (tfRes.ok && tfData && String(tfData.Status || '').toLowerCase() === 'success') {
+        smsSentSuccessfully = true;
+        console.log(`[2Factor] Real OTP sent to +91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)}`);
+      } else {
+        smsGatewayError = String(tfData?.Details || `2Factor HTTP ${tfRes.status}`);
+        console.warn('[2Factor] Dispatch Response:', smsGatewayError);
+      }
+    } catch (tfErr) {
+      smsGatewayError = tfErr.message || '2Factor timeout';
+    }
+  }
+
+  if (!smsSentSuccessfully && smsApiKey && !/your_fast2sms/i.test(smsApiKey)) {
+    try {
+      const bodyPayload =
+        fast2SmsRoute === 'q'
+          ? {
+              route: 'q',
+              message: `Your SETU verification OTP is ${generatedOtp}. Valid for 5 minutes.`,
+              numbers: cleanPhone,
+            }
+          : {
+              route: 'otp',
+              variables_values: generatedOtp,
+              numbers: cleanPhone,
+            };
       const smsRes = await fetch('https://www.fast2sms.com/dev/bulkV2', {
         method: 'POST',
         headers: {
           authorization: smsApiKey,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          route: 'otp',
-          variables_values: generatedOtp,
-          numbers: cleanPhone,
-        }),
+        body: JSON.stringify(bodyPayload),
         signal: AbortSignal.timeout(8000),
       });
       const smsData = await smsRes.json().catch(() => null);
       if (smsData && (smsData.return === true || smsData.status_code === 200)) {
         smsSentSuccessfully = true;
-        console.log(`[Fast2SMS] Real OTP sent to +91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)}`);
+        console.log(`[Fast2SMS:${fast2SmsRoute}] Real OTP sent to +91 ${cleanPhone.slice(0, 2)}XXXXXX${cleanPhone.slice(-2)}`);
       } else {
         smsGatewayError = String(smsData?.message || (smsData?.status_code ? `Code ${smsData.status_code}` : 'Gateway rejected'));
         console.warn('[Fast2SMS] Dispatch Response:', smsGatewayError);
@@ -1265,6 +1295,14 @@ app.post('/api/auth/firebase', aiRateLimiter('firebase_auth_ip', 25), async (req
 
   if (!decoded) {
     return res.status(401).json({ error: 'अमान्य या समाप्त हो चुका Firebase लॉगिन टोकन।' });
+  }
+
+  // Strictly block unverified email logins (must verify email link or verify phone OTP)
+  if (!decoded.phone && !decoded.emailVerified) {
+    return res.status(403).json({
+      error: 'बिना सत्यापन लॉगिन संभव नहीं है। कृपया पहले अपने ईमेल पर आए वेरिफिकेशन लिंक पर क्लिक करें।',
+      code: 'EMAIL_NOT_VERIFIED',
+    });
   }
 
   if (!isDbAvailable()) {
