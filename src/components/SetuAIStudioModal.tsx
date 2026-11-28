@@ -840,11 +840,11 @@ ${itemsText || '• साइट विज़िट पर तय किया �
             <View style={styles.headerLogoBox}>
               <Image source={logoSource} style={styles.headerLogoImg} resizeMode="cover" />
             </View>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
               <View style={styles.brandRow}>
                 <Text style={styles.brandName}>SETU</Text>
                 <View style={styles.expertPill}>
-                  <Text style={styles.expertPillText}>
+                  <Text style={styles.expertPillText} numberOfLines={1}>
                     {isEn ? 'Master Karigar AI' : 'मास्टर कारीगर AI'}
                   </Text>
                 </View>
@@ -870,12 +870,12 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                   activeOpacity={0.8}
                 >
                   <Ionicons name="wallet-outline" size={11} color={customerBudget > 0 ? '#34D399' : '#CBD5E1'} />
-                  <Text style={[styles.headerBudgetText, customerBudget > 0 && styles.headerBudgetTextActive]}>
+                  <Text style={[styles.headerBudgetText, customerBudget > 0 && styles.headerBudgetTextActive]} numberOfLines={1}>
                     {customerBudget > 0
                       ? `₹${customerBudget.toLocaleString('en-IN')}`
                       : isEn
                       ? 'Set Budget'
-                      : 'बजट सेट करें'}
+                      : 'बजट सेट'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1019,7 +1019,7 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                       : 'SETU की आवाज़ रोकें'
                     : isEn
                     ? 'Hear SETU Mascot Voice'
-                    : '🎙️ SETU की आवाज़ सुनें'}
+                    : 'SETU की आवाज़ सुनें'}
                 </Text>
               </TouchableOpacity>
 
@@ -1760,8 +1760,8 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                     ? 'Listening...'
                     : 'सुन रहा हूँ, बोलें...'
                   : isEn
-                  ? 'Ask SETU what to build or repair...'
-                  : 'जो बनवाना या रिपेयर कराना है लिखें...'
+                  ? 'Type work or repair need...'
+                  : 'काम लिखें या बोलें...'
               }
               placeholderTextColor="#64748B"
               multiline
@@ -1808,7 +1808,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingTop: Platform.OS === 'ios' ? 48 : 14,
     paddingBottom: 10,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     backgroundColor: '#0F172A',
     borderBottomWidth: 1,
     borderBottomColor: '#1E293B',
@@ -1816,9 +1816,11 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     flex: 1,
-    marginRight: 8,
+    minWidth: 0,
+    overflow: 'hidden',
+    marginRight: 6,
   },
   headerLogoBox: {
     width: 38,
@@ -1871,12 +1873,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2.5,
     borderRadius: 10,
-    maxWidth: 145,
+    maxWidth: 112,
+    flexShrink: 1,
   },
   headerLocText: {
     color: '#CBD5E1',
     fontSize: 10,
     fontWeight: '700',
+    flexShrink: 1,
   },
   headerBudgetChip: {
     flexDirection: 'row',
@@ -1888,6 +1892,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2.5,
     borderRadius: 10,
+    flexShrink: 1,
   },
   headerBudgetChipActive: {
     backgroundColor: 'rgba(16, 185, 129, 0.15)',
@@ -1906,6 +1911,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 0,
   },
   voiceToggleChip: {
     flexDirection: 'row',
@@ -2510,19 +2516,19 @@ const styles = StyleSheet.create({
   },
   composerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 6,
+    alignItems: 'center',
+    gap: 4,
     backgroundColor: '#1E293B',
     borderRadius: 22,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 5,
     borderWidth: 1,
     borderColor: '#334155',
   },
   mediaIconBtn: {
-    width: 34,
-    height: 36,
-    borderRadius: 17,
+    width: 30,
+    height: 34,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2531,11 +2537,13 @@ const styles = StyleSheet.create({
   },
   composerInput: {
     flex: 1,
+    minWidth: 0,
     color: '#FFFFFF',
-    fontSize: 13.5,
-    minHeight: 38,
-    maxHeight: 90,
-    paddingVertical: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    minHeight: 36,
+    maxHeight: 84,
+    paddingVertical: 7,
     paddingHorizontal: 6,
   },
   sendBtn: {

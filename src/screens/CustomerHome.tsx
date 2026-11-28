@@ -1514,6 +1514,9 @@ const styles = StyleSheet.create({
   },
   // Categories Section
   categoriesSection: {
+    width: '100%',
+    maxWidth: '100%',
+    overflow: 'hidden',
     backgroundColor: '#FFFFFF',
     paddingVertical: 8,
     borderBottomWidth: 1,
