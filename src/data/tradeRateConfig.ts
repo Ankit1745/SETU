@@ -23,7 +23,17 @@ export type CanonicalTradeId =
   | 'wedding_tent'
   | 'caterer'
   | 'wedding_photo'
-  | 'wedding_makeup';
+  | 'wedding_makeup'
+  | 'it_digital'
+  | 'hospitality_retail'
+  | 'home_care'
+  | 'auto_transport'
+  | 'beauty_wellness'
+  | 'business_legal'
+  | 'education'
+  | 'industrial'
+  | 'other_custom'
+  | 'general';
 
 export type RateInputKind =
   | 'daily'
@@ -2507,6 +2517,202 @@ export const TRADE_RATE_PROFILES: Record<CanonicalTradeId, TradeRateProfile> = {
       },
     ],
   },
+  it_digital: {
+    id: 'it_digital',
+    registrationLabelHi: 'आईटी / सॉफ्टवेयर / डिजिटल एक्सपर्ट',
+    nameHindi: 'आईटी / सॉफ्टवेयर / डिजिटल एक्सपर्ट',
+    nameEng: 'IT, Software & Digital Pro',
+    group: 'QUICK_REPAIR',
+    icon: 'laptop',
+    color: '#2563EB',
+    aliases: ['it_digital', 'website', 'software', 'app', 'video editor', 'graphic', 'digital', 'laptop', 'computer', 'डेटा', 'वेबसाइट', 'सॉफ्टवेयर'],
+    researchSummaryHi: 'भारत मानक: वेबसाइट/डिज़ाइन प्रोजेक्ट ₹3,500–₹25,000, वीडियो एडिटिंग ₹500–₹2,500/वीडियो, या ₹500–₹1,200/घंटा कंसल्टेशन।',
+    rateModes: [
+      { id: 'it_project', labelHi: 'प्रति प्रोजेक्ट / काम', labelEn: 'Per Project', unitHi: 'प्रति प्रोजेक्ट', unitEn: 'per project', primaryRateTypeLabel: 'प्रोजेक्ट ठेका', backendBookingMode: 'ठेका', defaultRate: 5000, fairRangeHi: '₹1,500 - ₹35,000', defaultUnits: 1, minAllowedRate: 200, maxAllowedRate: 500000, researchNoteHi: 'निश्चित डिलिवरेबल्स और टाइमलाइन आधारित प्रोजेक्ट दर।' },
+      { id: 'it_hourly', labelHi: 'प्रति घंटा / विजिट', labelEn: 'Per Hour / Visit', unitHi: 'प्रति घंटा', unitEn: 'per hour', primaryRateTypeLabel: 'प्रति घंटा', backendBookingMode: 'दिहाड़ी', defaultRate: 600, fairRangeHi: '₹350 - ₹1,500 / घंटा', defaultUnits: 2, minAllowedRate: 150, maxAllowedRate: 25000, researchNoteHi: 'रिपेयर, कंसल्टेशन या प्रति घंटे एडिटिंग सपोर्ट।' },
+    ],
+    contractorFields: [
+      { key: 'contractUnitRate', labelHi: 'स्टार्टिंग प्रोजेक्ट / सर्विस दर *', subLabelHi: 'सामान्य प्रोजेक्ट या सर्विस का शुरुआती चार्ज', unitHi: '₹ / प्रोजेक्ट', placeholder: '2500', alwaysMandatory: true, isNumeric: true, min: 100, max: 500000, mapsToColumn: 'contractUnitRate' },
+      { key: 'dailyWageRate', labelHi: 'प्रति दिन / विजिट शुल्क (ऐच्छिक)', subLabelHi: 'ऑन-साइट विजिट या फुल डे चार्ज', unitHi: '₹ / दिन', placeholder: '1200', isNumeric: true, min: 200, max: 50000, mapsToColumn: 'dailyWageRate' },
+    ],
+    bookingFields: [
+      { id: 'projectScope', labelHi: 'काम का संक्षिप्त विवरण (Requirement)', labelEn: 'Work Scope', type: 'text', mandatory: false, placeholderHi: 'उदा. बिज़नेस वेबसाइट / लोगो / वीडियो एडिटिंग' },
+    ],
+  },
+  hospitality_retail: {
+    id: 'hospitality_retail',
+    registrationLabelHi: 'होटल / रेस्टोरेंट / शोरूम स्टाफ',
+    nameHindi: 'होटल / रेस्टोरेंट / शोरूम स्टाफ',
+    nameEng: 'Hospitality & Retail Staff',
+    group: 'WEDDING_EVENT',
+    icon: 'silverware-fork-knife',
+    color: '#EA580C',
+    aliases: ['hospitality_retail', 'chef', 'waiter', 'barista', 'tandoor', 'hotel', 'retail', 'salesperson', 'cashier', 'शेफ', 'वेटर', 'दुकान'],
+    researchSummaryHi: 'भारत मानक: इवेंट/डेली शिफ्ट ₹700–₹2,200/दिन या मासिक वेतन ₹14,000–₹45,000/माह।',
+    rateModes: [
+      { id: 'hosp_shift', labelHi: 'प्रति दिन / शिफ्ट', labelEn: 'Per Shift / Day', unitHi: 'प्रति शिफ्ट', unitEn: 'per day', primaryRateTypeLabel: 'दिहाड़ी / शिफ्ट', backendBookingMode: 'दिहाड़ी', defaultRate: 1000, fairRangeHi: '₹600 - ₹2,500 / दिन', defaultUnits: 1, minAllowedRate: 300, maxAllowedRate: 25000, researchNoteHi: '8 से 10 घंटे की प्रति दिन ड्यूटी/शिफ्ट दर।' },
+      { id: 'hosp_monthly', labelHi: 'मासिक अनुबंध', labelEn: 'Monthly Contract', unitHi: 'प्रति माह', unitEn: 'per month', primaryRateTypeLabel: 'मासिक ठेका', backendBookingMode: 'ठेका', defaultRate: 18000, fairRangeHi: '₹12,000 - ₹45,000 / माह', defaultUnits: 1, minAllowedRate: 4000, maxAllowedRate: 200000, researchNoteHi: 'स्थायी होटल/रेस्टोरेंट या शोरूम ड्यूटी अनुबंध।' },
+    ],
+    contractorFields: [
+      { key: 'contractUnitRate', labelHi: 'मुख्य चार्ज (शिफ्ट या मासिक) *', subLabelHi: 'अपनी शिफ्ट या अनुबंध की न्यूनतम दर दर्ज करें', unitHi: '₹ / यूनिट', placeholder: '1000', alwaysMandatory: true, isNumeric: true, min: 200, max: 250000, mapsToColumn: 'contractUnitRate' },
+      { key: 'dailyWageRate', labelHi: 'प्रति दिन शिफ्ट चार्ज (ऐच्छिक)', subLabelHi: '1 दिन की इवेंट/बैकअप ड्यूटी का चार्ज', unitHi: '₹ / दिन', placeholder: '900', isNumeric: true, min: 200, max: 25000, mapsToColumn: 'dailyWageRate' },
+    ],
+    bookingFields: [],
+  },
+  home_care: {
+    id: 'home_care',
+    registrationLabelHi: 'होम केयर / सफाई / पेस्ट कंट्रोल',
+    nameHindi: 'होम केयर / सफाई / पेस्ट कंट्रोल',
+    nameEng: 'Home Care & Cleaning',
+    group: 'QUICK_REPAIR',
+    icon: 'broom',
+    color: '#059669',
+    aliases: ['home_care', 'clean', 'cleaning', 'pest', 'termite', 'maid', 'cook', 'tiffin', 'nanny', 'mali', 'माली', 'सफाई', 'दीमक', 'कुक'],
+    researchSummaryHi: 'भारत मानक: डीप क्लीनिंग ₹499–₹3,500/विजिट, टैंक सफाई ₹500–₹1,200, पेस्ट कंट्रोल ₹900–₹3,000।',
+    rateModes: [
+      { id: 'hc_visit', labelHi: 'प्रति सर्विस / विजिट', labelEn: 'Per Service / Visit', unitHi: 'प्रति विजिट', unitEn: 'per visit', primaryRateTypeLabel: 'सर्विस विजिट', backendBookingMode: 'क्विक रिपेयर', defaultRate: 799, fairRangeHi: '₹399 - ₹3,500 / विजिट', defaultUnits: 1, minAllowedRate: 150, maxAllowedRate: 50000, researchNoteHi: 'बाथरूम, सोफा, टंकी या डीप क्लीनिंग पैकेज।' },
+      { id: 'hc_monthly', labelHi: 'मासिक सेवा', labelEn: 'Monthly Service', unitHi: 'प्रति माह', unitEn: 'per month', primaryRateTypeLabel: 'मासिक ठेका', backendBookingMode: 'ठेका', defaultRate: 5000, fairRangeHi: '₹2,500 - ₹18,000 / माह', defaultUnits: 1, minAllowedRate: 800, maxAllowedRate: 100000, researchNoteHi: 'नियमित घरेलू कुक, हाउसकीपिंग, माली या देखभाल सेवा।' },
+    ],
+    contractorFields: [
+      { key: 'contractUnitRate', labelHi: 'शुरुआती सर्विस / पैकेज दर *', subLabelHi: 'न्यूनतम विजिट या मासिक सेवा दर', unitHi: '₹ / सर्विस', placeholder: '799', alwaysMandatory: true, isNumeric: true, min: 100, max: 150000, mapsToColumn: 'contractUnitRate' },
+      { key: 'dailyWageRate', labelHi: 'प्रति दिन दर (ऐच्छिक)', subLabelHi: 'एक दिन की सेवा का चार्ज', unitHi: '₹ / दिन', placeholder: '600', isNumeric: true, min: 150, max: 20000, mapsToColumn: 'dailyWageRate' },
+    ],
+    bookingFields: [],
+  },
+  auto_transport: {
+    id: 'auto_transport',
+    registrationLabelHi: 'ऑटोमोबाइल / मैकेनिक / ट्रांसपोर्ट',
+    nameHindi: 'ऑटोमोबाइल / मैकेनिक / ट्रांसपोर्ट',
+    nameEng: 'Automobile & Transport',
+    group: 'QUICK_REPAIR',
+    icon: 'car-wrench',
+    color: '#0284C7',
+    aliases: ['auto_transport', 'car', 'bike', 'mechanic', 'tyre', 'puncture', 'driver', 'packers', 'tempo', 'truck', 'ड्राइवर', 'मैकेनिक', 'टेम्पो'],
+    researchSummaryHi: 'भारत मानक: रोडसाइड विजिट ₹299–₹600, कार सर्विस ₹1,200+, ड्राइवर ₹700/दिन, पैकर्स लोड ₹1,500+।',
+    rateModes: [
+      { id: 'auto_visit', labelHi: 'प्रति विजिट / ट्रिप', labelEn: 'Per Visit / Trip', unitHi: 'प्रति विजिट/ट्रिप', unitEn: 'per trip', primaryRateTypeLabel: 'प्रति विजिट', backendBookingMode: 'क्विक रिपेयर', defaultRate: 499, fairRangeHi: '₹250 - ₹4,500', defaultUnits: 1, minAllowedRate: 100, maxAllowedRate: 100000, researchNoteHi: 'मैकेनिक विजिट, पंचर या सिटी शिफ्टिंग प्रति ट्रिप दर।' },
+      { id: 'auto_day', labelHi: 'प्रति दिन / ड्राइवर ड्यूटी', labelEn: 'Per Day Duty', unitHi: 'प्रति दिन', unitEn: 'per day', primaryRateTypeLabel: 'दिहाड़ी / दिन', backendBookingMode: 'दिहाड़ी', defaultRate: 800, fairRangeHi: '₹600 - ₹1,800 / दिन', defaultUnits: 1, minAllowedRate: 250, maxAllowedRate: 20000, researchNoteHi: 'ड्राइवर या आउटस्टेशन ड्यूटी प्रति दिन दर।' },
+    ],
+    contractorFields: [
+      { key: 'contractUnitRate', labelHi: 'बेस विजिट / ट्रिप शुल्क *', subLabelHi: 'शुरुआती जांच, पंचर या लोडिंग ट्रिप दर', unitHi: '₹ / विजिट', placeholder: '499', alwaysMandatory: true, isNumeric: true, min: 100, max: 150000, mapsToColumn: 'contractUnitRate' },
+      { key: 'dailyWageRate', labelHi: 'प्रति दिन शुल्क (ऐच्छिक)', subLabelHi: 'ड्राइवर या फुल डे सेवा दर', unitHi: '₹ / दिन', placeholder: '800', isNumeric: true, min: 200, max: 25000, mapsToColumn: 'dailyWageRate' },
+    ],
+    bookingFields: [],
+  },
+  beauty_wellness: {
+    id: 'beauty_wellness',
+    registrationLabelHi: 'ब्यूटी / फिटनेस / हेल्थकेयर',
+    nameHindi: 'ब्यूटी / फिटनेस / हेल्थकेयर',
+    nameEng: 'Beauty, Wellness & Healthcare',
+    group: 'WEDDING_EVENT',
+    icon: 'spa',
+    color: '#9333EA',
+    aliases: ['beauty_wellness', 'salon', 'grooming', 'massage', 'spa', 'yoga', 'fitness', 'physio', 'nurse', 'पार्लर', 'योगा', 'नर्स'],
+    researchSummaryHi: 'भारत मानक: होम सैलून/ग्रूमिंग ₹399–₹2,500, फिजियो/नर्स/मसाज ₹600–₹1,500/सेशन, योगा ₹4,000+/माह।',
+    rateModes: [
+      { id: 'bw_session', labelHi: 'प्रति सेशन / विजिट', labelEn: 'Per Session / Visit', unitHi: 'प्रति सेशन', unitEn: 'per session', primaryRateTypeLabel: 'प्रति सेशन', backendBookingMode: 'ठेका', defaultRate: 799, fairRangeHi: '₹299 - ₹3,500', defaultUnits: 1, minAllowedRate: 150, maxAllowedRate: 50000, researchNoteHi: 'सैलून, थेरेपी, फिजियो या नर्सिंग होम विजिट।' },
+      { id: 'bw_monthly', labelHi: 'मासिक पैकेज', labelEn: 'Monthly Package', unitHi: 'प्रति माह', unitEn: 'per month', primaryRateTypeLabel: 'मासिक पैकेज', backendBookingMode: 'ठेका', defaultRate: 6000, fairRangeHi: '₹3,000 - ₹20,000 / माह', defaultUnits: 1, minAllowedRate: 1000, maxAllowedRate: 100000, researchNoteHi: 'नियमित योगा ट्रेनर या होम नर्सिंग पैकेज।' },
+    ],
+    contractorFields: [
+      { key: 'contractUnitRate', labelHi: 'प्रति सेशन / सर्विस शुल्क *', subLabelHi: 'एक विजिट या होम सेशन का शुरुआती शुल्क', unitHi: '₹ / सेशन', placeholder: '799', alwaysMandatory: true, isNumeric: true, min: 100, max: 100000, mapsToColumn: 'contractUnitRate' },
+    ],
+    bookingFields: [],
+  },
+  business_legal: {
+    id: 'business_legal',
+    registrationLabelHi: 'बिज़नेस / ऑफिस / कानूनी सेवा',
+    nameHindi: 'बिज़नेस / ऑफिस / कानूनी सेवा',
+    nameEng: 'Business, Office & Legal Services',
+    group: 'CONSTRUCTION',
+    icon: 'briefcase-check-outline',
+    color: '#334155',
+    aliases: ['business_legal', 'ca', 'gst', 'lawyer', 'rto', 'insurance', 'loan', 'security', 'bouncer', 'data entry', 'receptionist', 'वकील', 'सिक्योरिटी'],
+    researchSummaryHi: 'भारत मानक: GST/RTO/लीगल कंसल्टेशन ₹500–₹5,000/केस, ऑफिस/सिक्योरिटी स्टाफ ₹12,000–₹30,000/माह।',
+    rateModes: [
+      { id: 'biz_consult', labelHi: 'प्रति केस / कंसल्टेशन', labelEn: 'Per Case / Filing', unitHi: 'प्रति सेवा', unitEn: 'per case', primaryRateTypeLabel: 'प्रति सेवा', backendBookingMode: 'ठेका', defaultRate: 1500, fairRangeHi: '₹499 - ₹15,000', defaultUnits: 1, minAllowedRate: 200, maxAllowedRate: 200000, researchNoteHi: 'टैक्स फाइलिंग, लीगल ड्राफ्टिंग या RTO दस्तावेज़ सेवा।' },
+      { id: 'biz_monthly', labelHi: 'मासिक अनुबंध / स्टाफ', labelEn: 'Monthly Retainer', unitHi: 'प्रति माह', unitEn: 'per month', primaryRateTypeLabel: 'मासिक अनुबंध', backendBookingMode: 'ठेका', defaultRate: 15000, fairRangeHi: '₹10,000 - ₹35,000 / माह', defaultUnits: 1, minAllowedRate: 3000, maxAllowedRate: 300000, researchNoteHi: 'सिक्योरिटी गार्ड, डेटा एंट्री या रिसेप्शन स्टाफ अनुबंध।' },
+    ],
+    contractorFields: [
+      { key: 'contractUnitRate', labelHi: 'शुरुआती कंसल्टेशन / सेवा शुल्क *', subLabelHi: 'प्रति सेवा या मासिक अनुबंध दर', unitHi: '₹ / सेवा', placeholder: '1500', alwaysMandatory: true, isNumeric: true, min: 100, max: 300000, mapsToColumn: 'contractUnitRate' },
+    ],
+    bookingFields: [],
+  },
+  education: {
+    id: 'education',
+    registrationLabelHi: 'शिक्षा / ड्राइविंग / कोचिंग',
+    nameHindi: 'शिक्षा / ड्राइविंग / कोचिंग',
+    nameEng: 'Education, Coaching & Training',
+    group: 'WEDDING_EVENT',
+    icon: 'school-outline',
+    color: '#7C3AED',
+    aliases: ['education', 'driving', 'tutor', 'coaching', 'english', 'music', 'dance', 'coding', 'ट्यूटर', 'ड्राइविंग', 'कोचिंग'],
+    researchSummaryHi: 'भारत मानक: होम ट्यूटर ₹3,000–₹8,000/माह या ₹350–₹800/क्लास, ड्राइविंग कोर्स ₹3,500–₹6,500।',
+    rateModes: [
+      { id: 'edu_monthly', labelHi: 'मासिक फीस / कोर्स', labelEn: 'Monthly / Full Course', unitHi: 'प्रति माह/कोर्स', unitEn: 'per month', primaryRateTypeLabel: 'मासिक कोर्स', backendBookingMode: 'ठेका', defaultRate: 4000, fairRangeHi: '₹2,000 - ₹12,000', defaultUnits: 1, minAllowedRate: 500, maxAllowedRate: 100000, researchNoteHi: 'मासिक ट्यूशन या पूर्ण ड्राइविंग/कोडिंग कोर्स पैकेज।' },
+      { id: 'edu_hourly', labelHi: 'प्रति क्लास / घंटा', labelEn: 'Per Class / Hour', unitHi: 'प्रति क्लास', unitEn: 'per class', primaryRateTypeLabel: 'प्रति क्लास', backendBookingMode: 'दिहाड़ी', defaultRate: 500, fairRangeHi: '₹250 - ₹1,200 / घंटा', defaultUnits: 1, minAllowedRate: 150, maxAllowedRate: 15000, researchNoteHi: 'वन-ऑन-वन होम सेशन या डेमो क्लास दर।' },
+    ],
+    contractorFields: [
+      { key: 'contractUnitRate', labelHi: 'ट्यूशन / कोर्स शुल्क *', subLabelHi: 'प्रति क्लास या मासिक कोर्स की दर', unitHi: '₹ / कोर्स', placeholder: '3500', alwaysMandatory: true, isNumeric: true, min: 150, max: 150000, mapsToColumn: 'contractUnitRate' },
+    ],
+    bookingFields: [],
+  },
+  industrial: {
+    id: 'industrial',
+    registrationLabelHi: 'इंडस्ट्रियल / सोलर / हैवी वर्क',
+    nameHindi: 'इंडस्ट्रियल / सोलर / हैवी वर्क',
+    nameEng: 'Industrial & Commercial Work',
+    group: 'CONSTRUCTION',
+    icon: 'factory',
+    color: '#B45309',
+    aliases: ['industrial', 'heavy welder', 'cnc', 'lathe', 'hvac', 'cold storage', 'solar', 'borewell', 'सोलर', 'बोरवेल'],
+    researchSummaryHi: 'भारत मानक: सोलर फिटिंग ₹1,500–₹5,000/kW, बोरवेल/HVAC विजिट ₹600–₹2,500, हैवी वेल्डिंग ₹900+/दिन।',
+    rateModes: [
+      { id: 'ind_contract', labelHi: 'प्रति प्रोजेक्ट / इंस्टॉलेशन', labelEn: 'Per Installation / Job', unitHi: 'प्रति जॉब', unitEn: 'per job', primaryRateTypeLabel: 'कमर्शियल ठेका', backendBookingMode: 'ठेका', defaultRate: 2500, fairRangeHi: '₹600 - ₹50,000', defaultUnits: 1, minAllowedRate: 300, maxAllowedRate: 500000, researchNoteHi: 'सोलर प्लांट, बोरवेल पंप या इंडस्ट्रियल मशीन सेवा।' },
+      { id: 'ind_daily', labelHi: 'प्रति दिन टेक्नीशियन', labelEn: 'Daily Technician Rate', unitHi: 'प्रति दिन', unitEn: 'per day', primaryRateTypeLabel: 'दिहाड़ी', backendBookingMode: 'दिहाड़ी', defaultRate: 1000, fairRangeHi: '₹700 - ₹2,500 / दिन', defaultUnits: 1, minAllowedRate: 400, maxAllowedRate: 30000, researchNoteHi: 'फैक्ट्री या साइट पर प्रति दिन विशेषज्ञ सेवा।' },
+    ],
+    contractorFields: [
+      { key: 'contractUnitRate', labelHi: 'प्रारंभिक सर्विस / जॉब दर *', subLabelHi: 'विजिट, इंस्टॉलेशन या प्रतिदिन कार्य शुल्क', unitHi: '₹ / जॉब', placeholder: '2000', alwaysMandatory: true, isNumeric: true, min: 200, max: 500000, mapsToColumn: 'contractUnitRate' },
+      { key: 'dailyWageRate', labelHi: 'प्रति दिन दिहाड़ी (ऐच्छिक)', subLabelHi: 'टेक्नीशियन दैनिक शुल्क', unitHi: '₹ / दिन', placeholder: '1000', isNumeric: true, min: 300, max: 25000, mapsToColumn: 'dailyWageRate' },
+    ],
+    bookingFields: [],
+  },
+  other_custom: {
+    id: 'other_custom',
+    registrationLabelHi: 'अन्य विशेष कार्य / कस्टम कौशल',
+    nameHindi: 'अन्य विशेष कार्य / कस्टम कौशल',
+    nameEng: 'Other / Custom Skill',
+    group: 'QUICK_REPAIR',
+    icon: 'star-plus-outline',
+    color: '#475569',
+    aliases: ['other_custom', 'custom', 'other', 'अन्य', 'कस्टम'],
+    researchSummaryHi: 'अपनी सेवा की विजिट, प्रति घंटा या प्रोजेक्ट दर स्पष्ट लिखें ताकि ग्राहक तुरंत बुक कर सकें।',
+    rateModes: [
+      { id: 'custom_unit', labelHi: 'प्रति काम / विजिट', labelEn: 'Per Job / Visit', unitHi: 'प्रति काम', unitEn: 'per job', primaryRateTypeLabel: 'प्रति काम', backendBookingMode: 'ठेका', defaultRate: 500, fairRangeHi: '₹200 - ₹25,000', defaultUnits: 1, minAllowedRate: 50, maxAllowedRate: 500000, researchNoteHi: 'आपकी विशेष सेवा का न्यूनतम पारदर्शी शुल्क।' },
+      { id: 'custom_daily', labelHi: 'प्रति दिन दर', labelEn: 'Per Day', unitHi: 'प्रति दिन', unitEn: 'per day', primaryRateTypeLabel: 'दिहाड़ी', backendBookingMode: 'दिहाड़ी', defaultRate: 700, fairRangeHi: '₹400 - ₹5,000 / दिन', defaultUnits: 1, minAllowedRate: 150, maxAllowedRate: 50000, researchNoteHi: 'दैनिक सेवा दर।' },
+    ],
+    contractorFields: [
+      { key: 'contractUnitRate', labelHi: 'न्यूनतम काम / विजिट शुल्क *', subLabelHi: 'ग्राहक को दिखने वाला शुरुआती चार्ज', unitHi: '₹ / काम', placeholder: '500', alwaysMandatory: true, isNumeric: true, min: 50, max: 500000, mapsToColumn: 'contractUnitRate' },
+    ],
+    bookingFields: [],
+  },
+  general: {
+    id: 'general',
+    registrationLabelHi: 'सामान्य / मल्टी-स्किल हैंडीमैन',
+    nameHindi: 'सामान्य / मल्टी-स्किल हैंडीमैन',
+    nameEng: 'General Multi-Skill Pro',
+    group: 'QUICK_REPAIR',
+    icon: 'tools',
+    color: '#64748B',
+    aliases: ['general', 'handyman', 'odd-job', 'repair', 'सामान्य', 'हैंडीमैन'],
+    researchSummaryHi: 'भारत मानक: घरेलू मल्टी-टास्क विजिट ₹299–₹600 या प्रति दिन ₹600–₹900।',
+    rateModes: [
+      { id: 'gen_visit', labelHi: 'प्रति विजिट / छोटा काम', labelEn: 'Per Visit', unitHi: 'प्रति विजिट', unitEn: 'per visit', primaryRateTypeLabel: 'प्रति विजिट', backendBookingMode: 'क्विक रिपेयर', defaultRate: 399, fairRangeHi: '₹200 - ₹1,500', defaultUnits: 1, minAllowedRate: 100, maxAllowedRate: 50000, researchNoteHi: 'तत्काल घरेलू रिपेयर विजिट।' },
+    ],
+    contractorFields: [
+      { key: 'contractUnitRate', labelHi: 'विजिट / काम शुल्क *', subLabelHi: 'शुरुआती विजिट शुल्क', unitHi: '₹ / विजिट', placeholder: '399', alwaysMandatory: true, isNumeric: true, min: 100, max: 50000, mapsToColumn: 'contractUnitRate' },
+    ],
+    bookingFields: [],
+  },
 };
 
 export const ORDERED_15_TRADES: TradeRateProfile[] = [
@@ -2541,23 +2747,35 @@ export function normalizeTradeCategory(input: string = ''): CanonicalTradeId {
   // Exact keys first
   if (s in TRADE_RATE_PROFILES) return s as CanonicalTradeId;
 
-  // Aliases order matters: check specific phrases before generic ones
+  // Expanded 12-Category Aliases
+  if (s.includes('it_digital') || s.includes('software') || s.includes('website') || s.includes('developer') || s.includes('video editor') || s.includes('graphic') || s.includes('ui/ux') || s.includes('marketing') || s.includes('laptop') || s.includes('voiceover') || s.includes('सॉफ्टवेयर') || s.includes('वेबसाइट') || s.includes('डिजिटल')) return 'it_digital';
+  if (s.includes('hospitality') || s.includes('chef') || s.includes('barista') || s.includes('tandoor') || s.includes('waiter') || s.includes('steward') || s.includes('retail') || s.includes('cashier') || s.includes('शोरूम') || s.includes('शेफ') || s.includes('वेटर')) return 'hospitality_retail';
+  if (s.includes('home_care') || s.includes('cleaning') || s.includes('pest') || s.includes('termite') || s.includes('maid') || s.includes('tiffin') || s.includes('nanny') || s.includes('mali') || s.includes('सफाई') || s.includes('दीमक') || s.includes('माली') || s.includes('कामवाली') || s.includes('कुक')) return 'home_care';
+  if (s.includes('auto_transport') || s.includes('car ') || s.includes('bike') || s.includes('mechanic') || s.includes('tyre') || s.includes('puncture') || s.includes('driver') || s.includes('packers') || s.includes('tempo') || s.includes('ड्राइवर') || s.includes('मैकेनिक') || s.includes('टेम्पो')) return 'auto_transport';
+  if (s.includes('beauty_wellness') || s.includes('salon') || s.includes('grooming') || s.includes('massage') || s.includes('spa') || s.includes('yoga') || s.includes('fitness') || s.includes('physio') || s.includes('nurse') || s.includes('पार्लर') || s.includes('सैलून') || s.includes('योगा')) return 'beauty_wellness';
+  if (s.includes('business_legal') || s.includes('gst') || s.includes('lawyer') || s.includes('rto') || s.includes('insurance') || s.includes('loan') || s.includes('security') || s.includes('bouncer') || s.includes('data entry') || s.includes('receptionist') || s.includes('वकील') || s.includes('सिक्योरिटी') || s.includes('रिसेप्शन')) return 'business_legal';
+  if (s.includes('education') || s.includes('driving') || s.includes('tutor') || s.includes('coaching') || s.includes('english') || s.includes('music') || s.includes('dance') || s.includes('coding') || s.includes('ट्यूटर') || s.includes('ड्राइविंग') || s.includes('कोचिंग')) return 'education';
+  if (s.includes('industrial') || s.includes('cnc') || s.includes('lathe') || s.includes('hvac') || s.includes('solar') || s.includes('borewell') || s.includes('सोलर') || s.includes('बोरवेल')) return 'industrial';
+  if (s.includes('other_custom') || s.includes('specify your work') || s.includes('अपना काम खुद')) return 'other_custom';
+
+  // Original 15-trade aliases (order matters: check specific phrases before generic ones)
   if (s.includes('false_ceiling') || s.includes('pop') || s.includes('सीलिंग') || s.includes('जिप्सम')) return 'false_ceiling';
   if (s.includes('aluminium') || s.includes('upvc') || s.includes('ग्लास') || s.includes('एल्युमिनियम')) return 'aluminium_upvc';
   if (s.includes('waterproof') || s.includes('वॉटरप्रूफ') || s.includes('वाटरप्रूफ')) return 'waterproofing';
   if (s.includes('weld') || s.includes('सरिया') || s.includes('ग्रिल') || s.includes('फैब्रिकेटर') || s.includes('वेल्ड')) return 'welder';
   if (s.includes('tiling') || s.includes('tile') || s.includes('टाइल') || s.includes('मार्बल')) return 'tiling';
   if (s.includes('jcb') || s.includes('ट्रॉली') || s.includes('हेल्पर') || s.includes('labor') || s.includes('मजदूर') || s.includes('मलबा')) return 'labor';
-  if (s.includes('ac') || s.includes('एसी')) return 'ac_repair';
+  if (s.includes('ac') || s.includes('एसी') || s.includes('appliance') || s.includes('फ्रिज')) return 'ac_repair';
   if (s.includes('cater') || s.includes('हलवाई') || s.includes('कैटर') || s.includes('प्लेट')) return 'caterer';
-  if (s.includes('फोटोग्राफर') || s.includes('photo') || s.includes('फोटो') || s.includes('कैमरा') || s.includes('dj')) return 'wedding_photo';
-  if (s.includes('makeup') || s.includes('मेकअप') || s.includes('ब्राइडल')) return 'wedding_makeup';
-  if (s.includes('tent') || s.includes('mandap') || s.includes('टेंट') || s.includes('डेकोर') || s.includes('पंडाल')) return 'wedding_tent';
+  if (s.includes('फोटोग्राफर') || s.includes('photo') || s.includes('फोटो') || s.includes('कैमरा') || s.includes('dj') || s.includes('drone') || s.includes('anchor')) return 'wedding_photo';
+  if (s.includes('makeup') || s.includes('मेकअप') || s.includes('ब्राइडल') || s.includes('mehndi') || s.includes('मेहंदी')) return 'wedding_makeup';
+  if (s.includes('tent') || s.includes('mandap') || s.includes('टेंट') || s.includes('डेकोर') || s.includes('पंडाल') || s.includes('planner') || s.includes('band')) return 'wedding_tent';
   if (s.includes('paint') || s.includes('पेंटर') || s.includes('पुट्टी')) return 'painter';
-  if (s.includes('electr') || s.includes('इलेक्ट्र') || s.includes('बिजली') || s.includes('वायर')) return 'electrician';
+  if (s.includes('electr') || s.includes('इलेक्ट्र') || s.includes('बिजली') || s.includes('वायर') || s.includes('cctv')) return 'electrician';
   if (s.includes('plumb') || s.includes('प्लंबर') || s.includes('नल')) return 'plumber';
-  if (s.includes('mason') || s.includes('मिस्त्री') || s.includes('राजमिस्त्री') || s.includes('मकान')) return 'mason';
+  if (s.includes('mason') || s.includes('मिस्त्री') || s.includes('राजमिस्त्री') || s.includes('मकान') || s.includes('architect')) return 'mason';
   if (s.includes('carpenter') || s.includes('बढ़ई') || s.includes('फर्नीचर')) return 'carpenter';
+  if (s.includes('general') || s.includes('handyman')) return 'general';
 
   return 'mason';
 }

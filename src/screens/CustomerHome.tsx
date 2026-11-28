@@ -33,7 +33,13 @@ import { COLORS } from '../theme/colors';
 import { Language, TRANSLATIONS } from '../i18n/translations';
 import { getSetuLogo } from '../constants/logos';
 import { useResponsive } from '../hooks/useResponsive';
-import { ORDERED_15_TRADES, normalizeTradeCategory } from '../data/tradeRateConfig';
+import { normalizeTradeCategory } from '../data/tradeRateConfig';
+import {
+  SERVICE_CATEGORIES,
+  ServiceSubcategoryItem,
+  getMainCategoryById,
+} from '../data/serviceCatalog';
+import { CascadingCategoryDropdowns } from '../components/CascadingCategoryDropdowns';
 
 interface CustomerHomeProps {
   contractors: Contractor[];
@@ -103,6 +109,8 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedNeed, setSelectedNeed] = useState<'ALL' | 'QUICK' | 'CONSTRUCTION' | 'WEDDING' | 'MATERIALS'>('ALL');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedMainCategory, setSelectedMainCategory] = useState<string>('all');
+  const [selectedSubCategory, setSelectedSubCategory] = useState<ServiceSubcategoryItem | null>(null);
   const [selectedRateType, setSelectedRateType] = useState<string>('ALL');
 
   // Real Speech Recognition
@@ -139,6 +147,9 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   const [postTaskTitle, setPostTaskTitle] = useState('');
   const [postTaskBudget, setPostTaskBudget] = useState('');
   const [postTaskAddress, setPostTaskAddress] = useState('');
+  const [postMainCatId, setPostMainCatId] = useState<string>('construction');
+  const [postSubCatId, setPostSubCatId] = useState<string>('const_carpenter_new');
+  const [postCustomWork, setPostCustomWork] = useState<string>('');
   const [postTaskCategory, setPostTaskCategory] = useState<string>('carpenter');
   const scrollViewRef = React.useRef<any>(null);
   const [prosSectionY, setProsSectionY] = useState<number>(0);
@@ -146,6 +157,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   const handlePostTaskSubmit = () => {
     const budgetNum = Number(postTaskBudget.trim());
     const finalSiteAddr = (postTaskAddress.trim() || currentLocation.split('•')[0].trim() || 'भोपाल');
+    const customLabel = postCustomWork.trim();
     if (postTaskTitle.trim().length < 5) {
       showAppAlert(
         language === 'en' ? 'Mandatory Work Description (*)' : 'काम का विवरण अनिवार्य (*)',
@@ -165,8 +177,10 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
       contractorId: 'open_market',
       contractorName: 'ओपन कस्टम जॉब',
       category: postTaskCategory,
+      mainCategory: postMainCatId,
+      subCategory: postSubCatId,
       bookingMode: 'भाव_पूछें',
-      workType: postTaskTitle.trim(),
+      workType: customLabel ? `${customLabel} — ${postTaskTitle.trim()}` : postTaskTitle.trim(),
       hiringType: 'ओपन कस्टम जॉब (Budget Offer)',
       customerName: 'सत्यापित ग्राहक',
       location: finalSiteAddr,
@@ -182,6 +196,7 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
     setPostTaskTitle('');
     setPostTaskBudget('');
     setPostTaskAddress('');
+    setPostCustomWork('');
     showAppAlert(
       language === 'en' ? '🎉 Job Posted Successfully!' : '🎉 आपका काम लाइव हो गया!',
       language === 'en'
@@ -259,8 +274,20 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
     }
     if (selectedNeed === 'MATERIALS' && (!c.recommendedMaterials || c.recommendedMaterials.length === 0)) return false;
 
-    // 2. Specific Category filter (normalize all aliases seamlessly)
-    if (selectedCategory !== 'all') {
+    // 2. Cascading Main Category / Subcategory / Trade filter
+    if (selectedSubCategory) {
+      if (c.subCategory) {
+        if (c.subCategory !== selectedSubCategory.id) return false;
+      } else if (normProCat !== selectedSubCategory.canonicalTradeId) {
+        return false;
+      }
+    } else if (selectedMainCategory !== 'all') {
+      const mainObj = getMainCategoryById(selectedMainCategory);
+      const allowedCanonicals = mainObj.subcategories.map((s) => s.canonicalTradeId);
+      const matchesMainField = c.mainCategory === selectedMainCategory;
+      const matchesCanonical = allowedCanonicals.includes(normProCat);
+      if (!matchesMainField && !matchesCanonical) return false;
+    } else if (selectedCategory !== 'all') {
       const catNorm = normalizeTradeCategory(selectedCategory);
       if (normProCat !== catNorm) return false;
     }
@@ -524,57 +551,161 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
         </View>
           </View>
 
-        {/* 2. 3D INTERACTIVE CATEGORIES (All 15+ Trades) */}
+        {/* 2. 12 MAIN CATEGORIES & CASCADING SUBCATEGORIES FILTER */}
         <View style={[styles.categoriesSection, isTabletOrDesktop && styles.categoriesSectionDesktop]}>
           {(() => {
             const catList = [
-              { id: 'all', label: language === 'hi' ? '🌟 सभी कारीगर' : 'All Pros', action: () => { setSelectedCategory('all'); setSelectedNeed('ALL'); } },
-              ...ORDERED_15_TRADES.map((tr) => ({
-                id: tr.id,
-                label: tr.registrationLabelHi.split('/')[0].trim(),
-                action: () => { setSelectedCategory(tr.id); setSelectedNeed('ALL'); },
+              {
+                id: 'all',
+                label: language === 'hi' ? '🌟 सभी 12 श्रेणियाँ' : '🌟 All 12 Categories',
+                color: COLORS.primary,
+                action: () => {
+                  setSelectedMainCategory('all');
+                  setSelectedSubCategory(null);
+                  setSelectedCategory('all');
+                  setSelectedNeed('ALL');
+                },
+              },
+              ...SERVICE_CATEGORIES.map((mc) => ({
+                id: mc.id,
+                label: `${mc.number}. ${language === 'en' ? mc.nameEn : mc.nameHi.split('-')[0].trim()}`,
+                color: mc.color,
+                action: () => {
+                  setSelectedMainCategory(mc.id);
+                  setSelectedSubCategory(null);
+                  setSelectedCategory('all');
+                  setSelectedNeed('ALL');
+                },
               })),
             ];
-            return isTabletOrDesktop ? (
-              <View style={[styles.categoryPillsScroll, styles.categoryPillsDesktopWrap]}>
-                {catList.map((cat) => {
-                  const isActive =
-                    (cat.id === 'all' && selectedCategory === 'all' && selectedNeed === 'ALL') ||
-                    cat.id === selectedCategory;
-                  return (
+            const activeMainObj =
+              selectedMainCategory !== 'all' ? getMainCategoryById(selectedMainCategory) : null;
+
+            return (
+              <View>
+                {isTabletOrDesktop ? (
+                  <View style={[styles.categoryPillsScroll, styles.categoryPillsDesktopWrap]}>
+                    {catList.map((cat) => {
+                      const isActive =
+                        (cat.id === 'all' &&
+                          selectedMainCategory === 'all' &&
+                          selectedCategory === 'all' &&
+                          selectedNeed === 'ALL') ||
+                        cat.id === selectedMainCategory;
+                      return (
+                        <TouchableOpacity
+                          key={cat.id}
+                          style={[
+                            styles.categoryPill,
+                            isActive && {
+                              backgroundColor: cat.color || '#2563EB',
+                              borderColor: cat.color || '#3B82F6',
+                            },
+                          ]}
+                          onPress={cat.action}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
+                            {cat.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.categoryPillsScroll}
+                  >
+                    {catList.map((cat) => {
+                      const isActive =
+                        (cat.id === 'all' &&
+                          selectedMainCategory === 'all' &&
+                          selectedCategory === 'all' &&
+                          selectedNeed === 'ALL') ||
+                        cat.id === selectedMainCategory;
+                      return (
+                        <TouchableOpacity
+                          key={cat.id}
+                          style={[
+                            styles.categoryPill,
+                            isActive && {
+                              backgroundColor: cat.color || '#2563EB',
+                              borderColor: cat.color || '#3B82F6',
+                            },
+                          ]}
+                          onPress={cat.action}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
+                            {cat.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+
+                {activeMainObj && (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.subCategoryBar}
+                  >
                     <TouchableOpacity
-                      key={cat.id}
-                      style={[styles.categoryPill, isActive && styles.categoryPillActive]}
-                      onPress={cat.action}
-                      activeOpacity={0.8}
+                      style={[
+                        styles.subCategoryPill,
+                        !selectedSubCategory && {
+                          backgroundColor: activeMainObj.color,
+                          borderColor: activeMainObj.color,
+                        },
+                      ]}
+                      onPress={() => {
+                        setSelectedSubCategory(null);
+                        setSelectedCategory('all');
+                      }}
                     >
-                      <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
-                        {cat.label}
+                      <Text
+                        style={[
+                          styles.subCategoryPillText,
+                          !selectedSubCategory && { color: '#FFFFFF', fontWeight: '800' },
+                        ]}
+                      >
+                        {language === 'en' ? `All ${activeMainObj.nameEn}` : 'सभी उप-श्रेणियाँ'}
                       </Text>
                     </TouchableOpacity>
-                  );
-                })}
+                    {activeMainObj.subcategories.map((sub) => {
+                      const isSubActive = selectedSubCategory?.id === sub.id;
+                      return (
+                        <TouchableOpacity
+                          key={sub.id}
+                          style={[
+                            styles.subCategoryPill,
+                            isSubActive && {
+                              backgroundColor: activeMainObj.color,
+                              borderColor: activeMainObj.color,
+                            },
+                          ]}
+                          onPress={() => {
+                            setSelectedSubCategory(sub);
+                            setSelectedCategory(sub.canonicalTradeId);
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.subCategoryPillText,
+                              isSubActive && { color: '#FFFFFF', fontWeight: '800' },
+                            ]}
+                          >
+                            {language === 'en' ? sub.nameEn : sub.nameHi.split('-')[0].trim()}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
               </View>
-            ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryPillsScroll}>
-                {catList.map((cat) => {
-                  const isActive =
-                    (cat.id === 'all' && selectedCategory === 'all' && selectedNeed === 'ALL') ||
-                    cat.id === selectedCategory;
-                  return (
-                    <TouchableOpacity
-                      key={cat.id}
-                      style={[styles.categoryPill, isActive && styles.categoryPillActive]}
-                      onPress={cat.action}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
-                        {cat.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
             );
           })()}
         </View>
@@ -776,6 +907,8 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
                   onPress={() => {
                     setSearchQuery('');
                     setSelectedNeed('ALL');
+                    setSelectedMainCategory('all');
+                    setSelectedSubCategory(null);
                     setSelectedCategory('all');
                     setSelectedRateType('ALL');
                   }}
@@ -810,12 +943,20 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
           {materials.length > 0 && (() => {
             const visibleMaterials = materials.filter((m) => {
               if (m.inStock === false) return false;
-              if (selectedCategory !== 'all') {
+              if (selectedSubCategory || selectedCategory !== 'all') {
                 const rawMatCat = String(m.category || 'general').toLowerCase();
                 if (rawMatCat !== 'general') {
-                  const normSel = normalizeTradeCategory(selectedCategory);
+                  const targetCat = selectedSubCategory?.canonicalTradeId || selectedCategory;
+                  const normSel = normalizeTradeCategory(targetCat);
                   const matCat = normalizeTradeCategory(rawMatCat);
                   if (matCat !== normSel) return false;
+                }
+              } else if (selectedMainCategory !== 'all') {
+                const rawMatCat = String(m.category || 'general').toLowerCase();
+                if (rawMatCat !== 'general') {
+                  const allowed = getMainCategoryById(selectedMainCategory).subcategories.map((s) => s.canonicalTradeId);
+                  const matCat = normalizeTradeCategory(rawMatCat);
+                  if (!allowed.includes(matCat)) return false;
                 }
               }
               if (searchQuery.trim()) {
@@ -922,6 +1063,18 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
         initialPrompt={setuInitialPrompt}
         onBookContractor={(c, prefill) => handleOpenBooking(c, prefill)}
         onFilterCategory={(category) => {
+          const normCat = normalizeTradeCategory(category);
+          const matchedMain = SERVICE_CATEGORIES.find((m) =>
+            m.subcategories.some((s) => s.canonicalTradeId === normCat)
+          );
+          if (matchedMain) {
+            setSelectedMainCategory(matchedMain.id);
+            const matchedSub = matchedMain.subcategories.find((s) => s.canonicalTradeId === normCat) || null;
+            setSelectedSubCategory(matchedSub);
+          } else {
+            setSelectedMainCategory('all');
+            setSelectedSubCategory(null);
+          }
           setSelectedCategory(category);
           setSelectedNeed('ALL');
           setTimeout(() => {
@@ -931,7 +1084,18 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
         onOpenBudgetJobPost={(prefill) => {
           if (prefill?.title) setPostTaskTitle(prefill.title);
           if (prefill?.budget && prefill.budget > 0) setPostTaskBudget(String(prefill.budget));
-          if (prefill?.category) setPostTaskCategory(prefill.category as any);
+          if (prefill?.category) {
+            const normCat = normalizeTradeCategory(prefill.category);
+            setPostTaskCategory(normCat);
+            for (const m of SERVICE_CATEGORIES) {
+              const s = m.subcategories.find((sub) => sub.canonicalTradeId === normCat);
+              if (s) {
+                setPostMainCatId(m.id);
+                setPostSubCatId(s.id);
+                break;
+              }
+            }
+          }
           setShowPostTaskModal(true);
         }}
         onOpenLocationPicker={onOpenLocationPicker}
@@ -1038,30 +1202,24 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
               multiline
             />
 
-            {/* Trade Category Selection (All 15+ Trades) */}
-            <Text style={styles.inputFieldLabel}>
-              कारीगर की श्रेणी <Text style={{ color: '#DC2626', fontWeight: '900' }}>*</Text>
-            </Text>
-            <View style={styles.categorySelectRow}>
-              {ORDERED_15_TRADES.map((tr) => (
-                <TouchableOpacity
-                  key={tr.id}
-                  style={[
-                    styles.catSelectPill,
-                    postTaskCategory === tr.id && styles.catSelectPillActive,
-                  ]}
-                  onPress={() => setPostTaskCategory(tr.id)}
-                >
-                  <Text
-                    style={[
-                      styles.catSelectText,
-                      postTaskCategory === tr.id && styles.catSelectTextActive,
-                    ]}
-                  >
-                    {tr.registrationLabelHi}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            {/* 2-Level Cascading Work Category Dropdowns (All 12 Main Categories & Subcategories) */}
+            <View style={{ marginBottom: 4 }}>
+              <CascadingCategoryDropdowns
+                selectedMainId={postMainCatId}
+                selectedSubId={postSubCatId}
+                customWorkText={postCustomWork}
+                language={language}
+                onChangeMain={(main, defaultSub) => {
+                  setPostMainCatId(main.id);
+                  setPostSubCatId(defaultSub.id);
+                  setPostTaskCategory(defaultSub.canonicalTradeId);
+                }}
+                onChangeSub={(sub) => {
+                  setPostSubCatId(sub.id);
+                  setPostTaskCategory(sub.canonicalTradeId);
+                }}
+                onChangeCustomWork={setPostCustomWork}
+              />
             </View>
 
             {/* Site Location */}
@@ -1398,6 +1556,25 @@ const styles = StyleSheet.create({
   categoryPillTextActive: {
     color: '#FFFFFF',
     fontWeight: '800',
+  },
+  subCategoryBar: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 2,
+    gap: 7,
+  },
+  subCategoryPill: {
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  subCategoryPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
   },
   // Clean AI Assist Strip
   aiAssistStrip: {

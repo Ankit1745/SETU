@@ -20,6 +20,7 @@ import { Contractor, MaterialItem } from '../data/mockData';
 import { ApiService } from '../services/api';
 import { pickImageFromGallery, capturePhotoFromCamera } from '../utils/mediaPicker';
 import { openWhatsAppChat } from '../utils/whatsapp';
+import { speakSetuVoice, stopSetuVoicePlayback } from '../utils/setuVoice';
 import { SpaceDesignCanvas, SetuVisualPlan } from './SpaceDesignCanvas';
 import { VisualMaterialPicker } from './VisualMaterialPicker';
 import { ThreeWayQuotationCard, QuoteModeKey } from './ThreeWayQuotationCard';
@@ -189,6 +190,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
+  const [autoSpeakEnabled, setAutoSpeakEnabled] = useState<boolean>(true);
 
   const scrollRef = useRef<any>(null);
   const isSendingRef = useRef<boolean>(false);
@@ -196,18 +198,16 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
   const recognitionRef = useRef<any>(null);
   const lastHandledPromptRef = useRef<string>('');
   const ttsActiveRef = useRef<boolean>(false);
+  const autoSpeakEnabledRef = useRef<boolean>(true);
+  const speakingMsgIdRef = useRef<string | null>(null);
 
-  // Stop speechSynthesis & active microphone stream automatically whenever modal closes or unmounts
+  // Stop SETU voice playback & active microphone stream automatically whenever modal closes or unmounts
   useEffect(() => {
     let resetTimer: ReturnType<typeof setTimeout> | null = null;
     if (!visible) {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        try {
-          window.speechSynthesis.cancel();
-        } catch {
-          // ignore
-        }
-      }
+      ttsActiveRef.current = false;
+      speakingMsgIdRef.current = null;
+      stopSetuVoicePlayback();
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
@@ -223,13 +223,9 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
     }
     return () => {
       if (resetTimer) clearTimeout(resetTimer);
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        try {
-          window.speechSynthesis.cancel();
-        } catch {
-          // ignore
-        }
-      }
+      ttsActiveRef.current = false;
+      speakingMsgIdRef.current = null;
+      stopSetuVoicePlayback();
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
@@ -247,72 +243,60 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
     }, 120);
   }, []);
 
-  const speakText = (msgId: string, text: string) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-      showAppAlert(
-        isEn ? 'Audio Playback' : 'ऑडियो सूचना',
-        isEn
-          ? 'Voice reading is available on supported browsers.'
-          : 'आवाज़ में सुनने की सुविधा अभी आपके डिवाइस ब्राउज़र में उपलब्ध नहीं है।'
-      );
-      return;
-    }
-    try {
-      if (speakingMsgId === msgId) {
+  const speakText = useCallback(
+    (msgId: string, text: string) => {
+      if (speakingMsgIdRef.current === msgId) {
         ttsActiveRef.current = false;
-        window.speechSynthesis.cancel();
+        speakingMsgIdRef.current = null;
+        stopSetuVoicePlayback();
         setSpeakingMsgId(null);
         return;
       }
-      window.speechSynthesis.cancel();
       const cleaned = sanitizeAiDisplayText(text);
-      const rawChunks = cleaned
-        .split(/(?<=[।.!?])\s+|\n+/)
-        .map((c) => c.trim())
-        .filter(Boolean);
-      const chunks = rawChunks.length > 0 ? rawChunks : [cleaned.slice(0, 240)];
-
+      if (!cleaned) return;
       ttsActiveRef.current = true;
+      speakingMsgIdRef.current = msgId;
       setSpeakingMsgId(msgId);
-      let chunkIdx = 0;
 
-      const speakNextChunk = () => {
-        if (!ttsActiveRef.current || chunkIdx >= chunks.length) {
-          ttsActiveRef.current = false;
-          setSpeakingMsgId(null);
-          return;
-        }
-        const utterance = new SpeechSynthesisUtterance(chunks[chunkIdx]);
-        utterance.lang = isEn ? 'en-IN' : 'hi-IN';
-        utterance.rate = 0.96;
-        utterance.onend = () => {
-          chunkIdx += 1;
-          speakNextChunk();
-        };
-        utterance.onerror = () => {
-          ttsActiveRef.current = false;
-          setSpeakingMsgId(null);
-        };
-        window.speechSynthesis.speak(utterance);
-      };
+      speakSetuVoice({
+        text: cleaned,
+        language,
+        onStart: () => {
+          if (ttsActiveRef.current && speakingMsgIdRef.current === msgId) {
+            setSpeakingMsgId(msgId);
+          }
+        },
+        onEnd: () => {
+          if (speakingMsgIdRef.current === msgId) {
+            ttsActiveRef.current = false;
+            speakingMsgIdRef.current = null;
+            setSpeakingMsgId(null);
+          }
+        },
+      });
+    },
+    [language]
+  );
 
-      speakNextChunk();
-    } catch {
-      ttsActiveRef.current = false;
-      setSpeakingMsgId(null);
-    }
+  const toggleAutoSpeak = () => {
+    setAutoSpeakEnabled((prev) => {
+      const next = !prev;
+      autoSpeakEnabledRef.current = next;
+      if (!next) {
+        ttsActiveRef.current = false;
+        speakingMsgIdRef.current = null;
+        stopSetuVoicePlayback();
+        setSpeakingMsgId(null);
+      }
+      return next;
+    });
   };
 
   const handleResetChat = () => {
     sessionSeqRef.current += 1;
     ttsActiveRef.current = false;
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch {
-        // ignore
-      }
-    }
+    speakingMsgIdRef.current = null;
+    stopSetuVoicePlayback();
     if (recognitionRef.current) {
       try {
         recognitionRef.current.abort();
@@ -671,6 +655,9 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
           return combined;
         });
         scrollToBottom();
+        if (autoSpeakEnabledRef.current && assistantMsg.text) {
+          speakText(assistantId, assistantMsg.text);
+        }
 
         if (needsInPlaceEdit) {
           const fallbackEditPrompt =
@@ -732,6 +719,7 @@ export const SetuAIStudioModal: React.FC<SetuAIStudioModalProps> = ({
       sceneContextPrompt,
       triggerInPlaceEdit,
       triggerTextDesignRender,
+      speakText,
     ]
   );
 
@@ -895,12 +883,44 @@ ${itemsText || '• साइट विज़िट पर तय किया �
           </View>
 
           <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={[
+                styles.voiceToggleChip,
+                autoSpeakEnabled ? styles.voiceToggleChipActive : styles.voiceToggleChipMuted,
+              ]}
+              onPress={toggleAutoSpeak}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name={autoSpeakEnabled ? 'volume-high' : 'volume-mute'}
+                size={14}
+                color={autoSpeakEnabled ? '#FBBF24' : '#94A3B8'}
+              />
+              <Text
+                style={[
+                  styles.voiceToggleText,
+                  { color: autoSpeakEnabled ? '#FDE68A' : '#94A3B8' },
+                ]}
+              >
+                {autoSpeakEnabled ? (isEn ? 'Voice ON' : 'आवाज़ ON') : isEn ? 'Muted' : 'म्यूट'}
+              </Text>
+            </TouchableOpacity>
             {messages.length > 0 && (
               <TouchableOpacity style={styles.iconCircleBtn} onPress={handleResetChat} activeOpacity={0.8}>
                 <Ionicons name="refresh" size={18} color="#CBD5E1" />
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={styles.iconCircleBtn} onPress={onClose} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={styles.iconCircleBtn}
+              onPress={() => {
+                ttsActiveRef.current = false;
+                speakingMsgIdRef.current = null;
+                stopSetuVoicePlayback();
+                setSpeakingMsgId(null);
+                onClose();
+              }}
+              activeOpacity={0.8}
+            >
               <Ionicons name="close" size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
@@ -968,13 +988,40 @@ ${itemsText || '• साइट विज़िट पर तय किया �
                 <Image source={logoSource} style={styles.welcomeAvatarImg} resizeMode="cover" />
               </View>
               <Text style={styles.welcomeTitle}>
-                {isEn ? 'Namaste! I am SETU' : 'नमस्ते! मैं SETU हूँ'}
+                {isEn ? 'Namaste Friends! Welcome to SETU' : 'नमस्ते दोस्तों! आपका स्वागत है हमारे SETU पर'}
               </Text>
               <Text style={styles.welcomeSub}>
                 {isEn
                   ? 'Your Master Karigar for any work in the world. First preview realistic models crafted from different raw material grades right inside your photo — and when ready, unlock your 3-Way Smart Quotation (Karigar Only / Maal+Karigar / Raw Maal Only).'
                   : 'हर काम का उस्ताद! पहले अपनी जगह की फोटो या जरूरत बताएं — अलग-अलग कच्चे माल में असली मॉडल बनाकर देखें। जब डिज़ाइन दिल को भा जाए, तब एक क्लिक में 3-टाइप कोटेशन पाएं!'}
               </Text>
+              <TouchableOpacity
+                style={styles.welcomeVoiceBtn}
+                activeOpacity={0.85}
+                onPress={() =>
+                  speakText(
+                    'welcome_demo',
+                    isEn
+                      ? 'Hello friends! Welcome to our Setu. How may I serve you today? Tell me quickly!'
+                      : 'हेलो दोस्तों, आपका स्वागत है हमारे सेतु पर। मैं आपकी क्या सेवा कर सकता हूँ? जल्दी बताओ।'
+                  )
+                }
+              >
+                <Ionicons
+                  name={speakingMsgId === 'welcome_demo' ? 'stop-circle' : 'mic-circle'}
+                  size={18}
+                  color="#0F172A"
+                />
+                <Text style={styles.welcomeVoiceBtnText}>
+                  {speakingMsgId === 'welcome_demo'
+                    ? isEn
+                      ? 'Stop SETU Voice'
+                      : 'SETU की आवाज़ रोकें'
+                    : isEn
+                    ? 'Hear SETU Mascot Voice'
+                    : '🎙️ SETU की आवाज़ सुनें'}
+                </Text>
+              </TouchableOpacity>
 
               <View style={styles.starterStack}>
                 {[
@@ -1858,7 +1905,28 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
+  },
+  voiceToggleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  voiceToggleChipActive: {
+    backgroundColor: 'rgba(245, 158, 11, 0.16)',
+    borderColor: '#F59E0B',
+  },
+  voiceToggleChipMuted: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+  },
+  voiceToggleText: {
+    fontSize: 10,
+    fontWeight: '800',
   },
   iconCircleBtn: {
     width: 34,
@@ -1969,7 +2037,22 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     lineHeight: 19,
     textAlign: 'center',
-    marginBottom: 18,
+    marginBottom: 12,
+  },
+  welcomeVoiceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginBottom: 16,
+  },
+  welcomeVoiceBtnText: {
+    color: '#0F172A',
+    fontSize: 12,
+    fontWeight: '900',
   },
   starterStack: {
     width: '100%',

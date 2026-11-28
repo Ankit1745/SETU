@@ -22,8 +22,13 @@ import { detectLiveGpsLocation } from '../utils/liveLocation';
 import {
   ORDERED_15_TRADES,
   getTradeRateProfile,
-  normalizeTradeCategory,
 } from '../data/tradeRateConfig';
+import {
+  SERVICE_CATEGORIES,
+  MainServiceCategory,
+  ServiceSubcategoryItem,
+} from '../data/serviceCatalog';
+import { CascadingCategoryDropdowns } from './CascadingCategoryDropdowns';
 
 interface PartnerRegistrationModalProps {
   visible: boolean;
@@ -45,11 +50,20 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // STEP 1: Basic Info & Trade / Store
+  // STEP 1: Basic Info & Hierarchical Main/Subcategory Trade / Store
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
-  const [selectedTrade, setSelectedTrade] = useState(ORDERED_15_TRADES[0].registrationLabelHi);
+  const [selectedMainCatId, setSelectedMainCatId] = useState<string>(SERVICE_CATEGORIES[0].id);
+  const [selectedSubCatId, setSelectedSubCatId] = useState<string>(SERVICE_CATEGORIES[0].subcategories[0].id);
+  const [customSkillText, setCustomSkillText] = useState('');
+  const [selectedTrade, setSelectedTrade] = useState(
+    `${SERVICE_CATEGORIES[0].subcategories[0].nameHi} (${SERVICE_CATEGORIES[0].subcategories[0].nameEn})`
+  );
+  const [resolvedCanonicalCat, setResolvedCanonicalCat] = useState<string>(
+    SERVICE_CATEGORIES[0].subcategories[0].canonicalTradeId
+  );
+  const [vendorCategoryId, setVendorCategoryId] = useState<string>('general');
   const [storeName, setStoreName] = useState('');
   const [city, setCity] = useState('भोपाल');
   const [locality, setLocality] = useState('एमपी नगर');
@@ -63,8 +77,8 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
   const [aadhaarPhotoUrl, setAadhaarPhotoUrl] = useState('');
   const [isUploading, setIsUploading] = useState(false);
 
-  // STEP 3: Experience, Tools & Dynamic 15-Trade Rate Card
-  const activeTradeProfile = getTradeRateProfile(selectedTrade);
+  // STEP 3: Experience, Tools & Dynamic Trade Rate Card
+  const activeTradeProfile = getTradeRateProfile(resolvedCanonicalCat || selectedTrade);
   const [selectedPrimaryModeId, setSelectedPrimaryModeId] = useState<string>(
     ORDERED_15_TRADES[0].rateModes[0].id
   );
@@ -80,9 +94,13 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
   const [deliveryRadiusKm, setDeliveryRadiusKm] = useState('10');
   const [minFreeDeliveryAmount, setMinFreeDeliveryAmount] = useState('3000');
 
-  const handleSelectTradeOption = (tradeLabel: string) => {
-    setSelectedTrade(tradeLabel);
-    const prof = getTradeRateProfile(tradeLabel);
+  const applySelectedSubcategory = (main: MainServiceCategory, sub: ServiceSubcategoryItem) => {
+    setSelectedMainCatId(main.id);
+    setSelectedSubCatId(sub.id);
+    setResolvedCanonicalCat(sub.canonicalTradeId);
+    const label = `${sub.nameHi} (${sub.nameEn})`;
+    setSelectedTrade(label);
+    const prof = getTradeRateProfile(sub.canonicalTradeId);
     const firstMode = prof.rateModes[0];
     setSelectedPrimaryModeId(firstMode.id);
     setThekaUnitLabel(firstMode.unitHi);
@@ -183,6 +201,12 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
       }
       if (cleanPhone.length !== 10) {
         showAppAlert('अनिवार्य जानकारी (*)', 'कृपया 10 अंकों का वैध भारतीय मोबाइल नंबर दर्ज करें।');
+        return;
+      }
+      const activeMain = SERVICE_CATEGORIES.find((m) => m.id === selectedMainCatId);
+      const activeSub = activeMain?.subcategories.find((s) => s.id === selectedSubCatId);
+      if (partnerType === 'CONTRACTOR' && (activeSub?.isCustom || selectedMainCatId === 'other_custom') && customSkillText.trim().length < 2) {
+        showAppAlert('कस्टम काम लिखें (*)', 'कृपया अपना सटीक काम या कौशल (कम से कम 2 अक्षर) दर्ज करें।');
         return;
       }
       if (partnerType === 'VENDOR' && storeName.trim().length < 2) {
@@ -291,7 +315,15 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
     const activeMode =
       activeTradeProfile.rateModes.find((m) => m.id === selectedPrimaryModeId) ||
       activeTradeProfile.rateModes[0];
-    const resolvedCategory = normalizeTradeCategory(selectedTrade);
+    const resolvedCategory = resolvedCanonicalCat || activeTradeProfile.id;
+    const activeMain = SERVICE_CATEGORIES.find((m) => m.id === selectedMainCatId);
+    const activeSub = activeMain?.subcategories.find((s) => s.id === selectedSubCatId);
+    const displaySubLabel =
+      (activeSub?.isCustom || selectedMainCatId === 'other_custom') && customSkillText.trim()
+        ? customSkillText.trim()
+        : activeSub
+        ? `${activeSub.nameHi} (${activeSub.nameEn})`
+        : selectedTrade;
 
     // Build structured additionalRateCards from all entered trade-specific fields
     const additionalRateCards: { title: string; rate: string }[] = [];
@@ -313,8 +345,10 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
       name: fullName.trim(),
       phone: cleanPhone,
       role: partnerType,
-      category: partnerType === 'VENDOR' ? 'general' : resolvedCategory,
-      tradeOrShop: partnerType === 'CONTRACTOR' ? selectedTrade : storeName.trim() || `${fullName.trim()} हार्डवेयर स्टोर`,
+      category: partnerType === 'VENDOR' ? vendorCategoryId : resolvedCategory,
+      mainCategory: partnerType === 'CONTRACTOR' ? (activeMain ? `${activeMain.nameEn} (${activeMain.nameHi})` : '') : 'Supplier Store',
+      subCategory: partnerType === 'CONTRACTOR' ? displaySubLabel : '',
+      tradeOrShop: partnerType === 'CONTRACTOR' ? displaySubLabel : storeName.trim() || `${fullName.trim()} हार्डवेयर स्टोर`,
       city: city.trim() || 'भोपाल',
       locality: locality.trim() || 'एमपी नगर',
       primaryRateType: partnerType === 'CONTRACTOR' ? activeMode.primaryRateTypeLabel : 'थोक विक्रेता',
@@ -522,35 +556,20 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                 </View>
 
                 {partnerType === 'CONTRACTOR' ? (
-                  <>
-                    <Text style={styles.label}>
-                      आपकी मुख्य कारीगरी (सभी 15+ श्रेणियाँ)<Text style={styles.reqStar}> *</Text>
-                    </Text>
-                    <View style={styles.tradeGrid}>
-                      {ORDERED_15_TRADES.map((tr) => {
-                        const trade = tr.registrationLabelHi;
-                        return (
-                          <TouchableOpacity
-                            key={tr.id}
-                            style={[
-                              styles.tradePill,
-                              selectedTrade === trade && styles.tradePillActive,
-                            ]}
-                            onPress={() => handleSelectTradeOption(trade)}
-                          >
-                            <Text
-                              style={[
-                                styles.tradePillText,
-                                selectedTrade === trade && styles.tradePillTextActive,
-                              ]}
-                            >
-                              {trade}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </>
+                  <View style={{ marginTop: 4 }}>
+                    <CascadingCategoryDropdowns
+                      selectedMainId={selectedMainCatId}
+                      selectedSubId={selectedSubCatId}
+                      customWorkText={customSkillText}
+                      language={language}
+                      onChangeMain={(main, defaultSub) => applySelectedSubcategory(main, defaultSub)}
+                      onChangeSub={(sub) => {
+                        const main = SERVICE_CATEGORIES.find((m) => m.id === selectedMainCatId) || SERVICE_CATEGORIES[0];
+                        applySelectedSubcategory(main, sub);
+                      }}
+                      onChangeCustomWork={setCustomSkillText}
+                    />
+                  </View>
                 ) : (
                   <>
                     <Text style={styles.label}>
@@ -562,10 +581,31 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                       value={storeName}
                       onChangeText={setStoreName}
                     />
+                    <Text style={styles.label}>दुकान की मुख्य सामग्री श्रेणी:</Text>
+                    <View style={styles.tradeGrid}>
+                      {[
+                        { id: 'general', label: 'संपूर्ण निर्माण / हार्डवेयर' },
+                        { id: 'mason', label: 'सीमेंट, सरिया, ईंट & रेत' },
+                        { id: 'carpenter', label: 'प्लाईवुड, सनमाइका & हार्डवेयर' },
+                        { id: 'plumber', label: 'पाइप, नल & सेनेटरी' },
+                        { id: 'electrician', label: 'वायर, स्विच & लाइट्स' },
+                        { id: 'painter', label: 'पेंट, पुट्टी & केमिकल' },
+                      ].map((vCat) => (
+                        <TouchableOpacity
+                          key={vCat.id}
+                          style={[styles.tradePill, vendorCategoryId === vCat.id && styles.tradePillActive]}
+                          onPress={() => setVendorCategoryId(vCat.id)}
+                        >
+                          <Text style={[styles.tradePillText, vendorCategoryId === vCat.id && styles.tradePillTextActive]}>
+                            {vCat.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
                   </>
                 )}
 
-                {/* Live GPS Quick Autofill */}
+                {/* Single Clean Live GPS Quick Autofill */}
                 <TouchableOpacity
                   style={{
                     flexDirection: 'row',
@@ -574,10 +614,10 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                     backgroundColor: '#EFF6FF',
                     borderWidth: 1,
                     borderColor: '#BFDBFE',
-                    borderRadius: 8,
-                    paddingHorizontal: 10,
-                    paddingVertical: 8,
-                    marginTop: 10,
+                    borderRadius: 10,
+                    paddingHorizontal: 12,
+                    paddingVertical: 9,
+                    marginTop: 12,
                   }}
                   onPress={handleDetectPartnerGps}
                   disabled={isDetectingGps}
@@ -587,36 +627,7 @@ export const PartnerRegistrationModal: React.FC<PartnerRegistrationModalProps> =
                   ) : (
                     <MaterialIcons name="my-location" size={16} color={COLORS.primary} />
                   )}
-                  <Text style={{ fontSize: 11.5, fontWeight: '800', color: COLORS.primary }}>
-                    {isDetectingGps
-                      ? 'लाइव GPS लोकेशन खोजी जा रही है...'
-                      : '📍 लाइव GPS से मेरा शहर व इलाका स्वतः भरें'}
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Live GPS Quick Autofill */}
-                <TouchableOpacity
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 6,
-                    backgroundColor: '#EFF6FF',
-                    borderWidth: 1,
-                    borderColor: '#BFDBFE',
-                    borderRadius: 8,
-                    paddingHorizontal: 10,
-                    paddingVertical: 8,
-                    marginTop: 10,
-                  }}
-                  onPress={handleDetectPartnerGps}
-                  disabled={isDetectingGps}
-                >
-                  {isDetectingGps ? (
-                    <ActivityIndicator size="small" color={COLORS.primary} />
-                  ) : (
-                    <MaterialIcons name="my-location" size={16} color={COLORS.primary} />
-                  )}
-                  <Text style={{ fontSize: 11.5, fontWeight: '800', color: COLORS.primary }}>
+                  <Text style={{ fontSize: 12, fontWeight: '800', color: COLORS.primary }}>
                     {isDetectingGps
                       ? 'लाइव GPS लोकेशन खोजी जा रही है...'
                       : '📍 लाइव GPS से मेरा शहर व इलाका स्वतः भरें'}
@@ -1159,7 +1170,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.secondary,
   },
   body: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 18,
     flex: 1,
   },
   stepHeader: {

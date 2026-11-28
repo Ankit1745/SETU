@@ -55,6 +55,8 @@ const ContractorSchema = new mongoose.Schema({
     required: true,
     enum: VALID_CONTRACTOR_CATEGORIES,
   },
+  mainCategory: { type: String, default: '' },
+  subCategory: { type: String, default: '' },
   specialtyHindi: { type: String, required: true },
   bio: { type: String, default: '' },
   avatar: { type: String, default: '' },

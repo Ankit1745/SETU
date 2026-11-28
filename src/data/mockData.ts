@@ -65,6 +65,8 @@ export interface Contractor {
   id: string;
   name: string;
   category: string;
+  mainCategory?: string;
+  subCategory?: string;
   specialtyHindi: string;
   avatar: string;
   rating: number;

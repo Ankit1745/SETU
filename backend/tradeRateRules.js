@@ -20,6 +20,16 @@ const VALID_CONTRACTOR_CATEGORIES = [
   'caterer',
   'wedding_photo',
   'wedding_makeup',
+  // Expanded 12-Category Unified Domains
+  'it_digital',
+  'hospitality_retail',
+  'home_care',
+  'auto_transport',
+  'beauty_wellness',
+  'business_legal',
+  'education',
+  'industrial',
+  'other_custom',
   // Legacy aliases accepted seamlessly
   'general',
   'cleaning',
@@ -31,6 +41,7 @@ const VALID_CONTRACTOR_CATEGORIES = [
 function mapTradeToCanonicalCategory(trade = '') {
   const s = String(trade || '').trim().toLowerCase();
   if (!s) return 'general';
+  if (VALID_CONTRACTOR_CATEGORIES.includes(s)) return s;
 
   if (s.includes('false_ceiling') || s.includes('pop') || s.includes('सीलिंग') || s.includes('जिप्सम')) return 'false_ceiling';
   if (s.includes('aluminium') || s.includes('upvc') || s.includes('ग्लास') || s.includes('एल्युमिनियम')) return 'aluminium_upvc';
@@ -38,18 +49,26 @@ function mapTradeToCanonicalCategory(trade = '') {
   if (s.includes('tiling') || s.includes('tile') || s.includes('टाइल') || s.includes('मार्बल')) return 'tiling';
   if (s.includes('weld') || s.includes('सरिया') || s.includes('ग्रिल') || s.includes('फैब्रिकेटर') || s.includes('वेल्ड') || s.includes('लोहा')) return 'welder';
   if (s.includes('carpenter') || s.includes('बढ़ई') || s.includes('कारपेंटर') || s.includes('फर्नीचर')) return 'carpenter';
-  if (s.includes('mason') || s.includes('मिस्त्री') || s.includes('राजमिस्त्री') || s.includes('सिविल') || s.includes('मकान')) return 'mason';
+  if (s.includes('mason') || s.includes('मिस्त्री') || s.includes('राजमिस्त्री') || s.includes('सिविल') || s.includes('मकान') || s.includes('आर्किटेक्ट') || s.includes('architect')) return 'mason';
   if (s.includes('painter') || s.includes('पेंटर') || s.includes('रंगाई') || s.includes('पुट्टी')) return 'painter';
-  if (s.includes('electr') || s.includes('इलेक्ट्रीशियन') || s.includes('बिजली') || s.includes('वायरिंग')) return 'electrician';
+  if (s.includes('electr') || s.includes('इलेक्ट्रीशियन') || s.includes('बिजली') || s.includes('वायरिंग') || s.includes('cctv')) return 'electrician';
   if (s.includes('plumber') || s.includes('प्लंबर') || s.includes('सेनेटरी')) return 'plumber';
-  if (s.includes('ac') || s.includes('एसी') || s.includes('कंप्रेसर') || s.includes('कूलिंग')) return 'ac_repair';
+  if (s.includes('ac') || s.includes('एसी') || s.includes('कंप्रेसर') || s.includes('कूलिंग') || s.includes('appliance') || s.includes('फ्रिज') || s.includes('रो') || s.includes('ro')) return 'ac_repair';
   if (s.includes('jcb') || s.includes('ट्रॉली') || s.includes('हेल्पर') || s.includes('labor') || s.includes('मजदूर') || s.includes('मलबा')) return 'labor';
-  if (s.includes('टेंट') || s.includes('डेकोर') || s.includes('mandap') || s.includes('wedding_tent')) return 'wedding_tent';
+  if (s.includes('टेंट') || s.includes('डेकोर') || s.includes('mandap') || s.includes('wedding_tent') || s.includes('planner') || s.includes('बैंड') || s.includes('band')) return 'wedding_tent';
   if (s.includes('कैटर') || s.includes('हलवाई') || s.includes('cater')) return 'caterer';
-  if (s.includes('फोटोग्राफर') || s.includes('फोटो') || s.includes('कैमरा') || s.includes('photo')) return 'wedding_photo';
-  if (s.includes('मेकअप') || s.includes('ब्यूटी') || s.includes('makeup')) return 'wedding_makeup';
+  if (s.includes('फोटोग्राफर') || s.includes('फोटो') || s.includes('कैमरा') || s.includes('photo') || s.includes('drone') || s.includes('ड्रोन') || s.includes('anchor')) return 'wedding_photo';
+  if (s.includes('मेकअप') || s.includes('makeup') || s.includes('मेहंदी') || s.includes('mehndi')) return 'wedding_makeup';
   if (s.includes('dj') || s.includes('डीजे')) return 'event_dj';
-  if (s.includes('सफाई') || s.includes('cleaning')) return 'cleaning';
+  if (s.includes('software') || s.includes('website') || s.includes('developer') || s.includes('डेवलपर') || s.includes('video editor') || s.includes('graphic') || s.includes('ui/ux') || s.includes('marketing') || s.includes('laptop') || s.includes('voiceover') || s.includes('डिजिटल') || s.includes('सॉफ्टवेयर')) return 'it_digital';
+  if (s.includes('hotel') || s.includes('chef') || s.includes('cook') && s.includes('hotel') || s.includes('barista') || s.includes('tandoor') || s.includes('waiter') || s.includes('steward') || s.includes('retail') || s.includes('शोरूम') || s.includes('सेल्समैन')) return 'hospitality_retail';
+  if (s.includes('सफाई') || s.includes('clean') || s.includes('pest') || s.includes('दीमक') || s.includes('maid') || s.includes('कामवाली') || s.includes('tiffin') || s.includes('nanny') || s.includes('mali') || s.includes('माली') || s.includes('elderly') || s.includes('cook') || s.includes('कुक')) return 'home_care';
+  if (s.includes('car') || s.includes('bike') || s.includes('mechanic') || s.includes('मैकेनिक') || s.includes('tyre') || s.includes('puncture') || s.includes('driver') || s.includes('ड्राइवर') || s.includes('packers') || s.includes('tempo') || s.includes('टेम्पो')) return 'auto_transport';
+  if (s.includes('salon') || s.includes('पार्लर') || s.includes('सैलून') || s.includes('massage') || s.includes('spa') || s.includes('yoga') || s.includes('योगा') || s.includes('fitness') || s.includes('physio') || s.includes('nurse')) return 'beauty_wellness';
+  if (s.includes('gst') || s.includes('lawyer') || s.includes('वकील') || s.includes('rto') || s.includes('insurance') || s.includes('loan') || s.includes('security') || s.includes('सिक्योरिटी') || s.includes('data entry') || s.includes('receptionist') || s.includes('रिसेप्शन')) return 'business_legal';
+  if (s.includes('driving') || s.includes('tutor') || s.includes('ट्यूटर') || s.includes('coaching') || s.includes('कोचिंग') || s.includes('english') || s.includes('music') || s.includes('dance') || s.includes('coding')) return 'education';
+  if (s.includes('cnc') || s.includes('lathe') || s.includes('hvac') || s.includes('solar') || s.includes('सोलर') || s.includes('borewell') || s.includes('बोरवेल') || s.includes('industrial')) return 'industrial';
+  if (s.includes('custom') || s.includes('अन्य') || s.includes('स्वयं')) return 'other_custom';
   return 'general';
 }
 

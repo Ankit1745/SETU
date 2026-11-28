@@ -1484,6 +1484,23 @@ Return PURE JSON with: unreadable(boolean), intentMode("repair"|"build_design"|"
     }
   },
 
+  synthesizeSetuVoice: async (text: string, language: string = 'hi') => {
+    try {
+      const res = await fetchWithTimeout(
+        `${API_BASE_URL}/ai/tts`,
+        {
+          method: 'POST',
+          headers: ApiService.getHeaders(),
+          body: JSON.stringify({ text, language }),
+        },
+        15000
+      );
+      return await res.json().catch(() => ({ success: false, fallbackToClientSpeech: true }));
+    } catch {
+      return { success: false, fallbackToClientSpeech: true };
+    }
+  },
+
   // 20. Unified Admin Control Hub & Private Exclusive Admin Personal AI ("SETU-HERO")
   getAdminSystemControl: async () => {
     const res = await fetchWithTimeout(

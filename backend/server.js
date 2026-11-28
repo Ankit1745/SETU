@@ -55,6 +55,7 @@ const {
   handleAdminHeroCommand,
 } = require('./adminHeroEngine');
 const {
+  VALID_CONTRACTOR_CATEGORIES,
   mapTradeToCanonicalCategory,
   validateContractorTradeRates,
   validateBookingMeasurements,
@@ -1833,7 +1834,12 @@ app.post('/api/partners/register', optionalAuth, aiRateLimiter('partner_register
 
     const safeName = asStr(partnerData.name || 'नया पार्टनर', 120).trim();
     const safeTradeOrShop = asStr(partnerData.tradeOrShop || '', 160).trim();
-    const category = mapTradeToCategory(safeTradeOrShop || partnerData.category);
+    const safeMainCategory = asStr(partnerData.mainCategory || '', 120).trim();
+    const safeSubCategory = asStr(partnerData.subCategory || '', 140).trim();
+    const explicitCat = String(partnerData.category || '').trim().toLowerCase();
+    const category = VALID_CONTRACTOR_CATEGORIES.includes(explicitCat)
+      ? explicitCat
+      : mapTradeToCategory(safeSubCategory || safeTradeOrShop || partnerData.category);
     const prefix = targetRole === 'VENDOR' ? 'VEN' : 'PRO';
     const randNum = crypto.randomInt(100000, 1000000);
     const setuId = `SETU-${prefix}-${randNum}`;
@@ -1961,6 +1967,8 @@ app.post('/api/partners/register', optionalAuth, aiRateLimiter('partner_register
           userId: savedUser._id.toString(),
           name: `${safeName} (${(safeTradeOrShop || '').split(' ')[0] || 'कारीगर'})`,
           category,
+          mainCategory: safeMainCategory,
+          subCategory: safeSubCategory,
           specialtyHindi: safeTradeOrShop || 'कुशल कारीगर',
           bio: `${safeName} - SETU पंजीकृत कारीगर (${expYears} वर्ष का अनुभव)${partnerData.hasOwnTools ? ' • स्वयं के औज़ार उपलब्ध' : ''}`,
           avatar: safeAvatarUrl,
@@ -2077,6 +2085,8 @@ app.post('/api/partners/register', optionalAuth, aiRateLimiter('partner_register
           userId: savedUser.id,
           name: `${safeName} (${(safeTradeOrShop || '').split(' ')[0] || 'कारीगर'})`,
           category,
+          mainCategory: safeMainCategory,
+          subCategory: safeSubCategory,
           specialtyHindi: safeTradeOrShop || 'कुशल कारीगर',
           rating: 0,
           reviewsCount: 0,
@@ -5003,6 +5013,154 @@ app.post('/api/ai/python-boq', aiRateLimiter('boq_py', 25), async (req, res) => 
     return res.json({ success: true, ...out });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 21B. SETU Matched Mascot Voice Synthesis (Gemini 3.8 TTS Voice Design + LRU Cache + Safe Fallback)
+const DEFAULT_SETU_MASCOT_VOICE_ID = cleanSecret(process.env.SETU_GEMINI_VOICE_ID) || 'voice_hn3ni3gva0ay';
+let resolvedSetuVoiceId = DEFAULT_SETU_MASCOT_VOICE_ID;
+const aiTtsCache = new Map();
+
+async function ensureSetuTtsVoice(apiKey, forceDesign = false) {
+  if (!forceDesign && resolvedSetuVoiceId) return resolvedSetuVoiceId;
+  try {
+    const vResp = await fetch('https://generativelanguage.googleapis.com/v1beta/voices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify({
+        store: true,
+        voice: {
+          model: 'gemini-3.8-flash-tts',
+          type: 'prompted',
+          display_name: 'SETU Cheerful Mascot Voice',
+          gender: 'male',
+          language_code: 'hi-IN',
+          prompted: {
+            input:
+              'High-pitched, bright, cartoonish young Indian male mascot voice speaking rapid, energetic, playful Hindi with warm friendliness and cheerful urgency.',
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (vResp.ok) {
+      const vj = await vResp.json().catch(() => null);
+      if (vj?.id) {
+        resolvedSetuVoiceId = vj.id;
+        return vj.id;
+      }
+    }
+  } catch {
+    // ignore voice design creation error and fall back cleanly
+  }
+  return 'Puck';
+}
+
+app.post('/api/ai/tts', aiRateLimiter('tts', 35), async (req, res) => {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const rawText = sanitizePromptText(asStr(body.text || '', 450), 360)
+      .replace(/\bSETU\b/gi, 'सेतु')
+      .replace(/[*#_`~•→➔]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!rawText) {
+      return res.status(400).json({ success: false, error: 'आवाज़ के लिए टेक्स्ट आवश्यक है।' });
+    }
+
+    const cacheKey = `${asStr(body.language || 'hi', 12)}:${rawText}`;
+    if (aiTtsCache.has(cacheKey)) {
+      return res.json({
+        success: true,
+        engine: 'SETU Mascot Voice (Cached)',
+        audioDataUri: aiTtsCache.get(cacheKey),
+      });
+    }
+
+    const apiKey = cleanSecret(process.env.GEMINI_API_KEY);
+    if (!apiKey || process.env.SETU_SELF_AI_ONLY === 'true') {
+      return res.json({
+        success: true,
+        fallbackToClientSpeech: true,
+        voiceProfile: { pitch: 1.48, rate: 1.12, lang: body.language === 'en' ? 'en-IN' : 'hi-IN' },
+      });
+    }
+
+    const callTtsInteraction = async (voiceName) => {
+      const resp = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          model: 'gemini-3.8-flash-tts',
+          input: [
+            {
+              type: 'user_input',
+              content: [
+                {
+                  type: 'text',
+                  text: rawText,
+                  annotations: [
+                    {
+                      type: 'speech_metadata',
+                      style: 'High-pitched, bright, energetic, playful Indian mascot speaking lively Hindi',
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+          response_format: { type: 'audio' },
+          generation_config: { speech_config: [{ voice: voiceName }] },
+        }),
+        signal: AbortSignal.timeout(14000),
+      });
+      if (!resp.ok) return { ok: false, status: resp.status };
+      const json = await resp.json().catch(() => null);
+      let audioB64 = '';
+      let mime = 'audio/wav';
+      for (const st of json?.steps || []) {
+        for (const c of st?.content || []) {
+          if (c?.type === 'audio' && c?.data) {
+            audioB64 = c.data;
+            if (c.mime_type) mime = c.mime_type;
+          }
+        }
+      }
+      if (!audioB64) return { ok: false, status: 500 };
+      return { ok: true, dataUri: `data:${mime};base64,${audioB64}` };
+    };
+
+    let voiceToUse = resolvedSetuVoiceId || 'Puck';
+    let out = await callTtsInteraction(voiceToUse);
+    if (!out.ok && (out.status === 404 || out.status === 403 || out.status === 400)) {
+      voiceToUse = await ensureSetuTtsVoice(apiKey, true);
+      out = await callTtsInteraction(voiceToUse);
+    }
+
+    if (out.ok && out.dataUri) {
+      if (aiTtsCache.size >= 35) {
+        const oldest = aiTtsCache.keys().next().value;
+        if (oldest) aiTtsCache.delete(oldest);
+      }
+      aiTtsCache.set(cacheKey, out.dataUri);
+      return res.json({
+        success: true,
+        engine: `SETU Cheerful Mascot Voice (${voiceToUse})`,
+        audioDataUri: out.dataUri,
+      });
+    }
+
+    return res.json({
+      success: true,
+      fallbackToClientSpeech: true,
+      voiceProfile: { pitch: 1.48, rate: 1.12, lang: body.language === 'en' ? 'en-IN' : 'hi-IN' },
+    });
+  } catch {
+    return res.json({
+      success: true,
+      fallbackToClientSpeech: true,
+      voiceProfile: { pitch: 1.48, rate: 1.12, lang: 'hi-IN' },
+    });
   }
 });
 
